@@ -292,7 +292,7 @@ pub enum WindowType {
 }
 
 /// Where a normalized value came from.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum DataSource {
     OfficialApi,
@@ -301,49 +301,33 @@ pub enum DataSource {
     Cookie,
     CliLocal,
     LocalDb,
+    #[default]
     CustomEndpoint,
     Manual,
     Cached,
 }
 
-impl Default for DataSource {
-    fn default() -> Self {
-        Self::CustomEndpoint
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum Confidence {
     Exact,
     Derived,
     Estimated,
     Stale,
+    #[default]
     Unknown,
 }
 
-impl Default for Confidence {
-    fn default() -> Self {
-        Self::Unknown
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum SnapshotStatus {
     Available,
     Partial,
+    #[default]
     Unavailable,
     Stale,
     Error,
 }
-
-impl Default for SnapshotStatus {
-    fn default() -> Self {
-        Self::Unavailable
-    }
-}
-
 /// Normalized quota data. Missing provider values remain `None` and serialize as
 /// JSON `null`.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]

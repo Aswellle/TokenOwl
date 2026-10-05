@@ -10,7 +10,7 @@ use std::time::Duration;
 fn is_sensitive_metadata_key(key: &str) -> bool {
     let normalized = key
         .bytes()
-        .filter(|byte| byte.is_ascii_alphanumeric())
+        .filter(u8::is_ascii_alphanumeric)
         .map(|byte| byte.to_ascii_lowercase())
         .collect::<Vec<_>>();
     matches!(
@@ -48,6 +48,7 @@ pub struct AccountMetadata {
 
 impl AccountMetadata {
     /// Builds metadata without retaining the supplied secret input.
+    #[allow(clippy::too_many_arguments)]
     pub fn from_auth_input(
         id: impl Into<String>,
         provider_id: impl Into<String>,
@@ -130,8 +131,7 @@ impl SnapshotStore {
         let replace = self
             .latest
             .get(&snapshot.account_id)
-            .map(|old| snapshot.observed_at >= old.observed_at)
-            .unwrap_or(true);
+            .is_none_or(|old| snapshot.observed_at >= old.observed_at);
         if replace {
             self.latest.insert(snapshot.account_id.clone(), snapshot);
         }

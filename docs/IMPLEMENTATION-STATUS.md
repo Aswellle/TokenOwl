@@ -59,7 +59,7 @@
 ## Technical Debt
 
 - 需要补齐自动化 lint/test 脚本、Rust clippy 配置、migration upgrade test 和 CI workflow。
-- 需要替换模板图标为 TokenOwl 品牌资源并建立 THIRD_PARTY_NOTICES.md。
+- 已使用 TokenOwl 品牌资源替换 Tauri 模板图标，并生成桌面、iOS 与 Android 图标变体。
 
 ## Next Recommended Phase
 

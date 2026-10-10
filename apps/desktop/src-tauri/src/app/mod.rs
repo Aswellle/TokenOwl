@@ -133,7 +133,9 @@ fn persist_bubble_position(
 
     if let Some(runtime) = app.try_state::<Arc<commands::AppRuntime>>() {
         let runtime = Arc::clone(runtime.inner());
-        runtime.save_bubble_position(x, y).map_err(|error| error.to_string())?;
+        runtime
+            .save_bubble_position(x, y)
+            .map_err(|error| error.to_string())?;
     }
 
     Ok(())

@@ -1,5 +1,7 @@
 use std::fs;
-use tokenowl_lib::domain::provider::{parse_openai_compatible_response, ProviderErrorKind, QuotaUnit};
+use tokenowl_lib::domain::provider::{
+    ProviderErrorKind, QuotaUnit, parse_openai_compatible_response,
+};
 
 fn read_fixture(name: &str) -> String {
     let path = format!("tests/fixtures/{name}");

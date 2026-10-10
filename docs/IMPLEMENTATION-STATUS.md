@@ -110,14 +110,16 @@ MSVC 产物写入 `src-tauri/target-msvc`（由 `CARGO_TARGET_DIR` 指定），�
 
 ## Testing & Build
 
-- 前端：`pnpm typecheck`、`pnpm build`；无自动化 UI 测试。
-- Rust：`cargo fmt --check` 通过；`cargo test` 89 个测试通过；`cargo clippy --all-targets -- -D warnings` 0 错误 0 警告。
+- 前端：`pnpm typecheck`、`pnpm build`、`pnpm test`（vitest，12 测试通过）。
+- Rust：`cargo fmt --check` 通过；`cargo test` 117+ 测试通过；`cargo clippy --all-targets -- -D warnings` 0 错误 0 警告。
+- E2E：Playwright smoke test 脚本已创建，需原生 Tauri 环境执行。
 - CI：`.github/workflows/ci-release.yml` 运行 typecheck、test、build、fmt、check、clippy、cargo test 与版本一致性校验。
+- Windows 构建：MSI (5.49 MiB) + NSIS (4.04 MiB) 已验证产出。
 
 ## Next Recommended Phase
 
 1. 前端 Zustand 状态管理迁移。
 2. SQLite migrations 目录结构。
-3. 在装有 Visual Studio C++ 工作负载的机器或 CI 上跑通 `cargo test`/`cargo clippy`。
+3. BubbleView 和 Dashboard 测试在真实 Tauri 环境中验证。
 4. 接入第一个真实 provider 的官方限额端点。
-5. 补前端测试覆盖账户状态机。
+5. Provider 多端点合并（balance+usage+quota）。

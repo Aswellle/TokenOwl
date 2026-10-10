@@ -1,69 +1,184 @@
-# TokenOwl 开发文档总索引
+<p align="center">
+  <img src="apps/desktop/public/tokenowl-icon.png" alt="TokenOwl" width="128" height="128" />
+</p>
 
-> **项目定位**：TokenOwl 是一个 Windows / macOS 优先的本地桌面 AI 供应商额度监视器。它以极小的圆形悬浮球常驻桌面，快速显示核心额度状态；点击后展开为完整仪表盘，查看多个 AI 供应商账户的余额、token/credit/request 使用情况、5 小时/7 天/月度等限制窗口、距离下次重置时间、重置进度以及历史使用趋势。
->
-> **核心原则**：不把“供应商”写死在 UI；不把“token”作为唯一计量单位；不把网络刷新绑定到 UI 生命周期；不把第三方凭据写入 SQLite；不把不可获得的额度伪装成准确数据。
->
-> **文档版本**：1.0
->
-> **基准日期**：2026-10-03
+<h1 align="center">TokenOwl</h1>
 
-## 文档目录
+<p align="center">
+  <strong>Local-first AI quota monitor for Windows and macOS</strong>
+</p>
 
-| 文档 | 目的 | AI Agent 是否必读 |
-|---|---|---|
-| `01-PRD.md` | 产品目标、用户故事、功能规格、版本范围、验收标准 | 是 |
-| `02-技术架构.md` | 技术栈、模块、数据流、任务调度、跨平台架构 | 是 |
-| `03-Provider接入协议.md` | Provider Adapter / Manifest / 自定义中转站完整设计 | 是 |
-| `04-数据模型与内部API.md` | SQLite Schema、领域模型、Tauri IPC、错误模型 | 是 |
-| `05-UIUX设计规范.md` | 悬浮球、展开仪表盘、动效、响应式、可访问性 | 是 |
-| `06-安全隐私测试与发布.md` | 凭据安全、网络安全、测试、CI/CD、发布 | 是 |
-| `07-AI-Agent开发执行规范.md` | 分阶段实施、工作约束、自检、验收、回滚 | **必须优先阅读** |
-| `08-开源能力复用与许可证.md` | CodexBar / ccusage / LiteLLM / One API / New API / models.dev 的复用策略 | 是 |
+<p align="center">
+  <a href="https://github.com/Aswellle/TokenOwl/actions/workflows/ci-frontend.yml"><img src="https://img.shields.io/github/actions/workflow/status/Aswellle/TokenOwl/ci-frontend.yml?label=frontend&style=flat-square&logo=github" alt="Frontend CI" /></a>
+  <a href="https://github.com/Aswellle/TokenOwl/actions/workflows/ci-rust.yml"><img src="https://img.shields.io/github/actions/workflow/status/Aswellle/TokenOwl/ci-rust.yml?label=rust&style=flat-square&logo=github" alt="Rust CI" /></a>
+  <a href="https://github.com/Aswellle/TokenOwl/releases"><img src="https://img.shields.io/github/v/release/Aswellle/TokenOwl?include_prereleases&style=flat-square" alt="Release" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square" alt="License" /></a>
+</p>
 
-## 推荐实施顺序
+---
 
-```text
-Phase 0  工程基线与设计系统
-   ↓
-Phase 1  Tauri Shell + Floating Bubble + Dashboard Shell
-   ↓
-Phase 2  Domain Model + SQLite + Keychain + Scheduler
-   ↓
-Phase 3  Provider SDK/Protocol + Custom OpenAI-Compatible Provider
-   ↓
-Phase 4  国际首发 Provider
-   ↓
-Phase 5  中国大陆/亚洲首发 Provider
-   ↓
-Phase 6  Reset Window + Credit/Grant + History
-   ↓
-Phase 7  第三方 Manifest Adapter / Provider Registry
-   ↓
-Phase 8  完整 QA + Performance + Packaging + Release
-   ↓
-Phase 9  移动端复用 Domain Core
+## Why TokenOwl
+
+You pay for API access to multiple AI providers — but hitting a quota ceiling mid-conversation is a frustrating surprise. TokenOwl lives in your system tray and watches your usage in real time, so you always know what you have left.
+
+**Key benefits:**
+
+- **Zero cloud** — Your data never leaves your machine. No accounts, no tracking, no subscription.
+- **Privacy by design** — API keys live in the OS keychain (Windows Credential Manager / macOS Keychain), never in databases or logs.
+- **Unified view** — One dashboard for OpenAI, Anthropic, Gemini, and five other providers.
+- **Featherweight** — ~5 MB installer. Rust backend with a webview frontend keeps memory usage minimal.
+
+## Features
+
+| Feature | Description |
+| :--- | :--- |
+| **Real-time monitoring** | Background scheduler refreshes quota with jitter and exponential backoff |
+| **Multi-provider** | 8 built-in adapters: OpenAI, Anthropic, Gemini, OpenRouter, DeepSeek, Qwen, Kimi, MiniMax |
+| **Multi-account** | Add unlimited accounts with independent refresh cycles |
+| **Smart notifications** | Configurable low-quota alerts, critical thresholds, reset reminders |
+| **Floating bubble** | Always-on-top status bubble with drag-to-reposition and position persistence |
+| **Glassmorphism UI** | Transparent acrylic window with smooth morph transitions |
+| **Usage analytics** | Burn rate, average usage, pressure gauge, reset countdown |
+| **Auto-update** | Signed Tauri updater with GitHub Releases integration |
+
+## Screenshot
+
+```
+┌─────────────────────────────────────────────┐
+│  TokenOwl                          ─ □ ✕  │
+├─────────────────────────────────────────────┤
+│  Pressure  [██████░░░░] 68%   ○ Need attention│
+│  Accounts  2 configured                      │
+│  Healthy   1                                 │
+│  Next reset 3d 14h                           │
+├─────────────────────────────────────────────┤
+│  Accounts (2)                         [+][↻] │
+│  ┌───────────────────────────────────────┐  │
+│  │ ● OpenAI 官方    ████████░░  82%      │  │
+│  │   Reset in 3d 14h  ·  Fresh           │  │
+│  ├───────────────────────────────────────┤  │
+│  │ ● Anthropic       ████░░░░  41%      │  │
+│  │   Reset in 6d 2h   ·  Fresh           │  │
+│  └───────────────────────────────────────┘  │
+│                       TokenOwl v1.0.0 · Local│
+└─────────────────────────────────────────────┘
 ```
 
-## 产品不可妥协项
+## Supported Providers
 
-1. **额度数据永远标记来源、时间和可信度**。
-2. **Provider 请求失败不能冻结 UI**；始终使用最近成功快照并明确显示 `stale` 状态。
-3. **API Key/OAuth Token/Cookie/Session 不进入普通数据库和日志**。
-4. **每一个阶段结束后项目必须可运行、可测试、可打包**。
-5. **UI 动画服务于信息理解，不为了炫技增加持续高负载**。
-6. **任何 Provider 都不能要求核心 UI 修改代码才能接入**。
-7. **中国大陆供应商与国际供应商使用同一领域模型，不做二等适配。**
+| Provider | Quota | Usage | Balance | Models |
+| :--- | :--- | :--- | :--- | :--- |
+| OpenAI | ✓ | ✓ | ✓ | ✓ |
+| Anthropic | ✓ | ✓ | — | ✓ |
+| Gemini | ✓ | ✓ | — | ✓ |
+| OpenRouter | ✓ | ✓ | ✓ | ✓ |
+| DeepSeek | ✓ | ✓ | ✓ | ✓ |
+| Qwen | ✓ | ✓ | ✓ | ✓ |
+| Kimi | ✓ | ✓ | ✓ | ✓ |
+| MiniMax | ✓ | ✓ | ✓ | ✓ |
 
-## 当前已验证的重要开源参考
+Custom OpenAI-compatible endpoints are also supported.
 
-- CodexBar：<https://github.com/steipete/CodexBar>
-- ccusage：<https://github.com/ccusage/ccusage>
-- LiteLLM：<https://github.com/BerriAI/litellm>
-- One API：<https://github.com/songquanpeng/one-api>
-- New API：<https://github.com/QuantumNous/new-api>
-- models.dev：<https://github.com/anomalyco/models.dev>
-- Tauri 2：<https://v2.tauri.app/>
-- Rust keyring：<https://docs.rs/keyring/latest/keyring/>
+## Installation
 
-这些仓库的用途不是要求 TokenOwl 直接整体嵌入，而是用于复用成熟的 Provider 经验、模型/价格数据和本地 usage 解析方法。具体许可证和复制策略见 `08-开源能力复用与许可证.md`。
+### Windows
+
+Download the latest installer from [Releases](https://github.com/Aswellle/TokenOwl/releases):
+
+- `TokenOwl_x.x.x_x64-setup.nsis.exe` — Recommended NSIS installer
+- `TokenOwl_x.x.x_x64_en-US.msi` — MSI for enterprise deployment
+
+### macOS
+
+- `TokenOwl_x.x.x_aarch64.dmg` — Apple Silicon (M1/M2/M3)
+- `TokenOwl_x.x.x_x64.dmg` — Intel
+
+## Quick Start
+
+1. Launch TokenOwl — a small bubble appears in the bottom-right corner
+2. Click the bubble to open the dashboard
+3. Click **Add Account** and enter your API key and base URL
+4. Quota data loads automatically
+5. Drag the bubble to your preferred position — it persists across restarts
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────┐
+│                    Frontend (React)                   │
+│  Dashboard · Bubble · Settings · Notifications       │
+└────────────────────────┬────────────────────────────┘
+                         │ Tauri IPC
+┌────────────────────────▼────────────────────────────┐
+│                    Backend (Rust)                     │
+│  ┌──────────┐  ┌──────────┐  ┌──────────┐           │
+│  │Scheduler │  │ Providers│  │  Domain  │           │
+│  │ BinaryHeap│  │ 8 builtin│  │  Reset   │           │
+│  │ + jitter │  │ adapters │  │  Balance │           │
+│  └────┬─────┘  └────┬─────┘  │  History │           │
+│       │              │        └──────────┘           │
+│  ┌────▼─────┐  ┌────▼─────┐  ┌──────────┐           │
+│  │  SQLite  │  │   HTTP   │  │  Keyring │           │
+│  │   WAL    │  │  Client  │  │  OS API  │           │
+│  └──────────┘  └──────────┘  └──────────┘           │
+└─────────────────────────────────────────────────────┘
+```
+
+**Tech stack:**
+
+- **Desktop shell** — [Tauri 2](https://tauri.app) with acrylic/vibrancy window effects
+- **Backend** — Rust with `tokio`, `reqwest`, `rusqlite`, `serde`
+- **Frontend** — React 19, TypeScript strict, Vite 8, `motion/react`
+- **State management** — Lightweight React hooks (no external store)
+- **Testing** — Vitest + Testing Library (12 tests), `cargo test` (117+ tests)
+- **CI/CD** — 4 parallel GitHub Actions workflows, signed releases
+
+## Development
+
+### Prerequisites
+
+- [Node.js](https://nodejs.org/) 22+
+- [Rust](https://www.rust-lang.org/tools/install) stable 1.85+
+- [pnpm](https://pnpn.io/) 10.33.2+ (`corepack enable`)
+- [Tauri CLI](https://v2.tauri.app/start/prerequisites/) v2
+
+### Setup
+
+```bash
+git clone https://github.com/Aswellle/TokenOwl.git
+cd TokenOwl
+corepack enable
+cd apps/desktop
+pnpm install
+```
+
+### Commands
+
+```bash
+pnpm tauri dev          # Development build with hot reload
+pnpm build              # Production build
+pnpm typecheck          # TypeScript type checking
+pnpm test               # Frontend unit tests
+cargo test              # Rust unit + integration tests
+cargo fmt --all         # Format Rust code
+cargo clippy -- -D warnings  # Lint Rust code
+```
+
+## Security
+
+- API keys stored exclusively in the OS keychain
+- HTTPS-only network requests
+- Response size limits prevent memory exhaustion
+- Sensitive fields automatically redacted in logs
+- Path traversal protection on endpoint construction
+- Content Security Policy restricts resource loading
+
+See [SECURITY.md](SECURITY.md) for the full security policy and vulnerability reporting process.
+
+## Contributing
+
+Contributions are welcome. Please read [CONTRIBUTING](CONTRIBUTING.md) before submitting a pull request.
+
+## License
+
+[MIT](LICENSE) — Copyright (c) 2026 TokenOwl contributors

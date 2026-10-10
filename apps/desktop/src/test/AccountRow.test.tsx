@@ -4,7 +4,7 @@ vi.mock("@lobehub/icons", () => ({
 }));
 import { render, screen, fireEvent } from "@testing-library/react";
 import { AccountRow } from "../features/dashboard/components/AccountRow";
-import type { AccountViewModel, QuotaViewModel } from "../../../types";
+import type { AccountViewModel, QuotaViewModel } from "../types";
 
 const mockQuota: QuotaViewModel = {
   id: "q1",
@@ -13,7 +13,7 @@ const mockQuota: QuotaViewModel = {
   used: 250,
   limit: 1000,
   remaining: 750,
-  window: { type: "rolling", durationSeconds: 18000 },
+  window: { type: "rolling" },
   observedAt: "2026-10-10T12:00:00Z",
   source: "official_api",
   freshness: "fresh",

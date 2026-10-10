@@ -29,6 +29,19 @@ export default defineConfig(() => ({
       ignored: ["**/src-tauri/**"],
     },
   },
+  build: {
+    rollupOptions: {
+      output: {
+        advancedChunks: {
+          groups: [
+            { name: "vendor", test: /node_modules[\\/](react|react-dom)/ },
+            { name: "motion", test: /node_modules[\\/]motion/ },
+            { name: "icons", test: /node_modules[\\/]@lobehub/ },
+          ],
+        },
+      },
+    },
+  },
 
   test: {
     environment: "jsdom",

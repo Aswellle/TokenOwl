@@ -1,10 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, act } from "@testing-library/react";
 
-const { mockStartDragging, mockOnMoved, mockPersistPosition, mockOpenDashboard } = vi.hoisted(() => ({
+const { mockStartDragging, mockOnMoved, mockOpenDashboard, mockPersistPosition } = vi.hoisted(() => ({
   mockStartDragging: vi.fn().mockResolvedValue(undefined),
   mockOnMoved: vi.fn().mockResolvedValue({ unlisten: vi.fn().mockResolvedValue(undefined) }),
   mockOpenDashboard: vi.fn().mockResolvedValue(undefined),
+  mockPersistPosition: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("@tauri-apps/api/window", () => ({

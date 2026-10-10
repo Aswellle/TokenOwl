@@ -1,20 +1,8 @@
 import { motion, useReducedMotion } from "motion/react";
 import { copy } from "../../../styles/copy";
 import { ProviderIcon } from "../../../components/ProviderIcon";
-import {
-  IconAlert,
-  IconBubble,
-  IconRefresh,
-  IconTrash,
-} from "../../../components/icons";
-import {
-  displaySource,
-  formatCountdown,
-  formatRelative,
-  formatValue,
-  formatResetShort,
-  overallHealth,
-} from "../../../lib/format";
+import { IconRefresh, IconTrash } from "../../../components/icons";
+import { displaySource, formatRelative, formatValue } from "../../../lib/format";
 import type { AccountViewModel } from "../../../types";
 
 export function AccountRow({
@@ -38,7 +26,6 @@ export function AccountRow({
   const relative = formatRelative(account.lastUpdatedAt ?? account.snapshots[0]?.observedAt, now);
   const source = displaySource(account.source ?? account.snapshots[0]?.source);
   const hasSnapshots = account.snapshots.length > 0;
-  const freshness = copy.freshness[account.freshness] ?? copy.freshness.unknown;
 
   return (
     <motion.li

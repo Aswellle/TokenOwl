@@ -820,7 +820,7 @@ export function App({ bridge = tauriBridge }: AppProps = {}) {
   };
 
   return (
-    <div className="window">
+    <div className="window morph-enter morph-enter-active">
       <header className="titlebar" data-tauri-drag-region>
         <TrafficLights />
         <div className="titlebar__brand">

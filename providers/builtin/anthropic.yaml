@@ -1,0 +1,15 @@
+id: anthropic
+version: 1
+name: Anthropic
+category: official
+region: global
+auth:
+  - api_key
+baseUrl: https://api.anthropic.com/v1
+apiKeyHeader: x-api-key
+endpoints:
+  models: /v1/models
+  usage: /v1/usage
+network:
+  timeoutMs: 15000
+  followRedirects: false

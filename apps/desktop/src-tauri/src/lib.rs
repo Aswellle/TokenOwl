@@ -8,6 +8,7 @@ pub mod scheduler;
 pub mod storage;
 pub mod telemetry;
 
+pub mod notifications;
 pub use app::run;
 
 pub use domain::provider::{

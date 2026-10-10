@@ -50,7 +50,13 @@ impl Notification {
             message: message.into(),
             provider_id: None,
             account_id: None,
-            created_at: String::new(),
+            created_at: {
+                use std::time::{SystemTime, UNIX_EPOCH};
+                let now = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .map_or(0, |d| d.as_secs());
+                now.to_string()
+            },
         }
     }
 
@@ -85,8 +91,6 @@ pub struct NotificationPreferences {
     pub silent_mode: bool,
     /// Threshold for low quota warnings (percentage).
     pub low_quota_threshold: f64,
-    /// Hours before reset to send reminder.
-    pub reset_reminder_hours: u32,
 }
 
 impl Default for NotificationPreferences {
@@ -96,7 +100,6 @@ impl Default for NotificationPreferences {
             critical_only: false,
             silent_mode: false,
             low_quota_threshold: 10.0,
-            reset_reminder_hours: 24,
         }
     }
 }

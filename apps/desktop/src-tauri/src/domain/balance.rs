@@ -33,12 +33,26 @@ impl Balance {
         source: DataSource,
         observed_at: Option<String>,
     ) -> Self {
+        let (confidence, status) = match (amount, &source) {
+            (Some(_), DataSource::OfficialApi) => (
+                crate::domain::provider::Confidence::Exact,
+                SnapshotStatus::Available,
+            ),
+            (Some(_), _) => (
+                crate::domain::provider::Confidence::Estimated,
+                SnapshotStatus::Available,
+            ),
+            (None, _) => (
+                crate::domain::provider::Confidence::Unknown,
+                SnapshotStatus::Unavailable,
+            ),
+        };
         Self {
             amount,
             currency,
             source,
-            confidence: crate::domain::provider::Confidence::Exact,
-            status: SnapshotStatus::Available,
+            confidence,
+            status,
             observed_at,
         }
     }

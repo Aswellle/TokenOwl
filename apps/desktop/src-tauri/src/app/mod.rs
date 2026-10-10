@@ -151,8 +151,8 @@ fn place_bubble_bottom_right(bubble: &tauri::WebviewWindow) {
     let monitor_size = monitor.size();
     let monitor_position = monitor.position();
     let margin = coordinate_to_i32(24.0 * monitor.scale_factor());
-    let width = i32::try_from(size.width).unwrap_or(0);
-    let height = i32::try_from(size.height).unwrap_or(0);
+    let width = i32::try_from(size.width).unwrap_or(320);
+    let height = i32::try_from(size.height).unwrap_or(480);
     let monitor_width = i32::try_from(monitor_size.width).unwrap_or(i32::MAX);
     let monitor_height = i32::try_from(monitor_size.height).unwrap_or(i32::MAX);
     let x = monitor_position.x + monitor_width - width - margin;

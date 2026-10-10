@@ -116,7 +116,10 @@ impl PartialOrd for ScheduledTask {
 
 impl Ord for ScheduledTask {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        other.priority.cmp(&self.priority)
+        other
+            .next_refresh
+            .cmp(&self.next_refresh)
+            .then_with(|| other.priority.cmp(&self.priority))
     }
 }
 

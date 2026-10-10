@@ -58,6 +58,11 @@ pub struct ManifestNetwork {
 
 impl ProviderManifest {
     /// Parse a YAML manifest string.
+    ///
+    /// # Security
+    /// Manifests are trusted input from the application's own configuration.
+    /// Untrusted YAML with deeply nested structures could cause a stack overflow;
+    /// callers should validate the source before parsing.
     pub fn from_yaml(yaml: &str) -> Result<Self, serde_yaml::Error> {
         serde_yaml::from_str(yaml)
     }

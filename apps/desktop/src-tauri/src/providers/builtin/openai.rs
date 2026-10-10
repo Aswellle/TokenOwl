@@ -261,6 +261,10 @@ fn response_headers_to_map(headers: &HeaderMap) -> std::collections::BTreeMap<St
     headers
         .iter()
         .filter_map(|(name, value)| {
+            let name_str = name.as_str().to_lowercase();
+            if crate::networking::is_sensitive_header(&name_str) {
+                return None;
+            }
             value
                 .to_str()
                 .ok()

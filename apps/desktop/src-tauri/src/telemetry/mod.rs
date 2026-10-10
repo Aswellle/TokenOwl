@@ -80,14 +80,26 @@ impl TelemetryEvent {
 /// Check if a field key contains sensitive data.
 pub fn is_sensitive_field(key: &str) -> bool {
     let lower = key.to_lowercase();
-    lower.contains("authorization")
-        || lower.contains("api_key")
-        || lower.contains("apikey")
-        || lower.contains("token")
-        || lower.contains("secret")
-        || lower.contains("password")
-        || lower.contains("cookie")
-        || lower.contains("credential")
+    let normalized: String = lower
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric())
+        .collect();
+    matches!(
+        normalized.as_str(),
+        "authorization"
+            | "apikey"
+            | "apisecretkey"
+            | "secretkey"
+            | "accesstoken"
+            | "refreshtoken"
+            | "clientsecret"
+            | "password"
+            | "secret"
+            | "sessiontoken"
+            | "privatekey"
+            | "token"
+            | "credential"
+    )
 }
 
 /// Redact a string value that might contain sensitive data.

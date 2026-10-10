@@ -495,12 +495,17 @@ impl LocalRepository {
 }
 
 fn snapshot_key(snapshot: &QuotaSnapshot, index: usize) -> String {
-    snapshot
+    let base = snapshot
         .id
         .as_deref()
         .or(snapshot.metric_id.as_deref())
         .or(snapshot.metric_name.as_deref())
-        .map_or_else(|| format!("snapshot-{index}"), ToOwned::to_owned)
+        .map_or_else(|| format!("snapshot-{index}"), ToOwned::to_owned);
+    let suffix = snapshot
+        .unit
+        .as_ref()
+        .map_or_else(|| index.to_string(), |u| format!("{index}-{u:?}"));
+    format!("{base}-{suffix}")
 }
 
 #[cfg(test)]

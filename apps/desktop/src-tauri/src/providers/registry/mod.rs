@@ -20,7 +20,11 @@ impl AdapterRegistry {
         adapter: Arc<dyn ProviderAdapter>,
     ) -> Option<Arc<dyn ProviderAdapter>> {
         let id = adapter.descriptor().id.clone();
-        self.adapters.insert(id, adapter)
+        let old = self.adapters.insert(id.clone(), adapter);
+        if old.is_some() {
+            tracing::warn!(provider_id = %id, "replaced existing provider adapter");
+        }
+        old
     }
 
     /// Look up a provider adapter by ID.

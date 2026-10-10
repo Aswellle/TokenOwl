@@ -253,10 +253,9 @@ fn list_accounts(state: &AppRuntime) -> Result<Vec<AccountViewModel>, CommandErr
     Ok(views)
 }
 
-fn create_account(
-    state: &AppRuntime,
-    input: GenericOpenAiAccountInput,
-) -> Result<AccountViewModel, CommandError> {
+fn validate_new_account(
+    input: &GenericOpenAiAccountInput,
+) -> Result<(String, String), CommandError> {
     let label = input.label.trim().to_owned();
     if label.is_empty() {
         return Err(CommandError::InvalidInput(
@@ -277,16 +276,24 @@ fn create_account(
             .as_deref()
             .unwrap_or(DEFAULT_QUOTA_ENDPOINT),
     )?;
+    Ok((label, endpoint))
+}
+
+fn persist_new_account(
+    state: &AppRuntime,
+    label: &str,
+    endpoint: &str,
+    api_key: &str,
+) -> Result<AccountMetadata, CommandError> {
     let account_id = format!("account-{}", unix_millis());
-    let provider_id = format!("{}:{account_id}", input.provider_id);
+    let provider_id = format!("generic.openai_compatible:{account_id}");
     let credential_ref = format!("account/{account_id}");
-    let mut config =
-        OpenAiCompatibleConfig::new(provider_id, "OpenAI-compatible", input.base_url.trim());
+    let mut config = OpenAiCompatibleConfig::new(provider_id, "OpenAI-compatible", api_key);
     config.credential_ref = Some(credential_ref.clone());
-    config.quota_endpoint = Some(endpoint);
+    config.quota_endpoint = Some(endpoint.to_owned());
     config.auth_method = AuthMethod::ApiKey;
     config.validate()?;
-    state.credentials.set(&credential_ref, &input.api_key)?;
+    state.credentials.set(&credential_ref, api_key)?;
     let repository = state.repository()?;
     if let Err(error) = repository.upsert_provider(&config, unix_seconds()) {
         let _ = state.credentials.delete(&credential_ref);
@@ -295,7 +302,7 @@ fn create_account(
     let account = AccountMetadata::from_auth_input(
         account_id,
         config.id.clone(),
-        label,
+        label.to_owned(),
         "api_key",
         Some(credential_ref),
         HashMap::new(),
@@ -308,7 +315,17 @@ fn create_account(
         }
         return Err(CommandError::Storage(error));
     }
-    let view = repository
+    Ok(account)
+}
+
+fn create_account(
+    state: &AppRuntime,
+    input: GenericOpenAiAccountInput,
+) -> Result<AccountViewModel, CommandError> {
+    let (label, endpoint) = validate_new_account(&input)?;
+    let account = persist_new_account(state, &label, &endpoint, &input.api_key)?;
+    let view = state
+        .repository()?
         .account_view(&account.id, unix_seconds(), state.freshness_policy)?
         .ok_or_else(|| {
             CommandError::InvalidInput("created account could not be read".to_owned())

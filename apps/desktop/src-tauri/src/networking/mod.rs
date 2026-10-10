@@ -127,13 +127,24 @@ impl HttpClient {
             .collect()
     }
 
+    /// Log request headers with sensitive values redacted.
+    pub fn log_request(&self, method: &str, url: &str, headers: &HeaderMap) {
+        let redacted = Self::redact_headers(headers);
+        tracing::debug!(
+            method = method,
+            url = url,
+            headers = ?redacted,
+            "HTTP request"
+        );
+    }
+
     /// Check if a header name is sensitive.
-    pub fn is_sensitive_header(name: &str) -> bool {
+    pub(crate) fn is_sensitive_header(name: &str) -> bool {
         is_sensitive_header(name)
     }
 }
 
-fn is_sensitive_header(name: &str) -> bool {
+pub(crate) fn is_sensitive_header(name: &str) -> bool {
     matches!(
         name,
         "authorization" | "x-api-key" | "cookie" | "set-cookie" | "proxy-authorization"

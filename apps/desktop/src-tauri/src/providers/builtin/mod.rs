@@ -110,12 +110,10 @@ pub fn builtin_adapter(id: &str, name: &str) -> Arc<OpenAiCompatibleAdapter> {
 
 /// Returns all built-in provider descriptors.
 pub fn builtin_descriptors() -> Vec<ProviderDescriptor> {
+    use crate::domain::provider::ProviderAdapter;
     BUILTIN_PROVIDERS
         .iter()
-        .map(|(id, name)| {
-            let config = OpenAiCompatibleConfig::new(*id, *name, "https://api.openai.com/v1");
-            config.descriptor()
-        })
+        .map(|(id, name)| (*builtin_adapter(id, name)).descriptor().clone())
         .collect()
 }
 

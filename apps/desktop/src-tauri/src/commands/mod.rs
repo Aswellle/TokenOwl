@@ -51,6 +51,26 @@ impl AppRuntime {
     fn repository(&self) -> Result<LocalRepository, CommandError> {
         LocalRepository::open(&self.database_path).map_err(CommandError::from)
     }
+
+    pub fn save_bubble_position(&self, x: f64, y: f64) -> Result<(), CommandError> {
+        let repo = self.repository()?;
+        let value = serde_json::json!({ "x": x, "y": y });
+        repo.set_setting("bubble_position", &value)?;
+        Ok(())
+    }
+
+    pub fn load_bubble_position(&self) -> Result<Option<(f64, f64)>, CommandError> {
+        let repo = self.repository()?;
+        let value = repo.get_setting("bubble_position")?;
+        match value {
+            Some(v) => {
+                let x = v.get("x").and_then(|x| x.as_f64()).unwrap_or(0.0);
+                let y = v.get("y").and_then(|y| y.as_f64()).unwrap_or(0.0);
+                Ok(Some((x, y)))
+            }
+            None => Ok(None),
+        }
+    }
 }
 
 #[derive(Debug, Error)]

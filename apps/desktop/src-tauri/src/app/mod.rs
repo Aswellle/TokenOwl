@@ -82,15 +82,26 @@ fn show_bubble(app: AppHandle, state: State<'_, Arc<Mutex<RuntimeState>>>) -> Re
     let bubble = app
         .get_webview_window("bubble")
         .ok_or_else(|| "bubble window unavailable".to_string())?;
+
     let saved = state
         .lock()
         .ok()
         .and_then(|runtime| runtime.bubble_position.clone());
-    match saved {
-        Some(position) => {
+
+    let position = saved.or_else(|| {
+        app.try_state::<Arc<commands::AppRuntime>>()
+            .and_then(|runtime| {
+                let runtime = Arc::clone(runtime.inner());
+                runtime.load_bubble_position().ok().flatten()
+            })
+            .map(|(x, y)| WindowPosition { x, y })
+    });
+
+    match position {
+        Some(pos) => {
             let _ = bubble.set_position(tauri::PhysicalPosition::new(
-                coordinate_to_i32(position.x),
-                coordinate_to_i32(position.y),
+                coordinate_to_i32(pos.x),
+                coordinate_to_i32(pos.y),
             ));
         }
         None => place_bubble_bottom_right(&bubble),
@@ -113,13 +124,18 @@ fn persist_bubble_position(
         .get_webview_window("bubble")
         .ok_or_else(|| "bubble window unavailable".to_string())?;
     let position = bubble.outer_position().map_err(|error| error.to_string())?;
+    let x = f64::from(position.x);
+    let y = f64::from(position.y);
     let mut runtime = state
         .lock()
         .map_err(|_| "runtime state unavailable".to_string())?;
-    runtime.bubble_position = Some(WindowPosition {
-        x: f64::from(position.x),
-        y: f64::from(position.y),
-    });
+    runtime.bubble_position = Some(WindowPosition { x, y });
+
+    if let Some(runtime) = app.try_state::<Arc<commands::AppRuntime>>() {
+        let runtime = Arc::clone(runtime.inner());
+        runtime.save_bubble_position(x, y).map_err(|error| error.to_string())?;
+    }
+
     Ok(())
 }
 

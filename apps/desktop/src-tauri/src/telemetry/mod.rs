@@ -80,10 +80,7 @@ impl TelemetryEvent {
 /// Check if a field key contains sensitive data.
 pub fn is_sensitive_field(key: &str) -> bool {
     let lower = key.to_lowercase();
-    let normalized: String = lower
-        .chars()
-        .filter(|c| c.is_ascii_alphanumeric())
-        .collect();
+    let normalized: String = lower.chars().filter(char::is_ascii_alphanumeric).collect();
     matches!(
         normalized.as_str(),
         "authorization"

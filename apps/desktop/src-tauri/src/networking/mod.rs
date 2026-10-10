@@ -137,11 +137,6 @@ impl HttpClient {
             "HTTP request"
         );
     }
-
-    /// Check if a header name is sensitive.
-    pub(crate) fn is_sensitive_header(name: &str) -> bool {
-        is_sensitive_header(name)
-    }
 }
 
 pub(crate) fn is_sensitive_header(name: &str) -> bool {

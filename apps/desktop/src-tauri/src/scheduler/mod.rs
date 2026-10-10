@@ -193,7 +193,7 @@ impl Scheduler {
             .duration_since(std::time::UNIX_EPOCH)
             .map_or(0, |d| d.subsec_nanos());
         #[allow(clippy::cast_precision_loss)]
-        let jitter = ((nanos as f64 / 1_000_000_000.0) * jitter_amount).abs();
+        let jitter = ((f64::from(nanos) / 1_000_000_000.0) * jitter_amount).abs();
         Duration::from_secs_f64(base + jitter)
     }
 

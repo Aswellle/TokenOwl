@@ -31,14 +31,18 @@ jobs:
         run: corepack enable
 
       - name: Install frontend dependencies
+        working-directory: apps/desktop
         run: pnpm install --frozen-lockfile
 
       - name: Frontend typecheck
+        working-directory: apps/desktop
         run: pnpm run typecheck
       - name: Frontend tests
+        working-directory: apps/desktop
         run: pnpm test
 
       - name: Frontend build
+        working-directory: apps/desktop
         run: pnpm run build
 
       - name: Set up Rust
@@ -111,7 +115,7 @@ jobs:
         run: |
           node <<'NODE'
           const fs = require('node:fs');
-          const version = JSON.parse(fs.readFileSync('package.json', 'utf8')).version;
+          const version = JSON.parse(fs.readFileSync('apps/desktop/package.json', 'utf8')).version;
           const tag = process.env.GITHUB_REF_NAME;
           if (!/^v\d+\.\d+\.\d+$/.test(tag) || tag !== `v${version}`) {
             console.error(`Release tag ${tag} must be v${version} and use MAJOR.MINOR.PATCH`);
@@ -128,6 +132,7 @@ jobs:
         run: corepack enable
 
       - name: Install frontend dependencies
+        working-directory: apps/desktop
         run: pnpm install --frozen-lockfile
 
       - name: Set up Rust

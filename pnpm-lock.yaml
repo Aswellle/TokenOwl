@@ -6,40 +6,6 @@ settings:
 
 importers:
 
-  .:
-    dependencies:
-      '@tauri-apps/api':
-        specifier: ^2.11.1
-        version: 2.11.1
-      motion:
-        specifier: ^14.1.0
-        version: 14.1.0(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
-      react:
-        specifier: ^19.1.0
-        version: 19.3.0
-      react-dom:
-        specifier: ^19.1.0
-        version: 19.3.0(react@19.3.0)
-    devDependencies:
-      '@tauri-apps/cli':
-        specifier: ^2
-        version: 2.12.1
-      '@types/react':
-        specifier: ^19.1.8
-        version: 19.3.0
-      '@types/react-dom':
-        specifier: ^19.1.6
-        version: 19.3.0(@types/react@19.3.0)
-      '@vitejs/plugin-react':
-        specifier: ^6.0.2
-        version: 6.1.2(vite@8.3.4)
-      typescript:
-        specifier: ~6.0.3
-        version: 6.0.3
-      vite:
-        specifier: ^8.0.16
-        version: 8.3.4
-
   apps/desktop:
     dependencies:
       '@tauri-apps/api':

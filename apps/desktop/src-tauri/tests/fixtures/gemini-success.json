@@ -1,0 +1,7 @@
+{
+  "data": {
+    "metric_name": "token usage",
+    "remaining": 50000,
+    "unit": "token"
+  }
+}

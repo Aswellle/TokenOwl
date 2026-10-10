@@ -1,0 +1,8 @@
+{
+  "data": {
+    "metric_name": "api credits",
+    "remaining": 25.0,
+    "unit": "currency",
+    "currency": "USD"
+  }
+}

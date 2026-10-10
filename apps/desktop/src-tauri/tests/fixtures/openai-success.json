@@ -1,0 +1,11 @@
+{
+  "data": {
+    "id": "tokens-5h",
+    "metric_name": "5 hour tokens",
+    "unit": "token",
+    "used": 2500,
+    "limit": 10000,
+    "remaining": 7500,
+    "reset_at": "2026-10-10T12:00:00Z"
+  }
+}

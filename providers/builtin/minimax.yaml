@@ -1,0 +1,14 @@
+id: minimax
+version: 1
+name: MiniMax
+category: official
+region: china
+auth:
+  - api_key
+baseUrl: https://api.minimax.chat/v1
+apiKeyHeader: Authorization
+endpoints:
+  models: /models
+network:
+  timeoutMs: 15000
+  followRedirects: false

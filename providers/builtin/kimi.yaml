@@ -1,0 +1,15 @@
+id: kimi
+version: 1
+name: Kimi / Moonshot
+category: official
+region: china
+auth:
+  - api_key
+baseUrl: https://api.moonshot.cn/v1
+apiKeyHeader: Authorization
+endpoints:
+  models: /models
+  usage: /users/me/balance
+network:
+  timeoutMs: 15000
+  followRedirects: false

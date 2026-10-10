@@ -240,4 +240,129 @@ mod tests {
         snap.window = None;
         assert!(!ResetCalculator::has_reset(&snap));
     }
+
+    #[test]
+    fn rolling_5h_window_calculates_correctly() {
+        let snap = snapshot_with_window(QuotaWindow {
+            window_type: Some(WindowType::Rolling),
+            duration_seconds: Some(18000),
+            starts_at: Some("2026-10-10T00:00:00Z".to_owned()),
+            ends_at: None,
+            reset_at: None,
+        });
+        let info = ResetCalculator::calculate(&snap);
+        assert_eq!(info.window_type, Some(WindowType::Rolling));
+        let calculated = info.calculated_reset_at.expect("calculated reset");
+        assert!(calculated.contains("2026-10-10T05:00:00"));
+    }
+
+    #[test]
+    fn rolling_7d_window_calculates_correctly() {
+        let snap = snapshot_with_window(QuotaWindow {
+            window_type: Some(WindowType::Rolling),
+            duration_seconds: Some(604800),
+            starts_at: Some("2026-10-10T00:00:00Z".to_owned()),
+            ends_at: None,
+            reset_at: None,
+        });
+        let info = ResetCalculator::calculate(&snap);
+        assert_eq!(info.window_type, Some(WindowType::Rolling));
+        let calculated = info.calculated_reset_at.expect("calculated reset");
+        assert!(calculated.contains("2026-10-17T00:00:00"));
+    }
+
+    #[test]
+    fn fixed_window_without_ends_at_uses_duration() {
+        let snap = snapshot_with_window(QuotaWindow {
+            window_type: Some(WindowType::Fixed),
+            duration_seconds: Some(3600),
+            starts_at: Some("2026-10-10T00:00:00Z".to_owned()),
+            ends_at: None,
+            reset_at: None,
+        });
+        let info = ResetCalculator::calculate(&snap);
+        let calculated = info.calculated_reset_at.expect("calculated reset");
+        assert!(calculated.contains("2026-10-10T01:00:00"));
+    }
+
+    #[test]
+    fn calendar_window_uses_ends_at() {
+        let snap = snapshot_with_window(QuotaWindow {
+            window_type: Some(WindowType::Calendar),
+            duration_seconds: None,
+            starts_at: Some("2026-10-01T00:00:00Z".to_owned()),
+            ends_at: Some("2026-10-31T23:59:59Z".to_owned()),
+            reset_at: None,
+        });
+        let info = ResetCalculator::calculate(&snap);
+        assert_eq!(info.window_type, Some(WindowType::Calendar));
+        assert_eq!(
+            info.calculated_reset_at.as_deref(),
+            Some("2026-10-31T23:59:59Z")
+        );
+    }
+
+    #[test]
+    fn subscription_window_uses_ends_at() {
+        let snap = snapshot_with_window(QuotaWindow {
+            window_type: Some(WindowType::Subscription),
+            duration_seconds: None,
+            starts_at: Some("2026-09-01T00:00:00Z".to_owned()),
+            ends_at: Some("2026-11-01T00:00:00Z".to_owned()),
+            reset_at: None,
+        });
+        let info = ResetCalculator::calculate(&snap);
+        assert_eq!(info.window_type, Some(WindowType::Subscription));
+        assert_eq!(
+            info.calculated_reset_at.as_deref(),
+            Some("2026-11-01T00:00:00Z")
+        );
+    }
+
+    #[test]
+    fn custom_window_without_ends_at_returns_none() {
+        let snap = snapshot_with_window(QuotaWindow {
+            window_type: Some(WindowType::Custom),
+            duration_seconds: None,
+            starts_at: None,
+            ends_at: None,
+            reset_at: None,
+        });
+        let info = ResetCalculator::calculate(&snap);
+        assert_eq!(info.window_type, Some(WindowType::Custom));
+        assert_eq!(info.calculated_reset_at, None);
+    }
+
+    #[test]
+    fn parse_timestamp_handles_milliseconds() {
+        let ts = 1_700_000_000_000u64;
+        let result = parse_timestamp(&ts.to_string());
+        assert_eq!(result, Some(1_700_000_000));
+    }
+
+    #[test]
+    fn parse_timestamp_handles_iso_with_timezone() {
+        let result = parse_timestamp("2026-10-10T12:00:00+08:00");
+        assert!(result.is_some());
+    }
+
+    #[test]
+    fn parse_timestamp_returns_none_for_invalid() {
+        assert_eq!(parse_timestamp("not-a-timestamp"), None);
+        assert_eq!(parse_timestamp(""), None);
+    }
+
+    #[test]
+    fn remaining_seconds_clamps_to_zero_when_past() {
+        let mut snap = snapshot_with_window(QuotaWindow {
+            window_type: Some(WindowType::Fixed),
+            duration_seconds: Some(3600),
+            starts_at: Some("2020-01-01T00:00:00Z".to_owned()),
+            ends_at: None,
+            reset_at: None,
+        });
+        snap.reset_at = Some("2020-01-01T01:00:00Z".to_owned());
+        let info = ResetCalculator::calculate(&snap);
+        assert_eq!(info.remaining_seconds, Some(0));
+    }
 }

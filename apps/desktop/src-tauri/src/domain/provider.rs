@@ -726,6 +726,122 @@ fn string(object: &Map<String, Value>, keys: &[&str]) -> Option<String> {
     })
 }
 
+/// 账户上下文，传递给 `ProviderAdapter` 方法。
+#[derive(Debug, Clone)]
+pub struct AccountContext {
+    pub account_id: String,
+    pub provider_id: String,
+    pub credential_ref: Option<String>,
+}
+
+impl AccountContext {
+    pub fn new(account_id: impl Into<String>, provider_id: impl Into<String>) -> Self {
+        Self {
+            account_id: account_id.into(),
+            provider_id: provider_id.into(),
+            credential_ref: None,
+        }
+    }
+
+    pub fn with_credential_ref(mut self, credential_ref: impl Into<String>) -> Self {
+        self.credential_ref = Some(credential_ref.into());
+        self
+    }
+}
+
+/// Fetch 上下文，包含请求级别配置。
+#[derive(Debug, Clone)]
+pub struct FetchContext {
+    pub timeout: Duration,
+    pub base_url: Option<String>,
+}
+
+impl Default for FetchContext {
+    fn default() -> Self {
+        Self {
+            timeout: Duration::from_secs(20),
+            base_url: None,
+        }
+    }
+}
+
+/// 账户身份信息。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AccountIdentity {
+    pub account_id: String,
+    pub provider_id: String,
+    pub display_name: Option<String>,
+}
+
+/// 使用范围。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UsageRange {
+    pub start: Option<String>,
+    pub end: Option<String>,
+}
+
+/// 单个使用数据点。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UsagePoint {
+    pub id: Option<String>,
+    pub account_id: String,
+    pub model_id: Option<String>,
+    pub metric_type: String,
+    pub quantity: f64,
+    pub unit: QuotaUnit,
+    pub cost: Option<f64>,
+    pub currency: Option<String>,
+    pub period_start: Option<String>,
+    pub period_end: Option<String>,
+    pub source: DataSource,
+    pub observed_at: String,
+}
+
+/// 健康检查结果。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum HealthStatus {
+    Healthy,
+    Degraded,
+    Unhealthy,
+    Unknown,
+}
+
+/// Provider 适配器 trait，所有 Provider 需实现此接口。
+#[async_trait::async_trait]
+pub trait ProviderAdapter: Send + Sync {
+    /// 返回 Provider 描述符。
+    fn descriptor(&self) -> ProviderDescriptor;
+
+    /// 验证账户凭证有效性。
+    async fn validate_account(&self, account: &AccountContext) -> ProviderResult<AccountIdentity>;
+
+    /// 获取配额快照集合。
+    async fn fetch_quota(
+        &self,
+        account: &AccountContext,
+        ctx: &FetchContext,
+    ) -> ProviderResult<QuotaSnapshotSet>;
+
+    /// 获取使用数据点。
+    async fn fetch_usage(
+        &self,
+        account: &AccountContext,
+        range: UsageRange,
+        ctx: &FetchContext,
+    ) -> ProviderResult<Vec<UsagePoint>>;
+
+    /// 健康检查。
+    async fn health_check(
+        &self,
+        account: &AccountContext,
+        ctx: &FetchContext,
+    ) -> ProviderResult<HealthStatus>;
+}
+
 /// A descriptor handle stored by the registry.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProviderHandle {

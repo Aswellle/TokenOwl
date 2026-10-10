@@ -7,8 +7,9 @@
 
 use crate::credentials::{CredentialError, CredentialStore};
 use crate::domain::provider::{
-    AuthMethod, OpenAiCompatibleConfig, ProviderError, ProviderErrorKind, ProviderResponse,
-    ProviderResult, QuotaSnapshotSet,
+    AccountContext, AccountIdentity, AuthMethod, FetchContext, HealthStatus,
+    OpenAiCompatibleConfig, ProviderAdapter, ProviderDescriptor, ProviderError, ProviderErrorKind,
+    ProviderResponse, ProviderResult, QuotaSnapshotSet, UsagePoint, UsageRange,
 };
 use reqwest::Client;
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
@@ -285,6 +286,60 @@ fn unix_seconds() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(0, |duration| duration.as_secs())
+}
+
+#[async_trait::async_trait]
+impl ProviderAdapter for OpenAiCompatibleAdapter {
+    fn descriptor(&self) -> ProviderDescriptor {
+        ProviderDescriptor::new("openai-compatible", "OpenAI-Compatible Provider")
+    }
+
+    async fn validate_account(&self, _account: &AccountContext) -> ProviderResult<AccountIdentity> {
+        // OpenAI-compatible providers validate via fetch_quota.
+        Err(ProviderError::new(
+            ProviderErrorKind::UnsupportedCapability,
+            "validate_account not supported by OpenAI-compatible adapter",
+        ))
+    }
+
+    async fn fetch_quota(
+        &self,
+        account: &AccountContext,
+        ctx: &FetchContext,
+    ) -> ProviderResult<QuotaSnapshotSet> {
+        let config = OpenAiCompatibleConfig::new(
+            &account.provider_id,
+            &account.provider_id,
+            ctx.base_url
+                .as_deref()
+                .unwrap_or("https://api.openai.com/v1"),
+        );
+        let credentials = CredentialStore::default();
+        let result = self
+            .fetch(&config, &account.account_id, &credentials)
+            .await?;
+        Ok(result.snapshots)
+    }
+
+    async fn fetch_usage(
+        &self,
+        _account: &AccountContext,
+        _range: UsageRange,
+        _ctx: &FetchContext,
+    ) -> ProviderResult<Vec<UsagePoint>> {
+        Err(ProviderError::new(
+            ProviderErrorKind::UnsupportedCapability,
+            "fetch_usage not supported by OpenAI-compatible adapter",
+        ))
+    }
+
+    async fn health_check(
+        &self,
+        _account: &AccountContext,
+        _ctx: &FetchContext,
+    ) -> ProviderResult<HealthStatus> {
+        Ok(HealthStatus::Unknown)
+    }
 }
 
 #[cfg(test)]

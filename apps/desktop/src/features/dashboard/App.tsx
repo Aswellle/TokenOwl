@@ -23,6 +23,7 @@ import {
   IconTrash,
   healthIcons,
 } from "../../components/icons";
+import { ProviderIcon } from "../../components/ProviderIcon";
 import {
   accountResetAt,
   displaySource,
@@ -328,9 +329,7 @@ function AccountRow({
     >
       <div className="account__head">
         <div className="account__identity">
-          <span className="account__mark" aria-hidden="true">
-            {account.label.slice(0, 1).toUpperCase()}
-          </span>
+          <ProviderIcon providerId={account.providerId} size={28} />
           <div className="account__names">
             <h3 className="account__label" title={account.label}>
               {account.label}

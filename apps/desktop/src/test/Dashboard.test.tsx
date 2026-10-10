@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, act } from "@testing-library/react";
+import { render, screen, fireEvent, act, waitFor } from "@testing-library/react";
 
 const { mockListAccounts, mockRefresh, mockCreateAccount, mockDeleteAccount, mockListen } = vi.hoisted(() => ({
   mockListAccounts: vi.fn(),
@@ -55,27 +55,21 @@ describe("Dashboard state machine", () => {
   it("transitions from loading to ready on successful load", async () => {
     mockListAccounts.mockResolvedValue([mockAccount]);
     render(<App />);
-    await act(async () => {
-      await new Promise((r) => setTimeout(r, 100));
-    });
+    await waitFor(() => expect(screen.getByText("Test Account")).toBeInTheDocument());
     expect(screen.getByText("Test Account")).toBeInTheDocument();
   });
 
   it("transitions to offline on load failure", async () => {
     mockListAccounts.mockRejectedValue(new Error("network error"));
     render(<App />);
-    await act(async () => {
-      await new Promise((r) => setTimeout(r, 100));
-    });
+    await waitFor(() => expect(screen.getByText(/加载失败|offline/i)).toBeInTheDocument());
     expect(screen.getByText(/加载失败|offline/i)).toBeInTheDocument();
   });
 
   it("shows empty state when no accounts", async () => {
     mockListAccounts.mockResolvedValue([]);
     render(<App />);
-    await act(async () => {
-      await new Promise((r) => setTimeout(r, 100));
-    });
+    await waitFor(() => expect(screen.getByText(/添加账户|Add Provider/i)).toBeInTheDocument());
     expect(screen.getByText(/添加账户|Add Provider/i)).toBeInTheDocument();
   });
 
@@ -83,14 +77,10 @@ describe("Dashboard state machine", () => {
     mockListAccounts.mockResolvedValue([mockAccount]);
     mockRefresh.mockResolvedValue([{ ...mockAccount, status: "healthy" }]);
     render(<App />);
-    await act(async () => {
-      await new Promise((r) => setTimeout(r, 100));
-    });
+    await act(async () => {});
     const refreshButton = screen.getByLabelText(/刷新|Refresh/i);
     fireEvent.click(refreshButton);
-    await act(async () => {
-      await new Promise((r) => setTimeout(r, 100));
-    });
+    await waitFor(() => expect(mockRefresh).toHaveBeenCalled());
     expect(mockRefresh).toHaveBeenCalled();
   });
 
@@ -98,14 +88,10 @@ describe("Dashboard state machine", () => {
     mockListAccounts.mockResolvedValue([mockAccount]);
     mockRefresh.mockRejectedValue(new Error("refresh failed"));
     render(<App />);
-    await act(async () => {
-      await new Promise((r) => setTimeout(r, 100));
-    });
+    await act(async () => {});
     const refreshButton = screen.getByLabelText(/刷新|Refresh/i);
     fireEvent.click(refreshButton);
-    await act(async () => {
-      await new Promise((r) => setTimeout(r, 100));
-    });
+    await waitFor(() => expect(screen.getByText(/刷新失败|failed/i)).toBeInTheDocument());
     expect(screen.getByText(/刷新失败|failed/i)).toBeInTheDocument();
   });
 
@@ -114,16 +100,12 @@ describe("Dashboard state machine", () => {
     const errorAccount = { ...mockAccount, id: "acc-2", status: "error" as const, label: "Error Account" };
     mockListAccounts.mockResolvedValue([healthyAccount, errorAccount]);
     render(<App />);
-    await act(async () => {
-      await new Promise((r) => setTimeout(r, 100));
-    });
+    await waitFor(() => expect(screen.getByText("Test Account")).toBeInTheDocument());
     expect(screen.getByText("Test Account")).toBeInTheDocument();
     expect(screen.getByText("Error Account")).toBeInTheDocument();
     const attentionFilter = screen.getByRole("button", { name: /注意|Attention/i });
     fireEvent.click(attentionFilter);
-    await act(async () => {
-      await new Promise((r) => setTimeout(r, 100));
-    });
+    await waitFor(() => expect(screen.queryByText("Test Account")).not.toBeInTheDocument());
     expect(screen.queryByText("Test Account")).not.toBeInTheDocument();
     expect(screen.getByText("Error Account")).toBeInTheDocument();
   });
@@ -132,33 +114,23 @@ describe("Dashboard state machine", () => {
     mockListAccounts.mockResolvedValue([mockAccount]);
     mockDeleteAccount.mockResolvedValue(undefined);
     render(<App />);
-    await act(async () => {
-      await new Promise((r) => setTimeout(r, 100));
-    });
+    await act(async () => {});
     const deleteButton = screen.getByLabelText(/移除|Delete/i);
     fireEvent.click(deleteButton);
-    await act(async () => {
-      await new Promise((r) => setTimeout(r, 100));
-    });
+    await act(async () => {});
     const confirmButton = screen.getByRole("button", { name: /确认|Confirm/i });
     fireEvent.click(confirmButton);
-    await act(async () => {
-      await new Promise((r) => setTimeout(r, 100));
-    });
+    await waitFor(() => expect(mockDeleteAccount).toHaveBeenCalledWith("acc-1"));
     expect(mockDeleteAccount).toHaveBeenCalledWith("acc-1");
   });
 
   it("shows form when add provider clicked", async () => {
     mockListAccounts.mockResolvedValue([]);
     render(<App />);
-    await act(async () => {
-      await new Promise((r) => setTimeout(r, 100));
-    });
+    await act(async () => {});
     const addButton = screen.getByRole("button", { name: /添加|Add/i });
     fireEvent.click(addButton);
-    await act(async () => {
-      await new Promise((r) => setTimeout(r, 100));
-    });
+    await waitFor(() => expect(screen.getByText(/创建账户|Add Provider/i)).toBeInTheDocument());
     expect(screen.getByText(/创建账户|Add Provider/i)).toBeInTheDocument();
   });
 });

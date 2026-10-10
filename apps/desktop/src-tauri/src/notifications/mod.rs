@@ -74,7 +74,7 @@ impl Notification {
 }
 
 /// Notification preferences.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct NotificationPreferences {
     /// Master switch for notifications.
@@ -87,6 +87,18 @@ pub struct NotificationPreferences {
     pub low_quota_threshold: f64,
     /// Hours before reset to send reminder.
     pub reset_reminder_hours: u32,
+}
+
+impl Default for NotificationPreferences {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            critical_only: false,
+            silent_mode: false,
+            low_quota_threshold: 10.0,
+            reset_reminder_hours: 24,
+        }
+    }
 }
 
 /// Evaluates whether a notification should be sent based on preferences.
@@ -122,7 +134,6 @@ impl NotificationFilter {
                     "Low quota",
                     format!("{percent:.1}% remaining"),
                 )
-                .with_provider(snapshot.account_id.clone().unwrap_or_default()),
             )
         } else {
             None
@@ -132,7 +143,7 @@ impl NotificationFilter {
     /// Check if a snapshot triggers a critical quota notification.
     pub fn critical_quota_alert(
         snapshot: &QuotaSnapshot,
-        _prefs: &NotificationPreferences,
+        prefs: &NotificationPreferences,
     ) -> Option<Notification> {
         let remaining = snapshot.remaining?;
         let limit = snapshot.limit?;
@@ -140,14 +151,13 @@ impl NotificationFilter {
             return None;
         }
         let percent = (remaining / limit) * 100.0;
-        if percent <= 10.0 {
+        if percent <= prefs.low_quota_threshold {
             Some(
                 Notification::new(
                     NotificationSeverity::Critical,
                     "Critical quota",
                     format!("{percent:.1}% remaining"),
                 )
-                .with_provider(snapshot.account_id.clone().unwrap_or_default()),
             )
         } else {
             None

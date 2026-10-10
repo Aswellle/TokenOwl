@@ -319,7 +319,10 @@ impl ProviderAdapter for OpenAiCompatibleAdapter {
                 .as_deref()
                 .unwrap_or("https://api.openai.com/v1"),
         );
-        let credentials = CredentialStore::default();
+        let credentials = ctx
+            .credentials
+            .clone()
+            .unwrap_or_else(crate::credentials::CredentialStore::default);
         let result = self
             .fetch(&config, &account.account_id, &credentials)
             .await?;

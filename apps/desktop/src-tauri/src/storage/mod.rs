@@ -488,7 +488,7 @@ impl LocalRepository {
             .map_or(0, |d| d.as_secs());
         conn.execute(
             "INSERT OR REPLACE INTO settings (key, value_json, updated_at) VALUES (?1, ?2, ?3)",
-            rusqlite::params![key, json, now.to_string()],
+            rusqlite::params![key, json, now],
         )?;
         Ok(())
     }

@@ -186,10 +186,11 @@ impl Scheduler {
     fn apply_jitter(duration: Duration) -> Duration {
         let base = duration.as_secs_f64();
         let jitter_amount = base * 0.1;
-        // Deterministic jitter based on current time nanos
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.subsec_nanos());
         #[allow(clippy::cast_precision_loss)]
-        let nanos = Instant::now().elapsed().as_nanos() as f64;
-        let jitter = (nanos.sin() * jitter_amount).abs();
+        let jitter = ((nanos as f64 / 1_000_000_000.0) * jitter_amount).abs();
         Duration::from_secs_f64(base + jitter)
     }
 

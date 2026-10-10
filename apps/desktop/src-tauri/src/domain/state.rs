@@ -16,16 +16,26 @@ fn is_sensitive_metadata_key(key: &str) -> bool {
     matches!(
         normalized.as_slice(),
         b"apikey"
-            | b"authorization"
-            | b"bearer"
-            | b"cookie"
-            | b"setcookie"
+            | b"apisecretkey"
+            | b"secretkey"
+            | b"auth_token"
             | b"accesstoken"
+            | b"accesstokenkey"
             | b"refreshtoken"
+            | b"refreshtokenkey"
             | b"clientsecret"
             | b"password"
             | b"secret"
             | b"sessiontoken"
+            | b"sessiontokenkey"
+            | b"privatekey"
+            | b"api_token"
+            | b"authorization"
+            | b"bearer"
+            | b"cookie"
+            | b"setcookie"
+            | b"token"
+            | b"credential"
     )
 }
 

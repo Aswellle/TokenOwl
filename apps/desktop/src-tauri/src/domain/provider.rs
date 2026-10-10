@@ -755,6 +755,7 @@ impl AccountContext {
 pub struct FetchContext {
     pub timeout: Duration,
     pub base_url: Option<String>,
+    pub credentials: Option<crate::credentials::CredentialStore>,
 }
 
 impl Default for FetchContext {
@@ -762,6 +763,7 @@ impl Default for FetchContext {
         Self {
             timeout: Duration::from_secs(20),
             base_url: None,
+            credentials: None,
         }
     }
 }

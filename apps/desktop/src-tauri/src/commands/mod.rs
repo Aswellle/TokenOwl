@@ -207,10 +207,10 @@ pub(crate) async fn refresh_accounts(
     account_id: Option<String>,
 ) -> Result<Vec<AccountViewModel>, CommandError> {
     let refresh_one = account_id.is_some();
-    let account_ids = {
+    let account_ids: Vec<String> = {
         let repository = state.repository()?;
         match account_id {
-            Some(account_id) => vec![account_id],
+            Some(id) => vec![id],
             None => repository
                 .accounts()?
                 .into_iter()
@@ -229,10 +229,12 @@ pub(crate) async fn refresh_accounts(
             started_at,
         )
         .await;
-        if let Err(error) = result
+        if result.is_err()
             && refresh_one
         {
-            return Err(CommandError::InvalidInput(error.to_string()));
+            return Err(CommandError::InvalidInput(
+                "failed to refresh account".to_owned(),
+            ));
         }
     }
     list_accounts(state)
@@ -241,19 +243,14 @@ pub(crate) async fn refresh_accounts(
 fn list_accounts(state: &AppRuntime) -> Result<Vec<AccountViewModel>, CommandError> {
     let repository = state.repository()?;
     let now = unix_seconds();
-    repository
-        .accounts()?
-        .into_iter()
-        .map(|account| {
-            repository
-                .account_view(&account.id, now, state.freshness_policy)
-                .map_err(CommandError::from)?
-                .ok_or_else(|| {
-                    CommandError::InvalidInput("account disappeared during read".to_owned())
-                })
-                .map(account_view_to_model)
-        })
-        .collect()
+    let accounts = repository.accounts()?;
+    let mut views = Vec::with_capacity(accounts.len());
+    for account in &accounts {
+        if let Some(view) = repository.account_view(&account.id, now, state.freshness_policy)? {
+            views.push(account_view_to_model(view));
+        }
+    }
+    Ok(views)
 }
 
 fn create_account(

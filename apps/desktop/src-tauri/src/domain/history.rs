@@ -107,7 +107,7 @@ impl HistorySeries {
         let first_ts = crate::domain::reset::parse_timestamp(&first.observed_at)?;
         let last_ts = crate::domain::reset::parse_timestamp(&last.observed_at)?;
         #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]
-        let days = (last_ts - first_ts) as f64 / 86400.0;
+        let days = (last_ts.saturating_sub(first_ts)) as f64 / 86400.0;
         if days <= 0.0 {
             return None;
         }

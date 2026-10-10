@@ -615,6 +615,7 @@ export interface AppProps {
 }
 
 export function App({ bridge = tauriBridge }: AppProps = {}) {
+  const loadAccountsRequestId = useRef(0);
   const [showForm, setShowForm] = useState(false);
   const [accounts, setAccounts] = useState<AccountViewModel[]>([]);
   const [phase, setPhase] = useState<LoadPhase>("loading");
@@ -630,12 +631,16 @@ export function App({ bridge = tauriBridge }: AppProps = {}) {
   const overallStatus = overallHealth(accounts, phase);
 
   const loadAccounts = async () => {
+    const requestId = ++loadAccountsRequestId.current;
     setPhase("loading");
     try {
-      setAccounts(await bridge.listAccounts());
+      const result = await bridge.listAccounts();
+      if (requestId !== loadAccountsRequestId.current) return;
+      setAccounts(result);
       setPhase("ready");
       setNotice(null);
     } catch {
+      if (requestId !== loadAccountsRequestId.current) return;
       setPhase("offline");
       setNotice({ text: copy.notices.loadFailed, tone: "warning" });
     }

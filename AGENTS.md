@@ -2,90 +2,95 @@
 
 ## Project Overview
 
-TokenOwl is a local-first Tauri 2 desktop monitor for AI-provider quota and usage data. The product is Windows/macOS-first: a low-distraction floating bubble opens a React dashboard showing provider accounts, quota windows, remaining values, reset timing, freshness, and errors.
+TokenOwl is a local-first Windows/macOS-oriented Tauri 2 desktop monitor for AI-provider quota, balance, usage, and reset information. A small floating bubble opens a React dashboard for provider accounts, quota windows, remaining values, freshness, and errors.
 
-The repository is an early implementation baseline. The current UI is a functional shell, while the `docs/` files describe the broader target architecture and roadmap. Treat documented future modules as design guidance, not as existing code.
+This repository is an early implementation baseline. The current code provides a Tauri shell, a React/Vite dashboard shell, Rust provider/state primitives, tray wiring, and position IPC. The scheduler, network adapters, SQLite persistence, OS credential service, and frontend provider IPC are planned or incomplete; treat `docs/` target architecture as guidance, not existing code.
 
 ## Architecture & Data Flow
 
-- **Desktop shell:** Tauri 2 hosts a Vite + React + TypeScript frontend and a Rust library crate. `src-tauri/src/main.rs` is the thin native entry point; `src-tauri/src/lib.rs` owns Tauri setup, tray wiring, window commands, and runtime state.
-- **Frontend:** `src/main.tsx` mounts `App` under `React.StrictMode`. `src/App.tsx` currently owns the dashboard/bubble shell and local UI state for expanded, form, provider name, and empty/loading/error/unsupported states. `src/App.css` contains the current visual implementation.
-- **Rust domain primitives:** `src-tauri/src/provider.rs` defines provider descriptors, capabilities, authentication metadata, normalized quota snapshots, structured provider errors, OpenAI-compatible configuration, parsing, and a provider registry. `src-tauri/src/state.rs` defines account metadata, snapshot storage/views, freshness policies, position settings, refresh state, and backoff policies.
-- **Current IPC:** Tauri commands in `src-tauri/src/lib.rs` cover bubble position read/write plus opening and hiding the dashboard. The frontend currently does not integrate provider data through IPC.
-- **Intended flow:** scheduler/account credential resolution -> provider adapter -> raw response parser -> normalized snapshot -> validation/persistence -> Tauri event/IPC -> React state -> bubble/dashboard. Preserve raw responses at the provider boundary and expose normalized values; missing provider values remain unknown (`Option`/`null`), never fabricated as zero.
-- **Failure behavior:** provider failures should be classified, retain the last known good snapshot until hard expiry, mark stale/error state, and use bounded exponential backoff. Do not freeze or blank the UI because one provider failed.
-- **Security boundary:** credentials belong in the OS credential store. Persist only a credential reference and non-secret account metadata; never place API keys, tokens, cookies, or raw sensitive responses in SQLite, fixtures, source, or logs.
+- **Desktop shell:** `src-tauri/src/main.rs` is the thin native entry point and calls `tokenowl_lib::run()`. `src-tauri/src/lib.rs` builds Tauri, owns tray behavior, managed runtime state, and window/position commands.
+- **Frontend:** `index.html` -> `src/main.tsx` -> `src/App.tsx`. `main.tsx` mounts `App` under `React.StrictMode`; `App.tsx` currently owns local bubble/dashboard, form, provider-name, and empty/loading/error/unsupported state. `src/App.css` owns the shell styling and responsive/reduced-motion rules.
+- **Rust domain:** `src-tauri/src/provider.rs` defines provider descriptors, capabilities, normalized quota snapshots, structured errors, OpenAI-compatible configuration/parsing, and a registry. `src-tauri/src/state.rs` defines account metadata sanitization, snapshots, freshness, position, refresh, and backoff policies.
+- **Current IPC:** position read/write and dashboard open/hide commands are registered in `lib.rs`; the frontend does not yet consume provider data through IPC. Bubble position is currently runtime state, not durable persistence.
+- **Target flow:** scheduler -> account/credential resolution -> provider adapter -> raw response parser -> normalized `QuotaSnapshot` -> validation/persistence -> Tauri event/IPC -> React state -> bubble/dashboard. Provider-specific formats stay at the adapter boundary.
+- **Failure invariant:** retain the last known good snapshot when possible, mark stale/error state, and use bounded backoff. Never replace an unknown provider value with zero or freeze the UI because one provider failed.
 
 ## Key Directories
 
 - `src/`: React/Vite frontend entry points and current dashboard shell.
-- `src-tauri/src/`: Rust application entry point plus provider and state domain primitives.
-- `src-tauri/`: Cargo crate, Tauri configuration, capabilities, generated platform assets, and icons.
-- `docs/`: product requirements, architecture, provider protocol, data/API design, UI guidance, security/testing/release rules, agent workflow, roadmap, and implementation status.
-- `public/`: static Vite/Tauri assets.
-- `dist/` and `target/`: generated build output; do not edit manually.
+- `src-tauri/src/`: Rust application entry point, Tauri runtime, provider domain, and state primitives.
+- `src-tauri/`: Cargo crate, Tauri config, capabilities, build script, generated platform assets, and icons.
+- `src-tauri/capabilities/`: Tauri permission boundary; `default.json` currently grants core/opener defaults to `main` and `bubble`, with no network permission.
+- `docs/`: product requirements, target architecture, provider protocol, data model, UI, security/QA, agent workflow, roadmap, and implementation status.
+- `public/`: static frontend assets.
+- `dist/`, `src-tauri/target/`, and generated capability schemas under `src-tauri/gen/`: build artifacts; do not edit manually.
 
 ## Development Commands
 
-Run commands from the repository root.
+Run frontend commands from the repository root. Run Cargo commands from `src-tauri/`.
 
 ```bash
 pnpm install
-pnpm dev                 # Vite frontend at http://localhost:1420
-pnpm build               # tsc followed by vite build
-pnpm typecheck           # tsc --noEmit
-pnpm lint                # currently aliases tsc --noEmit
-pnpm test                # Node's built-in test runner
-pnpm tauri dev           # Tauri desktop development flow
-pnpm tauri build         # Tauri package/build flow
-cargo fmt --check        # from src-tauri/
-cargo test               # from src-tauri/
-cargo clippy -- -D warnings  # from src-tauri/
+pnpm dev                         # Vite at http://localhost:1420
+pnpm typecheck                   # tsc --noEmit
+pnpm lint                        # currently the same TypeScript check
+pnpm build                       # tsc followed by vite build
+pnpm test                        # Node built-in test runner
+pnpm preview                     # preview the Vite build
+pnpm tauri dev                   # local Tauri CLI, desktop development
+pnpm tauri build                 # local Tauri CLI, package build
+
+cd src-tauri
+cargo fmt --check
+cargo test
+cargo clippy -- -D warnings
 ```
 
-Tauri itself is configured in `src-tauri/tauri.conf.json`: frontend development uses port `1420`, the build output is `../dist`, and the Tauri precommands are `npm run dev` and `npm run build`. The Vite server uses a strict fixed port and ignores `src-tauri` while watching.
+`vite.config.ts` requires port `1420`, uses HMR port `1421` when `TAURI_DEV_HOST` is set, and ignores `src-tauri`. `src-tauri/tauri.conf.json` runs `npm run dev`/`npm run build` as Tauri precommands and packages root `dist`.
 
 ## Code Conventions & Common Patterns
 
-- **TypeScript:** strict mode is enabled with `noUnusedLocals`, `noUnusedParameters`, and `noFallthroughCasesInSwitch`. Use typed React props/state and keep UI state explicit. Prefer small components and accessible native controls; preserve `aria-*`, labels, keyboard focus, and visible loading/empty/error/unsupported states.
-- **Rust:** edition 2024, minimum Rust 1.85. Public serialized models use Serde with explicit casing (`camelCase` for object fields, `snake_case` or `SCREAMING_SNAKE_CASE` where established by the type). Keep provider-specific raw formats at adapter/parser boundaries and use normalized domain types internally.
-- **Errors:** provider errors use `ProviderErrorKind` and `ProviderResult<T>` rather than unstructured strings. Include HTTP status/retryability/retry timing when available. Do not turn unknown values into successful-looking defaults.
-- **State and timing:** freshness boundaries and retry/backoff policies are explicit value objects. Keep persistence/network/credential concerns out of the state primitives; `state.rs` intentionally contains no network or secret-store code.
-- **Testing patterns:** Rust domain tests use `#[cfg(test)]` modules with deterministic fixtures and boundary assertions. Provider tests cover success, partial data, malformed JSON, auth errors, rate limits, empty responses, and capability declarations.
-- **Dependencies:** use the existing Tauri/React/Rust stack and local patterns. Do not introduce a second state-management or networking convention without updating the architecture and affected callers.
+- **TypeScript:** strict compiler checks, `noUnusedLocals`, `noUnusedParameters`, and `noFallthroughCasesInSwitch` are enabled. Keep props and state typed, prefer small components and explicit UI states, and preserve labels, keyboard focus, ARIA attributes, narrow-window behavior, and reduced motion.
+- **Rust:** edition 2024, minimum Rust 1.85. Use Serde models with established casing: `camelCase` for object fields, `snake_case` for ordinary enums, and `SCREAMING_SNAKE_CASE` for protocol/status enums.
+- **Domain boundaries:** keep provider-specific raw responses in provider adapters/parsers and expose normalized values internally. `Option`/`null` represents unavailable data; unknown is not zero.
+- **Errors:** use `ProviderErrorKind` and `ProviderResult<T>` in `provider.rs`; preserve HTTP status, retryability, and retry timing when available instead of returning unstructured success-looking strings.
+- **State:** keep network, persistence, and credential-store concerns out of `state.rs`; its value objects model freshness, snapshots, position, refresh, and backoff.
+- **Frontend state:** the current shell uses React `useState`; do not add a second state-management or networking convention without updating the architecture and callers.
+- **Security:** credentials belong in the OS credential store. Persist only a credential reference and non-secret account metadata. Never put API keys, OAuth tokens, cookies, raw sensitive responses, or complete secrets in source, fixtures, SQLite, or logs. Any future custom endpoint/redirect handling requires explicit URL and SSRF review.
+- **UI:** status must not rely on color alone; support empty/loading/success/partial/stale/error/offline/unsupported states and accessible native controls.
 
 ## Important Files
 
-- `README.md`: document index, product invariants, implementation phases, and AI-agent reading order.
-- `docs/07-AI-Agent开发执行规范.md`: required agent workflow, baseline/build/test expectations, prohibitions, diff audit, and provider/UI checklists.
-- `docs/02-技术架构.md`: intended layers and data flow.
-- `docs/06-安全隐私测试与发布.md`: credential, network, testing, CI, and release requirements.
-- `docs/IMPLEMENTATION-STATUS.md`: current implementation state, limitations, known bugs, and technical debt.
-- `docs/IMPLEMENTATION-GAP.md`: requirement-by-requirement implementation gap matrix.
-- `package.json`: frontend scripts, dependencies, and pinned package manager declaration.
-- `vite.config.ts`: Vite/Tauri dev server behavior and port `1420`.
-- `tsconfig.json`: strict frontend compiler settings.
-- `src-tauri/Cargo.toml`: Rust dependencies, lint levels, edition/version, and release profile.
-- `src-tauri/tauri.conf.json`: windows, CSP, dev/build commands, and bundle settings.
-- `src/App.tsx`: current dashboard shell and UI state transitions.
-- `src-tauri/src/lib.rs`: Tauri commands, runtime state, tray setup, and application bootstrap.
-- `src-tauri/src/provider.rs`: provider protocol/domain models, parser, registry, and fixture-style tests.
-- `src-tauri/src/state.rs`: freshness, snapshot, position, refresh, backoff, and account metadata primitives/tests.
+- `README.md`: product invariants, required document index, implementation phases, and agent reading order.
+- `docs/07-AI-Agent开发执行规范.md`: baseline, implementation workflow, prohibitions, provider checklist, UI checklist, and diff self-audit.
+- `docs/02-技术架构.md`: intended layers, scheduler/network/storage boundaries, and normal/failure data flows.
+- `docs/06-安全隐私测试与发布.md`: credential, network, fixture, CI, offline, E2E, performance, and release requirements.
+- `docs/IMPLEMENTATION-STATUS.md`: current status, limitations, known bugs, and technical debt.
+- `docs/IMPLEMENTATION-GAP.md`: requirement-by-requirement implemented/missing matrix.
+- `package.json`: scripts, dependencies, and declared `pnpm@10.33.2` package manager.
+- `tsconfig.json` / `tsconfig.node.json`: frontend and Vite TypeScript compiler settings.
+- `vite.config.ts`: React/Vite/Tauri development-server behavior.
+- `src-tauri/Cargo.toml`: Rust version, dependencies, lint levels, and release profile.
+- `src-tauri/tauri.conf.json`: windows, CSP, Tauri precommands, frontend output, and bundle targets.
+- `src-tauri/src/lib.rs`: Tauri bootstrap, tray, runtime state, commands, and window behavior.
+- `src-tauri/src/provider.rs`: provider protocol primitives, parser, registry, and provider tests.
+- `src-tauri/src/state.rs`: snapshot/freshness/position/backoff primitives and state tests.
 
 ## Runtime/Tooling Preferences
 
-- Use the repository-declared package manager: `pnpm` version `10.33.2` is specified in `package.json`. `package-lock.json` also exists from initialization; avoid changing lockfiles casually and keep the chosen install workflow consistent with the active baseline.
-- Frontend runtime/tooling: Node-compatible environment, TypeScript, Vite, React 19, and the local `@tauri-apps/cli` package. Do not assume a globally installed Tauri CLI.
-- Backend tooling: Rust/Cargo with edition 2024 and `rust-version = 1.85`; current development targets the Windows desktop environment, while macOS behavior remains unverified.
-- Tauri security is restrictive by default: CSP is configured for self-hosted resources and no network capability should be opened without an explicit security review.
+- Use the repository-declared `pnpm@10.33.2` for root scripts and the local `@tauri-apps/cli`; do not assume a global Tauri CLI.
+- `package-lock.json` is currently the only JavaScript lockfile, while `package.json` declares pnpm and Tauri precommands use npm. Avoid casual lockfile churn; keep the chosen install workflow consistent and validate any lockfile change.
+- Frontend tooling is Node-compatible TypeScript, Vite, React 19, and Tauri 2. The recorded Windows baseline used Node 22.14.0/npm 10.33.2; do not infer cross-platform support from that baseline.
+- Rust uses Cargo with edition 2024 and `rust-version = 1.85`; the recorded Windows baseline used Rust 1.94.0. macOS behavior, Keychain, menu bar, and Apple Silicon builds remain unverified.
+- Tauri CSP is restrictive and self-hosted by default. Do not open network capabilities or broaden permissions without an explicit security review.
+- Do not manually edit `dist`, `target`, generated schemas, or platform icon outputs.
 
 ## Testing & QA
 
-- Run frontend type/build checks with `pnpm typecheck` and `pnpm build`. `pnpm lint` currently runs the same TypeScript no-emit check; there is no separate ESLint configuration in the current repository.
-- Run frontend tests with `pnpm test` (`node --test`). No frontend test files or dedicated browser-test configuration are currently present; do not claim UI coverage without adding and running it.
-- Run Rust tests from `src-tauri/` with `cargo test`; current unit tests live inside `provider.rs` and `state.rs`.
-- Run Rust formatting and lint checks with `cargo fmt --check` and `cargo clippy -- -D warnings`. Cargo declares Rust/clippy lints as warnings, so the strict clippy command is the useful gate.
-- For provider changes, add deterministic offline fixture coverage for success, partial/missing fields, malformed data, unauthorized, rate-limited, server-error, and empty responses as applicable. Verify status mapping, field/unit/reset mapping, and retry behavior.
-- For state changes, test boundary conditions: freshness transitions, stale fallback/hard expiry, backoff caps/jitter, position normalization, secret-metadata removal, mixed or missing values, and reset/timezone behavior when implemented.
-- For UI changes, manually verify empty/loading/success/partial/stale/error/offline/unsupported states, keyboard access, narrow windows, high-DPI behavior, reduced motion, and long labels. The project guidance requires actual screenshots/recordings for shell interaction work and real build artifacts before release claims.
-- Keep real credentials and provider account data out of tests. Use fixtures and explicit empty states. Do not claim cross-platform support until the relevant Windows/macOS flows have actually been exercised.
+- Frontend: `pnpm typecheck` and `pnpm build` are the meaningful current checks; `pnpm lint` aliases typecheck. `pnpm test` invokes `node --test`, but there are currently no frontend test files, browser runner, component-test setup, or coverage configuration.
+- Rust: run `cargo test` from `src-tauri/`. Unit tests are embedded in `provider.rs` and `state.rs`. Provider tests use deterministic inline JSON and cover success, partial/missing values, malformed JSON, auth failure, rate limiting/retry-after, empty responses, capabilities, and registry lookup. State tests cover freshness boundaries, stale fallback/hard expiry, capped backoff/jitter, position normalization, and sensitive metadata removal.
+- Provider changes should add offline deterministic coverage for success, partial/missing fields, malformed data, unauthorized, rate-limited, server-error, empty responses, status mapping, unit/reset mapping, and retry behavior as applicable. Never use real accounts as the only test basis.
+- State changes should test freshness transitions, stale fallback/hard expiry, backoff caps, position normalization, secret-metadata removal, mixed/missing values, and reset/timezone boundaries when implemented.
+- UI/shell changes require manual verification of state variants, keyboard access, click-vs-drag, narrow windows, high-DPI, reduced motion, long labels, and offline behavior. Shell interaction work should include screenshots/recordings; release claims require real build artifacts.
+- Degraded-path checks should preserve the old snapshot and visible stale state across network failure, timeout, TLS/DNS failure, 429, 500, invalid JSON, and expired auth, with bounded retry/backoff.
+- Before claiming completion, follow the documented sequence: baseline -> implementation -> unit/integration tests -> build -> manual UX test -> diff review -> self-audit. Do not claim macOS or release readiness without exercising the relevant platform/build path.

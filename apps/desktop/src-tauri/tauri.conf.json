@@ -1,0 +1,68 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "TokenOwl",
+  "version": "../package.json",
+  "identifier": "com.tokenowl.app",
+  "build": {
+    "beforeDevCommand": "pnpm dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "pnpm build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "macOSPrivateApi": true,
+    "windows": [
+      {
+        "label": "main",
+        "title": "TokenOwl",
+        "width": 760,
+        "height": 720,
+        "minWidth": 560,
+        "minHeight": 480,
+        "resizable": true,
+        "decorations": false,
+        "transparent": true,
+        "visible": true,
+        "windowEffects": {
+          "effects": ["acrylic", "sidebar"]
+        }
+      },
+      {
+        "label": "bubble",
+        "title": "TokenOwl status",
+        "width": 56,
+        "height": 56,
+        "minWidth": 48,
+        "minHeight": 48,
+        "resizable": false,
+        "decorations": false,
+        "transparent": true,
+        "alwaysOnTop": true,
+        "visible": false
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; script-src 'self'"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "createUpdaterArtifacts": true,
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ]
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDVERjJGMDZDODI0NkY4MDIKUldRQytFYUNiUER5WFo2aEtTdDY4aCtqRmxOengrWjloYU9ZWUo1TDNhRmlDK09ZSER5NENXaVMK",
+      "endpoints": [
+        "https://github.com/Aswellle/TokenOwl/releases/latest/download/latest.json"
+      ]
+    }
+  }
+}

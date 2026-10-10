@@ -1,0 +1,197 @@
+/**
+ * Simplified-Chinese product copy. Single source for every user-facing string so
+ * the UI never mixes languages and a future locale can be added without touching
+ * components. Values stay in natural case; presentation belongs to CSS.
+ */
+
+export const copy = {
+  brand: "TokenOwl",
+  appTitle: "额度总览",
+  workspace: "工作区",
+  accountsTitle: "账户",
+
+  titlebar: {
+    close: "关闭面板（回到 Bubble）",
+    minimize: "最小化面板",
+    bubble: "Bubble",
+    bubbleHint: "收起面板，回到悬浮 Bubble",
+  },
+
+  filter: {
+    all: "全部",
+    attention: "需处理",
+  },
+
+  bubble: {
+    openDashboard: "展开 TokenOwl 面板",
+    loading: "正在获取额度",
+  },
+
+  summary: {
+    accounts: "账户",
+    healthy: "正常",
+    nextReset: "下次重置",
+    pressure: "额度压力",
+    lastSync: "最近同步",
+    notConnected: "尚未连接",
+    configuredLocally: "仅存本机",
+    needsAttention: (count: number) => `${count} 个需要处理`,
+    waitingData: "等待首次数据",
+    knownWindow: "已知窗口",
+    unknown: "未知",
+    none: "—",
+  },
+
+  actions: {
+    addAccount: "添加账户",
+    refresh: "刷新",
+    refreshAll: "全部刷新",
+    refreshing: "刷新中",
+    closeSetup: "关闭表单",
+    submit: "连接账户",
+    submitting: "正在连接…",
+    cancel: "取消",
+    remove: "移除",
+    confirmRemove: "确认移除",
+    retry: "重试",
+    checkUpdate: "检查更新",
+    checkingUpdate: "正在检查更新",
+    installAndRestart: "安装并重启",
+    later: "稍后",
+    openDashboard: "展开面板",
+    collapseDashboard: "收起面板",
+  },
+
+  health: {
+    healthy: "正常",
+    attention: "需要关注",
+    critical: "额度紧张",
+    stale: "数据偏旧",
+    error: "同步失败",
+    offline: "本地服务不可用",
+    syncing: "正在同步",
+    unavailable: "暂无数据",
+  } as Record<string, string>,
+
+  quota: {
+    remaining: "剩余",
+    limit: "上限",
+    used: "已用",
+    none: "未知",
+    partial: "数据不完整",
+    notReported: "未上报",
+    readError: "该指标读取失败",
+    emptyTitle: "尚未获得额度数据",
+    emptyBody: "点击刷新以获取该账户的第一个快照。",
+    emptyUnavailable: "该账户已连接，但接口没有返回可识别的额度字段。",
+  },
+
+  freshness: {
+    fresh: "数据最新",
+    stale: "数据偏旧",
+    expired: "数据已过期",
+    unknown: "新鲜度未知",
+    neverSynced: "从未同步",
+  },
+
+  sources: {
+    OFFICIAL_API: "官方 API",
+    OAUTH_API: "OAuth API",
+    BROWSER_SESSION: "浏览器会话",
+    COOKIE: "Cookie",
+    CLI_LOCAL: "本地 CLI",
+    LOCAL_DB: "本地数据",
+    CUSTOM_ENDPOINT: "自定义端点",
+    CACHED: "缓存快照",
+    MANUAL: "手动录入",
+  } as Record<string, string>,
+
+  units: {
+    token: "Token",
+    currency: "金额",
+    request: "请求",
+    credit: "额度",
+    percent: "百分比",
+    compute_unit: "算力",
+    character: "字符",
+    minute: "分钟",
+    image: "张",
+  } as Record<string, string>,
+
+  windowTypes: {
+    rolling: "滚动窗口",
+    fixed: "固定窗口",
+    calendar: "日历窗口",
+    subscription: "订阅周期",
+    custom: "自定义窗口",
+  } as Record<string, string>,
+
+  time: {
+    justNow: "刚刚",
+    minutesAgo: (minutes: number) => `${minutes} 分钟前`,
+    hoursAgo: (hours: number) => `${hours} 小时前`,
+    daysAgo: (days: number) => `${days} 天前`,
+    resetDue: "即将重置",
+    resetShortDays: (days: number, hours: number) => `${days} 天 ${hours} 小时`,
+    resetShortHours: (hours: number, minutes: number) => `${hours} 小时 ${minutes} 分`,
+    resetShortMinutes: (minutes: number) => `${minutes} 分钟`,
+    resetInDays: (days: number, hours: number) => `${days} 天 ${hours} 小时后重置`,
+    resetInHours: (hours: number, minutes: number) => `${hours} 小时 ${minutes} 分后重置`,
+    resetInMinutes: (minutes: number) => `${minutes} 分钟后重置`,
+    updated: (relative: string) => `更新于 ${relative}`,
+  },
+
+  notices: {
+    loadFailed: "无法连接本地服务，界面已切换为离线状态；本机数据不会被清除。",
+    refreshFailed: "刷新失败，已保留最近一次成功的数据。",
+    refreshFailedOne: "该账户刷新失败，已保留最近一次成功的数据。",
+    deleteFailed: "移除失败，请稍后重试。",
+    accountStale: "该快照已偏旧，数值仍然可用，但要等下一次成功刷新才可靠。",
+    accountError: "刷新失败，下方显示的是最近一次成功的数据。",
+    bridgeUnavailable: "本地服务不可用",
+    localOnly: "数据仅保存在本机",
+    offlineTitle: "本地服务不可用",
+    offlineBody: "无法连接 TokenOwl 的本地服务。恢复后账户与快照会自动回来，不需要重新添加。",
+  },
+
+  update: {
+    current: "已是最新版本。",
+    available: (version: string) => `发现新版本 ${version}，安装后会自动重启。`,
+    deferred: (version: string) => `已跳过 ${version}，可随时再次检查。`,
+    installed: "更新已安装，TokenOwl 即将重启。",
+    unavailable: "当前无法检查或安装更新，本机数据未受影响。",
+  },
+
+  form: {
+    title: "连接 OpenAI 兼容账户",
+    intro: "适用于兼容 OpenAI 接口的中转站或自建网关。只有对方上报的字段才会显示，未知值不会补零。",
+    label: "账户名称",
+    labelPlaceholder: "例如：公司中转站",
+    baseUrl: "接口地址",
+    baseUrlPlaceholder: "https://api.example.com/v1",
+    baseUrlHelp: "该账户的基础地址，不含具体接口路径。",
+    apiKey: "API 密钥",
+    apiKeyPlaceholder: "必填",
+    apiKeyHelp: "直接写入系统凭据库，不会出现在日志、界面或数据库中。",
+    quotaEndpoint: "额度接口（可选）",
+    quotaEndpointPlaceholder: "/usage",
+    quotaEndpointHelp: "相对路径，例如 /usage；留空使用默认值。",
+    missingAccount: "请填写账户名称与接口地址。",
+    missingKey: "请填写 API 密钥。",
+    failed: "账户连接失败，请检查接口地址与密钥后重试。",
+    credentialsNote: "凭据只保存在本机系统凭据库。",
+  },
+
+  removeConfirm: (label: string) => `移除「${label}」？本机凭据引用与快照会一起删除。`,
+
+  a11y: {
+    summaryRegion: "账户汇总",
+    dashboardRegion: "TokenOwl 面板",
+    accountsRegion: "账户列表",
+    loadingAccounts: "正在加载账户",
+    filterAccounts: "按状态筛选账户",
+    removeAccount: (label: string) => `移除账户 ${label}`,
+    refreshAccount: (label: string) => `刷新账户 ${label}`,
+    quotaBar: (metric: string, percent: string) => `${metric}：剩余 ${percent}`,
+  },
+};

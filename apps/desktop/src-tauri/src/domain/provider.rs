@@ -801,12 +801,13 @@ pub struct UsagePoint {
 }
 
 /// 健康检查结果。
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum HealthStatus {
     Healthy,
     Degraded,
     Unhealthy,
+    #[default]
     Unknown,
 }
 
@@ -1045,5 +1046,35 @@ mod tests {
                 .map(|handle| handle.descriptor.display_name.as_str()),
             Some("Fixture Provider")
         );
+    }
+
+    #[test]
+    fn account_context_new_sets_ids() {
+        let ctx = AccountContext::new("acct-1", "openai");
+        assert_eq!(ctx.account_id, "acct-1");
+        assert_eq!(ctx.provider_id, "openai");
+        assert!(ctx.credential_ref.is_none());
+    }
+
+    #[test]
+    fn account_context_with_credential_ref_chains() {
+        let ctx = AccountContext::new("acct-1", "openai")
+            .with_credential_ref("keyring://tokenowl/acct-1");
+        assert_eq!(
+            ctx.credential_ref.as_deref(),
+            Some("keyring://tokenowl/acct-1")
+        );
+    }
+
+    #[test]
+    fn fetch_context_default_has_20s_timeout() {
+        let ctx = FetchContext::default();
+        assert_eq!(ctx.timeout, std::time::Duration::from_secs(20));
+        assert!(ctx.base_url.is_none());
+    }
+
+    #[test]
+    fn health_status_default_is_unknown() {
+        assert_eq!(HealthStatus::default(), HealthStatus::Unknown);
     }
 }

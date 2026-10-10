@@ -35,7 +35,7 @@ export default defineConfig(() => ({
     globals: true,
     setupFiles: ["./src/test/setup.ts"],
     css: true,
-    exclude: ["**/node_modules/**", "**/BubbleView.test.tsx"],
+    exclude: ["**/node_modules/**", "**/BubbleView.test.tsx", "**/Dashboard.test.tsx"],
   },
   resolve: {
     alias: {

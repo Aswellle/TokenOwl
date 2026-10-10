@@ -6,7 +6,9 @@
 //! credential values never cross this module's API or appear in its schema.
 
 use crate::domain::provider::{OpenAiCompatibleConfig, QuotaSnapshot, QuotaSnapshotSet};
-use crate::domain::state::{AccountMetadata, Freshness, FreshnessPolicy, RefreshState, RefreshStatus};
+use crate::domain::state::{
+    AccountMetadata, Freshness, FreshnessPolicy, RefreshState, RefreshStatus,
+};
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
@@ -471,7 +473,7 @@ fn snapshot_key(snapshot: &QuotaSnapshot, index: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::provider::{Confidence, DataSource, SnapshotStatus};
+    use crate::domain::provider::{Confidence, DataSource, SnapshotStatus};
     use std::collections::HashMap;
     use std::time::Duration;
 

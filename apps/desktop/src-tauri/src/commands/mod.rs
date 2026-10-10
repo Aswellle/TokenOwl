@@ -1,11 +1,13 @@
 // IPC command implementations (Application Layer)
 // Original content moved from src-tauri/src/commands.rs
 use crate::credentials::CredentialStore;
-use crate::providers::builtin::openai::OpenAiCompatibleAdapter;
-use crate::storage::{AccountViewDto, LocalRepository, SnapshotViewDto, StorageError};
-use crate::domain::provider::{AuthMethod, DataSource, OpenAiCompatibleConfig, QuotaUnit, SnapshotStatus};
-use crate::scheduler::refresh_account;
+use crate::domain::provider::{
+    AuthMethod, DataSource, OpenAiCompatibleConfig, QuotaUnit, SnapshotStatus,
+};
 use crate::domain::state::{AccountMetadata, Freshness, FreshnessPolicy, RefreshStatus};
+use crate::providers::builtin::openai::OpenAiCompatibleAdapter;
+use crate::scheduler::refresh_account;
+use crate::storage::{AccountViewDto, LocalRepository, SnapshotViewDto, StorageError};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;

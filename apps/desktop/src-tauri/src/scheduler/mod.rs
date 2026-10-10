@@ -6,10 +6,10 @@
 //! callers can continue to display it until the configured hard-expiry boundary.
 
 use crate::credentials::CredentialStore;
-use crate::providers::builtin::openai::OpenAiCompatibleAdapter;
-use crate::storage::{LocalRepository, StorageError};
 use crate::domain::provider::{ProviderError, ProviderErrorKind};
 use crate::domain::state::{BackoffPolicy, RefreshState};
+use crate::providers::builtin::openai::OpenAiCompatibleAdapter;
+use crate::storage::{LocalRepository, StorageError};
 use std::time::Duration;
 use thiserror::Error;
 
@@ -99,8 +99,8 @@ fn retry_at(state: &RefreshState, now: u64, error: &ProviderError) -> Option<u64
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::provider::OpenAiCompatibleConfig;
-    use crate::state::AccountMetadata;
+    use crate::domain::provider::OpenAiCompatibleConfig;
+    use crate::domain::state::AccountMetadata;
     use std::collections::HashMap;
     #[test]
     fn account_not_found_is_structured() {
@@ -114,7 +114,7 @@ mod tests {
             10,
         ));
         assert!(
-            matches!(result, Err(RefreshError::Provider(error)) if error.code == crate::provider::ProviderErrorKind::ConfigInvalid)
+            matches!(result, Err(RefreshError::Provider(error)) if error.code == crate::domain::provider::ProviderErrorKind::ConfigInvalid)
         );
     }
 

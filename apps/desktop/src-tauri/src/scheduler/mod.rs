@@ -105,7 +105,9 @@ mod tests {
     #[test]
     fn account_not_found_is_structured() {
         let repository = LocalRepository::open_in_memory().expect("database");
-        let adapter = OpenAiCompatibleAdapter::with_default_limits().expect("adapter");
+        let adapter =
+            OpenAiCompatibleAdapter::with_default_limits(OpenAiCompatibleConfig::default())
+                .expect("adapter");
         let result = futures_block_on(refresh_account(
             repository,
             &adapter,

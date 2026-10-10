@@ -34,7 +34,8 @@ impl AppRuntime {
         }
         LocalRepository::open(&database_path).map_err(|error| error.to_string())?;
         let adapter =
-            OpenAiCompatibleAdapter::with_default_limits().map_err(|error| error.to_string())?;
+            OpenAiCompatibleAdapter::with_default_limits(OpenAiCompatibleConfig::default())
+                .map_err(|error| error.to_string())?;
         Ok(Self {
             database_path,
             credentials: CredentialStore::default(),

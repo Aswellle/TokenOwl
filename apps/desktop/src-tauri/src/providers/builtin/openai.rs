@@ -44,10 +44,11 @@ pub struct FetchResult {
 pub struct OpenAiCompatibleAdapter {
     client: Client,
     limits: AdapterLimits,
+    config: OpenAiCompatibleConfig,
 }
 
 impl OpenAiCompatibleAdapter {
-    pub fn new(limits: AdapterLimits) -> ProviderResult<Self> {
+    pub fn new(limits: AdapterLimits, config: OpenAiCompatibleConfig) -> ProviderResult<Self> {
         if limits.timeout.is_zero() || limits.max_response_bytes == 0 {
             return Err(ProviderError::new(
                 ProviderErrorKind::ConfigInvalid,
@@ -63,11 +64,15 @@ impl OpenAiCompatibleAdapter {
                     format!("unable to initialize HTTP client: {error}"),
                 )
             })?;
-        Ok(Self { client, limits })
+        Ok(Self {
+            client,
+            limits,
+            config,
+        })
     }
 
-    pub fn with_default_limits() -> ProviderResult<Self> {
-        Self::new(AdapterLimits::default())
+    pub fn with_default_limits(config: OpenAiCompatibleConfig) -> ProviderResult<Self> {
+        Self::new(AdapterLimits::default(), config)
     }
 
     pub fn limits(&self) -> AdapterLimits {
@@ -291,7 +296,7 @@ fn unix_seconds() -> u64 {
 #[async_trait::async_trait]
 impl ProviderAdapter for OpenAiCompatibleAdapter {
     fn descriptor(&self) -> ProviderDescriptor {
-        ProviderDescriptor::new("openai-compatible", "OpenAI-Compatible Provider")
+        self.config.descriptor()
     }
 
     async fn validate_account(&self, _account: &AccountContext) -> ProviderResult<AccountIdentity> {

@@ -39,7 +39,7 @@ export function BubbleView({ bridge = tauriBridge }: { bridge?: DashboardBridge 
     const unlisten = listen("quota:updated", load).catch(() => null);
     return () => {
       active = false;
-      void unlisten.then((dispose) => dispose?.());
+      void unlisten.then((dispose) => { if (typeof dispose === "function") dispose(); });
     };
   }, [bridge]);
 

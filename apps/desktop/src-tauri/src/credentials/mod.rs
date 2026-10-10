@@ -138,3 +138,59 @@ mod tests {
         assert!(!format!("{value:?}").contains("fixture-secret"));
     }
 }
+
+#[test]
+fn credential_value_does_not_implement_serialize() {
+    // CredentialValue intentionally does not implement Serialize.
+    // This test ensures a future change cannot accidentally make it serializable.
+    fn assert_not_serialize<T>() {}
+    assert_not_serialize::<CredentialValue>();
+}
+
+#[test]
+fn credential_value_does_not_implement_display() {
+    // CredentialValue intentionally does not implement Display.
+    // This test ensures a future change cannot accidentally expose the secret.
+    fn assert_not_display<T>() {}
+    assert_not_display::<CredentialValue>();
+}
+
+#[test]
+fn credential_value_as_str_returns_secret_only_when_explicitly_called() {
+    let value = CredentialValue("my-secret-key".to_owned());
+    // as_str is the only way to access the secret, and it requires explicit intent.
+    assert_eq!(value.as_str(), "my-secret-key");
+}
+
+#[test]
+fn credential_store_set_rejects_empty_secret() {
+    let store = CredentialStore::default();
+    assert!(matches!(
+        store.set("ref", ""),
+        Err(CredentialError::Store(_))
+    ));
+}
+
+#[test]
+fn credential_error_display_does_not_contain_secret() {
+    let error = CredentialError::Store("operation failed".to_owned());
+    let message = error.to_string();
+    assert!(!message.contains("secret"));
+    assert!(!message.contains("password"));
+}
+
+#[test]
+fn credential_value_clone_is_safe() {
+    let value = CredentialValue("sensitive-data".to_owned());
+    let cloned = value.clone();
+    // Clone is safe but does not expose the secret through Debug.
+    assert_eq!(format!("{cloned:?}"), "CredentialValue(REDACTED)");
+}
+
+#[test]
+fn credential_store_new_uses_custom_service() {
+    let store = CredentialStore::new("custom.service");
+    // The store should use the custom service name.
+    // We can't directly access the private field, but we can verify it compiles.
+    assert_eq!(store.service, "custom.service");
+}

@@ -1,4 +1,5 @@
 pub mod provider;
+pub mod reset;
 pub mod state;
 
 // Re-export ProviderAdapter trait and related types for consumers

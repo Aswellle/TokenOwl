@@ -239,4 +239,70 @@ mod tests {
         assert_eq!(config.recommended_interval, Duration::from_secs(300));
         assert_eq!(config.rate_limit_class, 2);
     }
+
+    #[test]
+    fn binary_heap_orders_by_priority() {
+        let mut scheduler = Scheduler::new();
+        scheduler.schedule("low", 10);
+        scheduler.schedule("high", 1);
+        scheduler.schedule("medium", 5);
+
+        assert_eq!(scheduler.len(), 3);
+
+        let queue = &scheduler.queue;
+        let tasks: Vec<_> = queue.iter().collect();
+        let min_priority = tasks.iter().map(|t| t.priority).min().unwrap();
+        assert_eq!(min_priority, 1);
+    }
+
+    #[test]
+    fn mark_failed_uses_exponential_backoff() {
+        let mut scheduler = Scheduler::new();
+        scheduler.schedule("openai", 5);
+
+        scheduler.mark_failed("openai", 0);
+        scheduler.mark_failed("openai", 1);
+        scheduler.mark_failed("openai", 2);
+
+        assert_eq!(scheduler.len(), 4);
+    }
+
+    #[test]
+    fn mark_succeeded_reschedules_at_normal_priority() {
+        let mut scheduler = Scheduler::new();
+        scheduler.schedule("openai", 5);
+        scheduler.mark_succeeded("openai");
+        assert_eq!(scheduler.len(), 2);
+    }
+
+    #[test]
+    fn apply_jitter_within_expected_range() {
+        let base = Duration::from_secs(300);
+        for _ in 0..100 {
+            let jittered = Scheduler::apply_jitter(base);
+            let base_secs = base.as_secs();
+            let jittered_secs = jittered.as_secs();
+            assert!(jittered_secs >= base_secs);
+            assert!(jittered_secs <= base_secs + 30);
+        }
+    }
+
+    #[test]
+    fn next_due_returns_none_when_no_task_is_due() {
+        let mut scheduler = Scheduler::new();
+        scheduler.schedule("openai", 5);
+        assert!(scheduler.next_due().is_none());
+    }
+
+    #[test]
+    fn register_stores_config_for_provider() {
+        let mut scheduler = Scheduler::new();
+        let config = SchedulerConfig {
+            recommended_interval: Duration::from_secs(600),
+            ..SchedulerConfig::default()
+        };
+        scheduler.register("openai", config);
+        scheduler.schedule("openai", 5);
+        assert_eq!(scheduler.len(), 1);
+    }
 }

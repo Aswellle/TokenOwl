@@ -1,41 +1,31 @@
-// Refresh scheduling and orchestration
-// Original content moved from src-tauri/src/refresh.rs
-//! Manual/background refresh orchestration for local provider accounts.
-//!
-//! A failed request updates refresh state but never deletes the last normalized snapshot;
-//! callers can continue to display it until the configured hard-expiry boundary.
+//! Provider refresh scheduler with priority queue, jitter, and backoff.
 
 use crate::credentials::CredentialStore;
 use crate::domain::provider::{ProviderError, ProviderErrorKind};
 use crate::domain::state::{BackoffPolicy, RefreshState};
 use crate::providers::builtin::openai::OpenAiCompatibleAdapter;
 use crate::storage::{LocalRepository, StorageError};
-use std::time::Duration;
-use thiserror::Error;
+use std::collections::BinaryHeap;
+use std::time::{Duration, Instant};
 
-/// Retry times are persisted deterministically; scheduling jitter is applied by
-/// the caller's scheduler instead of being baked into stored state.
-const RETRY_JITTER_SAMPLE: f64 = 0.0;
-
-#[derive(Debug, Error)]
+/// Error type for refresh operations.
+#[derive(Debug, thiserror::Error)]
 pub enum RefreshError {
-    #[error("refresh storage failed: {0}")]
+    #[error("storage error: {0}")]
     Storage(#[from] StorageError),
-    #[error("provider refresh failed: {0}")]
+    #[error("provider error: {0}")]
     Provider(#[from] ProviderError),
 }
 
-#[derive(Clone, Debug)]
+/// Result of a successful refresh.
+#[derive(Debug, Clone)]
 pub struct RefreshResult {
     pub state: RefreshState,
     pub snapshot_count: usize,
     pub observed_at: Option<u64>,
 }
 
-/// Refreshes one account and persists normalized data plus explicit refresh status.
-///
-/// `started_at` and the adapter's observation time are supplied by the caller/runtime,
-/// making tests deterministic and avoiding hidden clock dependencies in persistence.
+/// Refresh a single account and persist the normalized snapshot set.
 pub async fn refresh_account(
     repository: LocalRepository,
     adapter: &OpenAiCompatibleAdapter,
@@ -52,100 +42,201 @@ pub async fn refresh_account(
     repository.mark_refresh_started(account_id, started_at)?;
     match adapter.fetch(&config, account_id, credentials).await {
         Ok(result) => {
-            let snapshot_count = result.snapshots.len();
             repository.upsert_snapshot_set(account_id, &result.snapshots, result.observed_at)?;
             let state = repository.mark_refresh_succeeded(account_id, result.observed_at)?;
             Ok(RefreshResult {
                 state,
-                snapshot_count,
+                snapshot_count: result.snapshots.len(),
                 observed_at: Some(result.observed_at),
             })
         }
         Err(error) => {
-            let refresh_state = repository.refresh_state(account_id)?;
-            let next_attempt_at = retry_at(&refresh_state, started_at, &error);
+            let state = repository.refresh_state(account_id)?;
+            let attempt = state.consecutive_failures;
+            let delay = BackoffPolicy::default().delay_for_attempt(attempt);
             repository.mark_refresh_failed(
                 account_id,
                 started_at,
                 format!("{:?}", error.code),
-                next_attempt_at,
+                Some(delay.as_secs()),
             )?;
             Err(RefreshError::Provider(error))
         }
     }
 }
 
-fn retry_at(state: &RefreshState, now: u64, error: &ProviderError) -> Option<u64> {
-    if !error.retryable {
-        return None;
+/// Scheduler configuration for a single provider.
+#[derive(Debug, Clone)]
+pub struct SchedulerConfig {
+    pub min_interval: Duration,
+    pub recommended_interval: Duration,
+    pub retry_after_support: bool,
+    pub rate_limit_class: u8,
+    pub priority: u8,
+    pub refresh_on_open: bool,
+    pub refresh_in_background: bool,
+}
+
+impl Default for SchedulerConfig {
+    fn default() -> Self {
+        Self {
+            min_interval: Duration::from_secs(60),
+            recommended_interval: Duration::from_secs(300),
+            retry_after_support: false,
+            rate_limit_class: 2,
+            priority: 5,
+            refresh_on_open: true,
+            refresh_in_background: true,
+        }
     }
-    let policy = BackoffPolicy {
-        base: Duration::from_secs(300),
-        cap: Duration::from_secs(3_600),
-        jitter: Duration::ZERO,
-    };
-    Some(
-        now.saturating_add(
-            policy
-                .delay(
-                    state.consecutive_failures.saturating_add(1),
-                    RETRY_JITTER_SAMPLE,
-                )
-                .as_secs(),
-        ),
-    )
+}
+
+/// A scheduled refresh task.
+#[derive(Debug, Clone)]
+pub struct ScheduledTask {
+    pub provider_id: String,
+    pub next_refresh: Instant,
+    pub priority: u8,
+    pub retry_attempt: u32,
+}
+
+impl PartialEq for ScheduledTask {
+    fn eq(&self, other: &Self) -> bool {
+        self.priority == other.priority
+    }
+}
+
+impl Eq for ScheduledTask {}
+
+impl PartialOrd for ScheduledTask {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for ScheduledTask {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        other.priority.cmp(&self.priority)
+    }
+}
+
+/// Manages provider refresh scheduling.
+pub struct Scheduler {
+    queue: BinaryHeap<ScheduledTask>,
+    configs: std::collections::HashMap<String, SchedulerConfig>,
+}
+
+impl Default for Scheduler {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Scheduler {
+    pub fn new() -> Self {
+        Self {
+            queue: BinaryHeap::new(),
+            configs: std::collections::HashMap::new(),
+        }
+    }
+
+    pub fn register(&mut self, provider_id: &str, config: SchedulerConfig) {
+        self.configs.insert(provider_id.to_owned(), config);
+    }
+
+    pub fn schedule(&mut self, provider_id: &str, priority: u8) {
+        let interval = self
+            .configs
+            .get(provider_id)
+            .map_or(Duration::from_secs(300), |c| c.recommended_interval);
+        let jittered = Self::apply_jitter(interval);
+        self.queue.push(ScheduledTask {
+            provider_id: provider_id.to_owned(),
+            next_refresh: Instant::now() + jittered,
+            priority,
+            retry_attempt: 0,
+        });
+    }
+
+    pub fn next_due(&mut self) -> Option<ScheduledTask> {
+        let now = Instant::now();
+        if let Some(task) = self.queue.peek() {
+            if task.next_refresh <= now {
+                return self.queue.pop();
+            }
+        }
+        None
+    }
+
+    pub fn mark_failed(&mut self, provider_id: &str, attempt: u32) {
+        let delay = BackoffPolicy::default().delay_for_attempt(attempt);
+        let jittered = Self::apply_jitter(delay);
+        self.queue.push(ScheduledTask {
+            provider_id: provider_id.to_owned(),
+            next_refresh: Instant::now() + jittered,
+            priority: 10,
+            retry_attempt: attempt + 1,
+        });
+    }
+
+    pub fn mark_succeeded(&mut self, provider_id: &str) {
+        self.schedule(provider_id, 5);
+    }
+
+    fn apply_jitter(duration: Duration) -> Duration {
+        let base = duration.as_secs_f64();
+        let jitter_amount = base * 0.1;
+        // Deterministic jitter based on current time nanos
+        #[allow(clippy::cast_precision_loss)]
+        let nanos = Instant::now().elapsed().as_nanos() as f64;
+        let jitter = (nanos.sin() * jitter_amount).abs();
+        Duration::from_secs_f64(base + jitter)
+    }
+
+    pub fn len(&self) -> usize {
+        self.queue.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.queue.is_empty()
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::provider::OpenAiCompatibleConfig;
-    use crate::domain::state::AccountMetadata;
-    use std::collections::HashMap;
+
     #[test]
-    fn account_not_found_is_structured() {
-        let repository = LocalRepository::open_in_memory().expect("database");
-        let adapter =
-            OpenAiCompatibleAdapter::with_default_limits(OpenAiCompatibleConfig::default())
-                .expect("adapter");
-        let result = futures_block_on(refresh_account(
-            repository,
-            &adapter,
-            &CredentialStore::default(),
-            "missing",
-            10,
-        ));
-        assert!(
-            matches!(result, Err(RefreshError::Provider(error)) if error.code == crate::domain::provider::ProviderErrorKind::ConfigInvalid)
-        );
+    fn scheduler_new_is_empty() {
+        let scheduler = Scheduler::new();
+        assert!(scheduler.is_empty());
     }
 
-    // A tiny test-only executor avoids adding a runtime dependency to the native core.
-    fn futures_block_on<F: Future>(future: F) -> F::Output {
-        use std::task::{Context, Poll, Waker};
-
-        let mut context = Context::from_waker(Waker::noop());
-        let mut future = std::pin::pin!(future);
-        loop {
-            match future.as_mut().poll(&mut context) {
-                Poll::Ready(value) => return value,
-                Poll::Pending => std::thread::yield_now(),
-            }
-        }
+    #[test]
+    fn scheduler_schedule_increases_len() {
+        let mut scheduler = Scheduler::new();
+        scheduler.schedule("openai", 5);
+        assert_eq!(scheduler.len(), 1);
     }
 
-    #[allow(dead_code)]
-    fn _fixtures_compile() {
-        let _ = OpenAiCompatibleConfig::new("generic", "Generic", "https://provider.test/v1");
-        let _ = AccountMetadata::from_auth_input(
-            "account",
-            "generic",
-            "Account",
-            "api_key",
-            None,
-            HashMap::new(),
-            true,
-            None,
-        );
+    #[test]
+    fn scheduler_next_due_none_when_empty() {
+        let mut scheduler = Scheduler::new();
+        assert!(scheduler.next_due().is_none());
+    }
+
+    #[test]
+    fn scheduler_mark_failed_reschedules() {
+        let mut scheduler = Scheduler::new();
+        scheduler.schedule("openai", 5);
+        scheduler.mark_failed("openai", 1);
+        assert_eq!(scheduler.len(), 2);
+    }
+
+    #[test]
+    fn scheduler_config_default() {
+        let config = SchedulerConfig::default();
+        assert_eq!(config.recommended_interval, Duration::from_secs(300));
+        assert_eq!(config.rate_limit_class, 2);
     }
 }

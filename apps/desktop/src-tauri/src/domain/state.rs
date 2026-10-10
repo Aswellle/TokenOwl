@@ -224,7 +224,7 @@ impl Default for RefreshState {
     }
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 pub struct BackoffPolicy {
     pub base: Duration,
     pub cap: Duration,
@@ -242,6 +242,11 @@ impl BackoffPolicy {
         let exponential = self.base.saturating_mul(multiplier).min(self.cap);
         let jitter = self.jitter.mul_f64(jitter_sample.clamp(0.0, 1.0));
         exponential.saturating_add(jitter).min(self.cap)
+    }
+
+    /// Compute delay for a specific retry attempt (0-indexed).
+    pub fn delay_for_attempt(&self, attempt: u32) -> Duration {
+        self.delay(attempt, 0.5)
     }
 }
 

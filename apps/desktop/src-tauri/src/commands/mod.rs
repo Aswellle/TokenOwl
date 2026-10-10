@@ -231,9 +231,7 @@ pub(crate) async fn refresh_accounts(
             started_at,
         )
         .await;
-        if result.is_err()
-            && refresh_one
-        {
+        if result.is_err() && refresh_one {
             return Err(CommandError::InvalidInput(
                 "failed to refresh account".to_owned(),
             ));

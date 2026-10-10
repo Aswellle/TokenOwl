@@ -128,13 +128,11 @@ impl NotificationFilter {
         }
         let percent = (remaining / limit) * 100.0;
         if percent <= prefs.low_quota_threshold {
-            Some(
-                Notification::new(
-                    NotificationSeverity::Warning,
-                    "Low quota",
-                    format!("{percent:.1}% remaining"),
-                )
-            )
+            Some(Notification::new(
+                NotificationSeverity::Warning,
+                "Low quota",
+                format!("{percent:.1}% remaining"),
+            ))
         } else {
             None
         }
@@ -152,13 +150,11 @@ impl NotificationFilter {
         }
         let percent = (remaining / limit) * 100.0;
         if percent <= prefs.low_quota_threshold {
-            Some(
-                Notification::new(
-                    NotificationSeverity::Critical,
-                    "Critical quota",
-                    format!("{percent:.1}% remaining"),
-                )
-            )
+            Some(Notification::new(
+                NotificationSeverity::Critical,
+                "Critical quota",
+                format!("{percent:.1}% remaining"),
+            ))
         } else {
             None
         }

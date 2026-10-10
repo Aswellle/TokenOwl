@@ -103,7 +103,6 @@ pub fn redact_value(key: &str, value: &str) -> String {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -135,7 +135,7 @@ fn unix_timestamp() -> u64 {
         .map_or(0, |d| d.as_secs())
 }
 
-fn parse_timestamp(value: &str) -> Option<u64> {
+pub(crate) fn parse_timestamp(value: &str) -> Option<u64> {
     if let Ok(ts) = value.parse::<u64>() {
         return Some(if ts < 1_000_000_000_000 {
             ts

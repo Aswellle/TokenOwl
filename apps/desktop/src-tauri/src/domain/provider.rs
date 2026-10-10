@@ -264,9 +264,10 @@ impl std::error::Error for ProviderError {}
 pub type ProviderResult<T> = Result<T, ProviderError>;
 
 /// Units commonly used by quota and balance endpoints.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum QuotaUnit {
+    #[default]
     Token,
     Credit,
     Request,

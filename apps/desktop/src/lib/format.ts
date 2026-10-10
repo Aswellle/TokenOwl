@@ -98,8 +98,15 @@ export function pressure(snapshots: QuotaViewModel[]): number | null {
   return ratios.length > 0 ? Math.min(...ratios) : null;
 }
 
+const CRITICAL_THRESHOLD = 0.15;
+const WARNING_THRESHOLD = 0.4;
+
 /** Threshold tone shared by bars, rings and chips: <=15% critical, <=40% warning. */
 export function ratioTone(ratio: number | null): "healthy" | "attention" | "critical" | null {
   if (ratio === null) return null;
-  return ratio <= 0.15 ? "critical" : ratio <= 0.4 ? "attention" : "healthy";
+  return ratio <= CRITICAL_THRESHOLD
+    ? "critical"
+    : ratio <= WARNING_THRESHOLD
+      ? "attention"
+      : "healthy";
 }

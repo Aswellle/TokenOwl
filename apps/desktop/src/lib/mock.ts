@@ -140,11 +140,13 @@ export function createMockBridge(): DashboardBridge {
     },
     async refresh(accountId) {
       await new Promise((resolve) => setTimeout(resolve, latency() + 220));
-      accounts = demoAccounts(Date.now()).map((account, index) =>
-        index === 2 && accountId !== "demo-backup"
-          ? accounts.find((item) => item.id === account.id) ?? account
-          : account,
-      );
+      const fresh = demoAccounts(Date.now());
+      accounts = fresh.map((account, index) => {
+        if (index === 2 && accountId !== "demo-backup") {
+          return accounts.find((item) => item.id === account.id) ?? account;
+        }
+        return account;
+      });
       if (accountId) {
         return structuredClone(accounts.filter((account) => account.id === accountId));
       }

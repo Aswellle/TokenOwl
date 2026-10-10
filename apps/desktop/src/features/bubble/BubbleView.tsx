@@ -57,6 +57,10 @@ export function BubbleView({ bridge = tauriBridge }: { bridge?: DashboardBridge 
       .catch(() => null);
     return () => {
       active = false;
+      if (persistTimer.current !== null) {
+        window.clearTimeout(persistTimer.current);
+        persistTimer.current = null;
+      }
       void unlisten.then((dispose) => dispose?.());
     };
   }, []);

@@ -1,19 +1,8 @@
 import { copy } from "../../../styles/copy";
-import { IconCheck, IconAlert, IconRefresh, IconCloudOff, IconClock } from "../../../components/icons";
-
-const statusIcons: Record<string, typeof IconCheck> = {
-  healthy: IconCheck,
-  attention: IconAlert,
-  critical: IconAlert,
-  stale: IconClock,
-  error: IconAlert,
-  syncing: IconRefresh,
-  unavailable: IconCloudOff,
-  offline: IconCloudOff,
-};
+import { healthIcons } from "../../../components/icons";
 
 export function StatusChip({ status }: { status: string }) {
-  const Icon = statusIcons[status] ?? IconCloudOff;
+  const Icon = healthIcons[status] ?? healthIcons.unavailable ?? (() => null);
   return (
     <span className={`chip chip--${status}`}>
       <span className="chip__icon">
@@ -23,3 +12,4 @@ export function StatusChip({ status }: { status: string }) {
     </span>
   );
 }
+

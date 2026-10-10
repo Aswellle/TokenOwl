@@ -242,9 +242,28 @@ fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
 
 fn start_background_tasks(app: &AppHandle) {
     let handle = app.clone();
+    let (shutdown_tx, mut shutdown_rx) = tokio::sync::watch::channel(false);
+    let updater_running = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+
+    // Store the shutdown sender so other tasks can signal shutdown.
+    let _ = app.manage(shutdown_tx);
+
     tauri::async_runtime::spawn(async move {
         loop {
-            emit_update_if_available(&handle);
+            if *shutdown_rx.borrow() {
+                break;
+            }
+
+            // Prevent concurrent updater checks.
+            if !updater_running.swap(true, std::sync::atomic::Ordering::SeqCst) {
+                let running = updater_running.clone();
+                let update_handle = handle.clone();
+                tauri::async_runtime::spawn(async move {
+                    emit_update_if_available(&update_handle);
+                    running.store(false, std::sync::atomic::Ordering::SeqCst);
+                });
+            }
+
             let result = if let Some(runtime) = handle.try_state::<Arc<commands::AppRuntime>>() {
                 let runtime = Arc::clone(runtime.inner());
                 commands::refresh_accounts(runtime.as_ref(), None).await
@@ -267,7 +286,9 @@ fn start_background_tasks(app: &AppHandle) {
                     }
                 },
             );
-            tokio::time::sleep(sleep_duration).await;
+            tokio::time::timeout(sleep_duration, shutdown_rx.changed())
+                .await
+                .ok();
         }
     });
 }

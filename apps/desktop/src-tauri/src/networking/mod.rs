@@ -17,8 +17,6 @@ pub struct HttpClientConfig {
     pub max_response_bytes: usize,
     /// Whether to follow redirects.
     pub follow_redirects: bool,
-    /// Whether to enforce HTTPS.
-    pub enforce_https: bool,
     /// Proxy URL (optional).
     pub proxy: Option<String>,
 }
@@ -30,7 +28,6 @@ impl Default for HttpClientConfig {
             connect_timeout: Duration::from_secs(10),
             max_response_bytes: 1024 * 1024,
             follow_redirects: false,
-            enforce_https: true,
             proxy: None,
         }
     }
@@ -54,9 +51,13 @@ impl HttpClient {
         }
 
         if let Some(proxy_url) = &config.proxy {
-            if let Ok(proxy) = reqwest::Proxy::all(proxy_url) {
-                builder = builder.proxy(proxy);
-            }
+            let proxy = reqwest::Proxy::all(proxy_url).map_err(|e| {
+                ProviderError::new(
+                    ProviderErrorKind::ConfigInvalid,
+                    format!("invalid proxy URL: {e}"),
+                )
+            })?;
+            builder = builder.proxy(proxy);
         }
 
         let client = builder.build().map_err(|e| {
@@ -151,7 +152,6 @@ mod tests {
         assert_eq!(config.connect_timeout, Duration::from_secs(10));
         assert_eq!(config.max_response_bytes, 1024 * 1024);
         assert!(!config.follow_redirects);
-        assert!(config.enforce_https);
     }
 
     #[test]

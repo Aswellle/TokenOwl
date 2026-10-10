@@ -93,16 +93,16 @@ pub fn is_sensitive_field(key: &str) -> bool {
 /// Redact a string value that might contain sensitive data.
 pub fn redact_value(key: &str, value: &str) -> String {
     if is_sensitive_field(key) {
-        if value.len() <= 4 {
-            "***".to_string()
+        if value.is_empty() {
+            String::new()
         } else {
-            let prefix = &value[..value.len().min(4)];
-            format!("{prefix}***")
+            "***".to_string()
         }
     } else {
         value.to_string()
     }
 }
+
 
 #[cfg(test)]
 mod tests {
@@ -147,7 +147,7 @@ mod tests {
 
     #[test]
     fn redact_value_masks_sensitive() {
-        assert_eq!(redact_value("authorization", "Bearer sk-1234"), "Bear***");
+        assert_eq!(redact_value("authorization", "Bearer sk-1234"), "***");
         assert_eq!(redact_value("provider", "openai"), "openai");
     }
 

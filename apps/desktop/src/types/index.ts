@@ -33,7 +33,7 @@ export interface QuotaWindowViewModel {
 export interface QuotaViewModel {
   id: string;
   metricName: string;
-  unit: QuotaUnit | string;
+  unit: QuotaUnit;
   currency?: string | null;
   used?: number | null;
   limit?: number | null;

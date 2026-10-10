@@ -185,7 +185,11 @@ fn endpoint_url(config: &OpenAiCompatibleConfig, endpoint: &str) -> ProviderResu
             "base_url must be an http(s) URL without credentials, query, or fragment",
         ));
     }
-    if !endpoint.starts_with('/') || endpoint.starts_with("//") || endpoint.contains('\\') {
+    if !endpoint.starts_with('/')
+        || endpoint.starts_with("//")
+        || endpoint.contains('\\')
+        || endpoint.contains("..")
+    {
         return Err(ProviderError::new(
             ProviderErrorKind::ConfigInvalid,
             "endpoint paths must be relative paths beginning with '/'",

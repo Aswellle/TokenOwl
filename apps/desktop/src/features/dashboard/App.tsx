@@ -11,7 +11,6 @@ import {
   IconCircleUser,
   IconClock,
   IconClose,
-  IconCloudOff,
   IconDownload,
   IconGauge,
   IconKey,
@@ -21,8 +20,8 @@ import {
   IconRefresh,
   IconShield,
   IconTrash,
-  healthIcons,
 } from "../../components/icons";
+import { StatusChip } from "./components/StatusChip";
 import { ProviderIcon } from "../../components/ProviderIcon";
 import {
   accountResetAt,
@@ -39,7 +38,6 @@ import {
 } from "../../lib/format";
 import { shell, tauriBridge } from "../../lib/tauri";
 import type {
-  AccountHealth,
   AccountViewModel,
   DashboardBridge,
   GenericOpenAiAccountInput,
@@ -91,17 +89,6 @@ function AnimatedNumber({ value, format }: { value: number; format?: (value: num
   return <>{format ? format(display) : String(Math.round(display))}</>;
 }
 
-function StatusChip({ status }: { status: AccountHealth }) {
-  const Icon = healthIcons[status] ?? IconCloudOff;
-  return (
-    <span className={`chip chip--${status}`}>
-      <span className="chip__icon">
-        <Icon size={13} />
-      </span>
-      {copy.health[status] ?? status}
-    </span>
-  );
-}
 
 function Notice({
   tone,
@@ -730,7 +717,8 @@ export function App({ bridge = tauriBridge }: AppProps = {}) {
       const updated = await bridge.refresh(accountId);
       setAccounts((current) => (accountId ? mergeAccounts(current, updated) : updated));
       setPhase("ready");
-    } catch {
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
       setAccounts((current) =>
         current.map((account) =>
           accountId && account.id !== accountId
@@ -738,11 +726,11 @@ export function App({ bridge = tauriBridge }: AppProps = {}) {
             : {
                 ...account,
                 status: "error",
-                errorMessage: copy.notices.refreshFailedOne,
+                errorMessage: message || copy.notices.refreshFailedOne,
               },
         ),
       );
-      setNotice({ text: copy.notices.refreshFailed, tone: "warning" });
+      setNotice({ text: message || copy.notices.refreshFailed, tone: "warning" });
     } finally {
       setRefreshingId(null);
     }
@@ -1074,7 +1062,6 @@ export function App({ bridge = tauriBridge }: AppProps = {}) {
     </div>
   );
 }
-
 function mergeAccounts(current: AccountViewModel[], updates: AccountViewModel[]): AccountViewModel[] {
   const byId = new Map(current.map((account) => [account.id, account]));
   updates.forEach((account) => byId.set(account.id, account));

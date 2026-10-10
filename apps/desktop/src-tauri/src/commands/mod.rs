@@ -164,7 +164,9 @@ pub async fn accounts_create(
     let account_id = account.id.clone();
     // Best-effort first snapshot. A failed request keeps the account plus an explicit
     // refresh error state instead of dropping the account or inventing values.
-    let _ = refresh_accounts(&state, Some(account_id.clone())).await;
+    if let Err(error) = refresh_accounts(&state, Some(account_id.clone())).await {
+        tracing::warn!("initial refresh failed for account {account_id}: {error}");
+    }
     list_accounts(&state)
         .map_err(String::from)?
         .into_iter()

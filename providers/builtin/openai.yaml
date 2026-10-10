@@ -1,0 +1,16 @@
+id: openai
+version: 1
+name: OpenAI
+category: official
+region: global
+auth:
+  - api_key
+baseUrl: https://api.openai.com/v1
+apiKeyHeader: Authorization
+endpoints:
+  models: /v1/models
+  usage: /v1/usage
+  quota: /v1/quota
+network:
+  timeoutMs: 10000
+  followRedirects: false

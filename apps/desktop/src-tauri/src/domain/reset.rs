@@ -61,8 +61,12 @@ impl ResetCalculator {
         let calculated_reset_at = calculated.map_or_else(
             || None,
             |ts| {
-                let datetime = chrono::DateTime::from_timestamp(i64::try_from(ts).unwrap_or(i64::MAX), 0);
-                Some(datetime.map_or_else(|| ts.to_string(), |dt| dt.to_rfc3339_opts(chrono::SecondsFormat::Secs, true)))
+                let datetime =
+                    chrono::DateTime::from_timestamp(i64::try_from(ts).unwrap_or(i64::MAX), 0);
+                Some(datetime.map_or_else(
+                    || ts.to_string(),
+                    |dt| dt.to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
+                ))
             },
         );
 
@@ -81,16 +85,30 @@ impl ResetCalculator {
     ) -> Option<u64> {
         match window_type {
             WindowType::Rolling => {
-                let start = window.starts_at.as_deref().and_then(parse_timestamp).unwrap_or(now);
-                let duration = window.duration_seconds.and_then(|d| u64::try_from(d).ok()).unwrap_or(0);
+                let start = window
+                    .starts_at
+                    .as_deref()
+                    .and_then(parse_timestamp)
+                    .unwrap_or(now);
+                let duration = window
+                    .duration_seconds
+                    .and_then(|d| u64::try_from(d).ok())
+                    .unwrap_or(0);
                 Some(start.saturating_add(duration))
             }
             WindowType::Fixed => {
                 if let Some(ends_at) = &window.ends_at {
                     return parse_timestamp(ends_at);
                 }
-                let start = window.starts_at.as_deref().and_then(parse_timestamp).unwrap_or(now);
-                let duration = window.duration_seconds.and_then(|d| u64::try_from(d).ok()).unwrap_or(0);
+                let start = window
+                    .starts_at
+                    .as_deref()
+                    .and_then(parse_timestamp)
+                    .unwrap_or(now);
+                let duration = window
+                    .duration_seconds
+                    .and_then(|d| u64::try_from(d).ok())
+                    .unwrap_or(0);
                 Some(start.saturating_add(duration))
             }
             WindowType::Calendar | WindowType::Subscription => {
@@ -119,7 +137,11 @@ fn unix_timestamp() -> u64 {
 
 fn parse_timestamp(value: &str) -> Option<u64> {
     if let Ok(ts) = value.parse::<u64>() {
-        return Some(if ts < 1_000_000_000_000 { ts } else { ts / 1000 });
+        return Some(if ts < 1_000_000_000_000 {
+            ts
+        } else {
+            ts / 1000
+        });
     }
     if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(value) {
         return u64::try_from(dt.timestamp()).ok();

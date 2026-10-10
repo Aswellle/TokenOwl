@@ -2,7 +2,7 @@
 // Original content moved from src-tauri/src/commands.rs
 use crate::credentials::CredentialStore;
 use crate::domain::provider::{
-    AuthMethod, DataSource, OpenAiCompatibleConfig, QuotaUnit, SnapshotStatus,
+    AuthMethod, DataSource, OpenAiCompatibleConfig, ProviderError, QuotaUnit, SnapshotStatus,
 };
 use crate::domain::state::{AccountMetadata, Freshness, FreshnessPolicy, RefreshStatus};
 use crate::providers::builtin::openai::OpenAiCompatibleAdapter;
@@ -64,8 +64,14 @@ impl AppRuntime {
         let value = repo.get_setting("bubble_position")?;
         match value {
             Some(v) => {
-                let x = v.get("x").and_then(|x| x.as_f64()).unwrap_or(0.0);
-                let y = v.get("y").and_then(|y| y.as_f64()).unwrap_or(0.0);
+                let x = v
+                    .get("x")
+                    .and_then(serde_json::Value::as_f64)
+                    .unwrap_or(0.0);
+                let y = v
+                    .get("y")
+                    .and_then(serde_json::Value::as_f64)
+                    .unwrap_or(0.0);
                 Ok(Some((x, y)))
             }
             None => Ok(None),
@@ -74,11 +80,11 @@ impl AppRuntime {
 }
 
 #[derive(Debug, Error)]
-pub(crate) enum CommandError {
+pub enum CommandError {
     #[error("local storage error: {0}")]
     Storage(#[from] StorageError),
     #[error("provider error: {0}")]
-    Provider(#[from] crate::domain::provider::ProviderError),
+    Provider(#[from] ProviderError),
     #[error("credential error: {0}")]
     Credential(#[from] crate::credentials::CredentialError),
     #[error("invalid account input: {0}")]

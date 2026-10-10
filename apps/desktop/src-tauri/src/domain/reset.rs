@@ -260,7 +260,7 @@ mod tests {
     fn rolling_7d_window_calculates_correctly() {
         let snap = snapshot_with_window(QuotaWindow {
             window_type: Some(WindowType::Rolling),
-            duration_seconds: Some(604800),
+            duration_seconds: Some(604_800),
             starts_at: Some("2026-10-10T00:00:00Z".to_owned()),
             ends_at: None,
             reset_at: None,

@@ -254,9 +254,9 @@ fn start_background_tasks(app: &AppHandle) {
             if result.is_ok() {
                 let _ = handle.emit("quota:updated", ());
             }
-            let sleep_duration = handle
-                .try_state::<Arc<commands::AppRuntime>>()
-                .map(|runtime| {
+            let sleep_duration = handle.try_state::<Arc<commands::AppRuntime>>().map_or(
+                std::time::Duration::from_secs(600),
+                |runtime| {
                     let policy = &runtime.freshness_policy;
                     let stale_after = policy.stale_after.as_secs();
                     let fresh_for = policy.fresh_for.as_secs();
@@ -265,8 +265,8 @@ fn start_background_tasks(app: &AppHandle) {
                     } else {
                         std::time::Duration::from_secs(fresh_for)
                     }
-                })
-                .unwrap_or(std::time::Duration::from_secs(600));
+                },
+            );
             tokio::time::sleep(sleep_duration).await;
         }
     });

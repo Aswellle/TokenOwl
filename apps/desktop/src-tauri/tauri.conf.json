@@ -59,7 +59,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDAyNEFCODQxNjNCREY3OTkKUldTWjk3MWpRYmhLQWxtT3NaUExmZ1VIQnovNDhqR2xYUHdrRTA4MkJYbWZYMzBmMWY1Ri92WHYK",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDAwRjA2NTEzMTZGQkU5NDEKUldSQjZmc1dFMlh3QUV6bjlHdVlRZlc5dytHa1JHZ3lwL3AvYVdrdFNLNWpoSzF6emRiQjByK28K",
       "endpoints": [
         "https://github.com/Aswellle/TokenOwl/releases/latest/download/latest.json"
       ]

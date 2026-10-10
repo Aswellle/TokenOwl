@@ -9,9 +9,9 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/Aswellle/TokenOwl/actions/workflows/ci-frontend.yml"><img src="https://img.shields.io/github/actions/workflow/status/Aswellle/TokenOwl/ci-frontend.yml?label=frontend&style=flat-square&logo=github" alt="Frontend CI" /></a>
-  <a href="https://github.com/Aswellle/TokenOwl/actions/workflows/ci-rust.yml"><img src="https://img.shields.io/github/actions/workflow/status/Aswellle/TokenOwl/ci-rust.yml?label=rust&style=flat-square&logo=github" alt="Rust CI" /></a>
-  <a href="https://github.com/Aswellle/TokenOwl/releases"><img src="https://img.shields.io/github/v/release/Aswellle/TokenOwl?include_prereleases&style=flat-square" alt="Release" /></a>
+  <a href="https://github.com/Aswellle/TokenOwl/actions/workflows/ci-frontend.yml"><img src="https://img.shields.io/badge/frontend-CI-blue?style=flat-square&logo=github" alt="Frontend CI" /></a>
+  <a href="https://github.com/Aswellle/TokenOwl/actions/workflows/ci-rust.yml"><img src="https://img.shields.io/badge/rust-CI-blue?style=flat-square&logo=github" alt="Rust CI" /></a>
+  <a href="https://github.com/Aswellle/TokenOwl/releases"><img src="https://img.shields.io/badge/release-v1.0.0-blue?style=flat-square" alt="Release" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square" alt="License" /></a>
 </p>
 

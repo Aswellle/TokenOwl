@@ -74,6 +74,7 @@ jobs:
         uses: tauri-apps/tauri-action@v1
         with:
           tauriScript: pnpm tauri
+          projectPath: apps/desktop
           args: ${{ matrix.args }}
           owner: Aswellle
           repo: TokenOwl
@@ -85,4 +86,3 @@ jobs:
           generateReleaseNotes: true
           uploadUpdaterJson: true
           updaterJsonPreferNsis: true
-          verifyDepsBeforeRun: false

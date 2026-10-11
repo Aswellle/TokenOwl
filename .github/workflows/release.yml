@@ -80,7 +80,7 @@ jobs:
           tagName: v__VERSION__
           releaseName: TokenOwl v__VERSION__
           releaseBody: "Signed Windows and macOS installers. Updater metadata is generated from these release assets."
-          releaseDraft: false
+          releaseDraft: true
           prerelease: false
           generateReleaseNotes: true
           uploadUpdaterJson: true

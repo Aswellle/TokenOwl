@@ -238,6 +238,9 @@ function QuotaMetric({ quota, now }: { quota: QuotaViewModel; now: number }) {
   const resetText = formatCountdown(quota.window?.resetAt ?? quota.window?.endsAt, now);
   const source = displaySource(quota.source);
   const unit = quota.unit && quota.unit !== "unknown" ? (copy.units[quota.unit] ?? quota.unit) : null;
+  // Endpoint kind ids ("quota"/"usage"/"balance") localize through copy.metrics;
+  // provider-supplied metric names pass through untouched.
+  const metricName = copy.metrics[quota.metricName] ?? quota.metricName;
   const windowLabel = quota.window?.type
     ? (copy.windowTypes[quota.window.type] ?? quota.window.type)
     : null;
@@ -246,7 +249,7 @@ function QuotaMetric({ quota, now }: { quota: QuotaViewModel; now: number }) {
     <li className="quota">
       <div className="quota__head">
         <h4 className="quota__name">
-          {quota.metricName}
+          {metricName}
           {unit && <span className="quota__unit">{unit}</span>}
         </h4>
         {windowLabel && <span className="quota__window">{windowLabel}</span>}
@@ -256,7 +259,7 @@ function QuotaMetric({ quota, now }: { quota: QuotaViewModel; now: number }) {
         <div
           className={`bar bar--${tone}`}
           role="img"
-          aria-label={copy.a11y.quotaBar(quota.metricName, percent ?? "")}
+          aria-label={copy.a11y.quotaBar(metricName, percent ?? "")}
         >
           <span className="bar__fill" style={{ transform: `scaleX(${ratio})` }} />
         </div>
@@ -439,6 +442,8 @@ function SetupForm({
   const [label, setLabel] = useState("");
   const [baseUrl, setBaseUrl] = useState("https://api.openai.com/v1");
   const [quotaEndpoint, setQuotaEndpoint] = useState("");
+  const [usageEndpoint, setUsageEndpoint] = useState("");
+  const [balanceEndpoint, setBalanceEndpoint] = useState("");
   const apiKeyRef = useRef<HTMLInputElement>(null);
 
   const submit = async (event: { preventDefault(): void }) => {
@@ -450,6 +455,8 @@ function SetupForm({
       label: label.trim(),
       baseUrl: baseUrl.trim(),
       quotaEndpoint: quotaEndpoint.trim() || undefined,
+      usageEndpoint: usageEndpoint.trim() || undefined,
+      balanceEndpoint: balanceEndpoint.trim() || undefined,
       apiKeyInput,
     });
   };
@@ -545,6 +552,40 @@ function SetupForm({
             spellCheck={false}
           />
           <span className="field__help">{copy.form.quotaEndpointHelp}</span>
+        </div>
+        <div className="field field--wide">
+          <label className="field__label" htmlFor="usage-endpoint">
+            {copy.form.usageEndpoint}
+          </label>
+          <input
+            className="field__input mono"
+            id="usage-endpoint"
+            type="text"
+            value={usageEndpoint}
+            onChange={(event) => setUsageEndpoint(event.currentTarget.value)}
+            placeholder={copy.form.usageEndpointPlaceholder}
+            pattern="/.*"
+            title={copy.form.usageEndpointHelp}
+            spellCheck={false}
+          />
+          <span className="field__help">{copy.form.usageEndpointHelp}</span>
+        </div>
+        <div className="field field--wide">
+          <label className="field__label" htmlFor="balance-endpoint">
+            {copy.form.balanceEndpoint}
+          </label>
+          <input
+            className="field__input mono"
+            id="balance-endpoint"
+            type="text"
+            value={balanceEndpoint}
+            onChange={(event) => setBalanceEndpoint(event.currentTarget.value)}
+            placeholder={copy.form.balanceEndpointPlaceholder}
+            pattern="/.*"
+            title={copy.form.balanceEndpointHelp}
+            spellCheck={false}
+          />
+          <span className="field__help">{copy.form.balanceEndpointHelp}</span>
         </div>
       </div>
       <div className="form__footer">
@@ -757,6 +798,8 @@ export function App({ bridge = tauriBridge }: AppProps = {}) {
         label: input.label,
         baseUrl: input.baseUrl,
         quotaEndpoint: input.quotaEndpoint,
+        usageEndpoint: input.usageEndpoint,
+        balanceEndpoint: input.balanceEndpoint,
         apiKey: secret,
       });
       setAccounts((current) => [...current.filter((item) => item.id !== account.id), account]);
@@ -1019,14 +1062,14 @@ export function App({ bridge = tauriBridge }: AppProps = {}) {
               onAdd={() => setShowForm(true)}
               onRetry={() => void loadAccounts()}
             />
+          ) : visibleAccounts.length === 0 ? (
+            <motion.p key="filtered-empty" className="section__empty" variants={fadeVariants} initial="hidden" animate="show">
+              {copy.filter.attention}：{copy.summary.none}
+            </motion.p>
           ) : (
-            <AnimatePresence initial={false} mode="popLayout">
-              {visibleAccounts.length === 0 ? (
-                <motion.p key="filtered-empty" className="section__empty" variants={fadeVariants} initial="hidden" animate="show" exit="hide">
-                  {copy.filter.attention}：{copy.summary.none}
-                </motion.p>
-              ) : (
-                visibleAccounts.map((account, index) => (
+            <ul className="accounts">
+              <AnimatePresence initial={false} mode="popLayout">
+                {visibleAccounts.map((account, index) => (
                   <AccountRow
                     key={account.id}
                     account={account}
@@ -1037,9 +1080,9 @@ export function App({ bridge = tauriBridge }: AppProps = {}) {
                     onRefresh={() => void handleRefresh(account.id)}
                     onDelete={() => void handleDelete(account.id)}
                   />
-                ))
-              )}
-            </AnimatePresence>
+                ))}
+              </AnimatePresence>
+            </ul>
           )}
         </section>
       </div>

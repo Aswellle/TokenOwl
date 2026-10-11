@@ -591,6 +591,17 @@ pub fn parse_openai_compatible_response(
 pub fn parse_openai_compatible_fixture(
     response: &ProviderResponse,
 ) -> ProviderResult<QuotaSnapshotSet> {
+    parse_openai_compatible_lenient(response)?.ok_or_else(|| {
+        ProviderError::invalid_response("response contains no recognized quota fields")
+    })
+}
+
+/// Parses a response into snapshots, returning `Ok(None)` when the payload is
+/// valid but carries no recognizable quota fields. Multi-endpoint callers use
+/// this so one endpoint without quota fields does not fail the whole refresh.
+pub fn parse_openai_compatible_lenient(
+    response: &ProviderResponse,
+) -> ProviderResult<Option<QuotaSnapshotSet>> {
     classify_http_status(response)?;
     let value: Value = serde_json::from_str(&response.body)
         .map_err(|error| ProviderError::parser_failed(format!("invalid JSON response: {error}")))?;
@@ -602,11 +613,9 @@ pub fn parse_openai_compatible_fixture(
         }
     }
     if snapshots.is_empty() {
-        return Err(ProviderError::invalid_response(
-            "response contains no recognized quota fields",
-        ));
+        return Ok(None);
     }
-    Ok(QuotaSnapshotSet::new(snapshots))
+    Ok(Some(QuotaSnapshotSet::new(snapshots)))
 }
 
 fn classify_http_status(response: &ProviderResponse) -> ProviderResult<()> {

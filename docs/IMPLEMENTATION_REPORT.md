@@ -157,3 +157,66 @@ SQLite。
 - 备份保留最近一代；自动还原未实现（见上）。
 - `integrity_check` 在大库上是一次全表扫描，仅在有待执行迁移时执行，正常启动零开销。
 - 下一阶段建议：Provider 多端点合并 → 通知触发链路（依赖本轮阈值 + v2 迁移可顺带扩展 schema）。
+
+## Round 3 — Provider 多端点合并 + UI/UX 匹配重构（P1）
+
+日期：2026-10-11 | 基线：Round 2 工作区 | 平台：Windows 11 x64
+
+### 目标与依据
+
+`IMPLEMENTATION-GAP.md` 中 Generic OpenAI-compatible 行的既定下一步：**quota/usage/balance
+多端点合并**（原实现一个账户只请求单一 endpoint）。同步要求：UI/UX 重构为匹配多桶业务数据，
+并调用 design-review skill 按最佳实践清单做渲染审计。
+
+### 需求完成矩阵
+
+| 要求 | 来源 | 结果 |
+|---|---|---|
+| 多端点合并 | GAP P1 / docs/03 | ✅ 适配器按 quota→usage→balance 顺序请求全部已配置端点，按路径去重 |
+| 部分失败隔离 | 总规范失败不变量 | ✅ 失败端点生成 `Error` 指标快照（不伪造数值），其余端点继续；全部失败返回首个错误走 stale fallback |
+| 无额度字段的响应 | docs/09 规则 | ✅ `parse_openai_compatible_lenient` 返回 `Ok(None)`，静默跳过；严格解析器行为不变 |
+| 前端配置三端点 | docs/03 §12 最小配置 | ✅ 表单新增用量/余额接口（可选），默认 `/usage` 仅在无其他端点时生效 |
+| 多桶 UI 匹配 | docs/05 §6 | ✅ 余额（仅剩余值）/用量（仅已用）指标按存在的字段渲染，无伪造百分比；失败指标显示"该指标读取失败" |
+| 渲染审计 | 用户要求（skill） | ✅ design-review 清单 + 浏览器实测（1280/375）；发现并修复列表 DOM 缺陷 |
+
+### 代码变更
+
+- **`domain/provider.rs`**：新增 `parse_openai_compatible_lenient`（严格版 `parse_openai_compatible_fixture`
+  改为在其上包装，行为不变）。
+- **`providers/builtin/openai.rs`**：`fetch` 重写为多端点循环 + `EndpointOutcome`（Snapshots/
+  Unrecognized/Failed）+ 纯函数 `merge_endpoint_outcomes`（可离线测试）；HTTP 读取抽取为 `read_response`；
+  新增 5 个合并/去重/失败语义测试。
+- **`commands/mod.rs`**：输入结构新增 `usage_endpoint`/`balance_endpoint`；`validate_new_account`
+  返回 `AccountEndpoints`；默认端点规则调整；新增端点校验测试。
+- **前端**：`types`（两个可选端点字段）、`copy.ts`（三端点文案 + `metrics` 本地化映射）、
+  `App.tsx`（表单字段、createAccount 透传、`QuotaMetric` 指标名本地化）、`mock.ts`（多端点演示账户）。
+- **渲染审计修复（App.tsx）**：账户行此前直接渲染在 `<section>` 下（`li` 脱离列表容器 → 无效 HTML
+  + 原生 disc 圆点泄漏）；改为 `<ul class="accounts">` 包裹、`AnimatePresence` 内移保持逐项退出动画。
+  审计确认：删除流程端到端正常，全局状态随账户删除联动更新。
+
+### 测试与构建（全部通过）
+
+| 检查 | 结果 |
+|---|---|
+| `cargo fmt --all -- --check` / `clippy --all-targets --all-features -D warnings` | ✅ 0 警告 |
+| `cargo test` | ✅ 137（130 单元 + 7 fixture；含 6 个多端点新测试） |
+| `pnpm typecheck` / `pnpm test` / `pnpm build` | ✅ 22/22，构建通过 |
+| 浏览器渲染审计 | ✅ 1280/375 双宽度、暗色主题、mock 四账户（含多端点/部分/错误态）、删除交互 |
+
+### Diff 自审（docs/07 §5）
+
+1. **修改文件**：Rust 3 + 前端 5 + 文档 3。
+2. **为什么**：闭合 GAP 多端点项；UI 随业务数据形态扩展并修复审计发现的 DOM 缺陷。
+3. **删除**：单端点 fetch 路径（被多端点循环取代，行为兼容单端点账户）。
+4. **行为变化**：配置了多端点的账户现在一次刷新合并全部指标；单端点账户行为不变。
+5. **文档未实现项**：JSONPath/JMESPath 映射、LAN 授权提示（GAP 已注明归属 manifest 增强）。
+6. **部分支持**：错误指标不保留旧数值（快照集合整体替换），新鲜度与错误态单独可见。
+7. **Windows/macOS**：Windows 验证（含浏览器渲染审计）；macOS 未验证。
+8. **schema 变化**：无（快照 JSON 复用现有表；v2 迁移留给历史序列）。
+9. **secret 风险**：无新增——端点仍是相对路径校验，凭据仍只在请求时解析。
+10. **架构耦合**：无新增；合并逻辑是适配器内纯函数。
+
+### 已知限制与下一阶段
+
+- 错误指标的旧数值随集合替换丢失（错误态显式可见为补偿）；per-metric 保留旧值需要指标级合并，留待历史序列设计。
+- 下一阶段：通知触发链路（需权限决策）→ 历史趋势（v2 迁移）。

@@ -118,6 +118,12 @@ export const copy = {
     image: "张",
   } as Record<string, string>,
 
+  metrics: {
+    balance: "余额",
+    usage: "用量",
+    quota: "额度",
+  } as Record<string, string>,
+
   windowTypes: {
     rolling: "滚动窗口",
     fixed: "固定窗口",
@@ -175,7 +181,13 @@ export const copy = {
     apiKeyHelp: "直接写入系统凭据库，不会出现在日志、界面或数据库中。",
     quotaEndpoint: "额度接口（可选）",
     quotaEndpointPlaceholder: "/usage",
-    quotaEndpointHelp: "相对路径，例如 /usage；留空使用默认值。",
+    quotaEndpointHelp: "相对路径，例如 /usage；留空且未填写其他接口时使用默认值。",
+    usageEndpoint: "用量接口（可选）",
+    usageEndpointPlaceholder: "/v1/usage",
+    usageEndpointHelp: "相对路径，例如 /v1/usage；留空则不请求。",
+    balanceEndpoint: "余额接口（可选）",
+    balanceEndpointPlaceholder: "/balance",
+    balanceEndpointHelp: "相对路径，例如 /balance；留空则不请求。",
     missingAccount: "请填写账户名称与接口地址。",
     missingKey: "请填写 API 密钥。",
     failed: "账户连接失败，请检查接口地址与密钥后重试。",

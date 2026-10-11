@@ -66,6 +66,8 @@ export interface GenericOpenAiAccountInput {
   baseUrl: string;
   apiKey: string;
   quotaEndpoint?: string;
+  usageEndpoint?: string;
+  balanceEndpoint?: string;
 }
 
 export interface UpdateInfo {

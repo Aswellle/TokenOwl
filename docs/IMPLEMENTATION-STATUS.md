@@ -18,6 +18,7 @@
 - History 趋势：`HistoryPoint` 和 `HistorySeries`，支持 burn rate 计算和平均使用率。
 - 健康分级（2026-10-11）：`domain/health.rs` 按 PRD §5.1 阈值实现剩余比例分级（<10% critical、<25% attention，严格边界），`commands::account_view_to_model` 将分级接入账户状态——`error`/`unavailable` 保持最高优先级，其次 `critical`/`attention`，再退回 `stale`/`healthy`；前端 `overallHealth`、`attentionCount` 筛选与 chip/bubble 样式透传显示，条形/ring 色调阈值从 15%/40% 统一为 PRD 的 10%/25%。
 - SQLite 迁移框架（2026-10-11）：`storage/migrations/` 目录按 docs/06 §18 版本化（`0001_initial_schema.sql` 经 `include_str!` 嵌入），打开数据库时先 `PRAGMA integrity_check`，对含数据的库用 `VACUUM INTO` 生成 `*.pre-migration.bak` 备份（仅保留最近一代），每个迁移独立事务并在完成后复查完整性；单个迁移失败自动回滚到原版本，损坏库拒绝打开（safe mode），`user_version` 高于支持版本仍然拒绝打开。
+- Provider 多端点合并（2026-10-11）：OpenAI-compatible 适配器按 `quota → usage → balance` 顺序请求全部已配置端点（按路径去重），解析结果合并为一个 `QuotaSnapshotSet` 并为缺失 metric_id 的快照标注端点类型；单端点失败生成 `Error` 状态指标（前端显示"该指标读取失败"），其余端点继续更新；全部端点失败时返回首个错误走 stale fallback。响应无额度字段的端点静默跳过（`parse_openai_compatible_lenient`）。表单新增用量/余额接口字段；默认 `/usage` 仅在未配置任何其他端点时生效。渲染审计修复：账户列表改为真实 `<ul>` 语义（此前 `li` 直接挂在 `section` 下导致无效 HTML 与原生列表圆点泄漏）。
 - Scheduler：`Scheduler` 基于 BinaryHeap 优先级队列，支持 jitter、backoff、per-provider 配置。
 - 统一 HTTP 客户端：`networking::HttpClient` 提供 timeout、connect timeout、response size limit、sensitive header redaction。
 - Telemetry：`telemetry` 模块提供结构化日志事件和 secret redaction。
@@ -96,7 +97,6 @@ MSVC 产物写入 `src-tauri/target-msvc`（由 `CARGO_TARGET_DIR` 指定），�
 - 健康分级只使用剩余比例（PRD §5.1 的定义）；重置临近度未参与分级，留给通知阶段的 `quota:reset-soon`。critical/attention 由最后已知数值驱动（包括 stale/expired 快照），数据年龄通过新鲜度 chip 与提示单独呈现；`error`（刷新失败）仍优先于数值分级。
 - 悬浮球位置命令（`get/save_bubble_position`）已存在，但前端拖拽尚未调用它们，位置不持久化。
 - OpenAI-compatible 解析只识别 `used/limit/remaining`、`reset_at`、`unit`、`currency` 等有限字段名；无法识别的响应会导致 `InvalidResponse`，不会伪造数值。
-- 一个账户一个 endpoint（默认 `/usage`），暂不支持 balance/usage 多端点合并。
 - Bubble 与主窗口都由 Vite 单页应用渲染，未区分独立入口。
 
 ## Known Bugs
@@ -113,14 +113,15 @@ MSVC 产物写入 `src-tauri/target-msvc`（由 `CARGO_TARGET_DIR` 指定），�
 ## Testing & Build
 
 - 前端：`pnpm typecheck`、`pnpm build`、`pnpm test`（vitest，22 测试通过，含健康分级边界测试）。
-- Rust：`cargo fmt --check` 通过；`cargo test` 131 测试通过（124 单元 + 7 fixture，含 domain/health 13 个与 storage/migrations 6 个新测试）；`cargo clippy --all-targets --all-features -- -D warnings` 0 错误 0 警告。
+- Rust：`cargo fmt --check` 通过；`cargo test` 137 测试通过（130 单元 + 7 fixture，含 domain/health 13 个、storage/migrations 6 个、多端点合并 6 个新测试）；`cargo clippy --all-targets --all-features -- -D warnings` 0 错误 0 警告。
+- 渲染审计（design-review checklist + mock 桥接 + 浏览器截图，1280/375 宽）：列表语义、多桶卡片、部分/错误态、窄屏布局、表单焦点与帮助文案均验证通过；删除流程端到端走查正常。
 - E2E：Playwright smoke test 脚本已创建，需原生 Tauri 环境执行。
 - CI：`.github/workflows/ci-release.yml` 运行 typecheck、test、build、fmt、check、clippy、cargo test 与版本一致性校验。
 - Windows 构建：MSI (5.49 MiB) + NSIS (4.04 MiB) 已验证产出。
 
 ## Next Recommended Phase
 
-1. Provider 多端点合并（balance+usage+quota）。
-2. 通知触发链路：低额度/重置临近/认证过期（健康分级阈值已就绪，需评估 tauri-plugin-notification 权限）。
+1. 通知触发链路：低额度/重置临近/认证过期（健康分级阈值已就绪，需评估 tauri-plugin-notification 权限）。
+2. 历史趋势与基础图表（需要 v2 迁移新增历史序列表）。
 3. BubbleView 和 Dashboard 测试在真实 Tauri 环境中验证。
 4. 接入第一个真实 provider 的官方限额端点。

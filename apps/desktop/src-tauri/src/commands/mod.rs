@@ -106,6 +106,8 @@ pub struct GenericOpenAiAccountInput {
     pub base_url: String,
     pub api_key: String,
     pub quota_endpoint: Option<String>,
+    pub usage_endpoint: Option<String>,
+    pub balance_endpoint: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -254,9 +256,19 @@ fn list_accounts(state: &AppRuntime) -> Result<Vec<AccountViewModel>, CommandErr
     Ok(views)
 }
 
+/// Validated relative endpoints for a new account. The default `/usage`
+/// endpoint only applies when nothing else is configured, so accounts that
+/// declare only a balance endpoint are not probed at a path that may not exist.
+#[derive(Debug)]
+struct AccountEndpoints {
+    quota: Option<String>,
+    usage: Option<String>,
+    balance: Option<String>,
+}
+
 fn validate_new_account(
     input: &GenericOpenAiAccountInput,
-) -> Result<(String, String), CommandError> {
+) -> Result<(String, AccountEndpoints), CommandError> {
     let label = input.label.trim().to_owned();
     if label.is_empty() {
         return Err(CommandError::InvalidInput(
@@ -271,19 +283,37 @@ fn validate_new_account(
             "unsupported provider id".to_owned(),
         ));
     }
-    let endpoint = normalize_endpoint(
-        input
-            .quota_endpoint
-            .as_deref()
-            .unwrap_or(DEFAULT_QUOTA_ENDPOINT),
-    )?;
-    Ok((label, endpoint))
+    let usage = input
+        .usage_endpoint
+        .as_deref()
+        .map(normalize_endpoint)
+        .transpose()?;
+    let balance = input
+        .balance_endpoint
+        .as_deref()
+        .map(normalize_endpoint)
+        .transpose()?;
+    let quota = match input.quota_endpoint.as_deref() {
+        Some(path) => Some(normalize_endpoint(path)?),
+        None if usage.is_none() && balance.is_none() => {
+            Some(normalize_endpoint(DEFAULT_QUOTA_ENDPOINT)?)
+        }
+        None => None,
+    };
+    Ok((
+        label,
+        AccountEndpoints {
+            quota,
+            usage,
+            balance,
+        },
+    ))
 }
 
 fn persist_new_account(
     state: &AppRuntime,
     label: &str,
-    endpoint: &str,
+    endpoints: &AccountEndpoints,
     api_key: &str,
 ) -> Result<AccountMetadata, CommandError> {
     let account_id = format!("account-{}", unix_millis());
@@ -291,7 +321,9 @@ fn persist_new_account(
     let credential_ref = format!("account/{account_id}");
     let mut config = OpenAiCompatibleConfig::new(provider_id, "OpenAI-compatible", api_key);
     config.credential_ref = Some(credential_ref.clone());
-    config.quota_endpoint = Some(endpoint.to_owned());
+    config.quota_endpoint.clone_from(&endpoints.quota);
+    config.usage_endpoint.clone_from(&endpoints.usage);
+    config.balance_endpoint.clone_from(&endpoints.balance);
     config.auth_method = AuthMethod::ApiKey;
     config.validate()?;
     state.credentials.set(&credential_ref, api_key)?;
@@ -323,8 +355,8 @@ fn create_account(
     state: &AppRuntime,
     input: GenericOpenAiAccountInput,
 ) -> Result<AccountViewModel, CommandError> {
-    let (label, endpoint) = validate_new_account(&input)?;
-    let account = persist_new_account(state, &label, &endpoint, &input.api_key)?;
+    let (label, endpoints) = validate_new_account(&input)?;
+    let account = persist_new_account(state, &label, &endpoints, &input.api_key)?;
     let view = state
         .repository()?
         .account_view(&account.id, unix_seconds(), state.freshness_policy)?
@@ -693,5 +725,37 @@ mod tests {
         assert_eq!(status_of(view), "healthy");
         let empty = view_with(Vec::new(), RefreshStatus::Idle);
         assert_eq!(status_of(empty), "unavailable");
+    }
+
+    #[test]
+    fn endpoint_defaults_apply_only_when_nothing_else_is_configured() {
+        let input = |quota: Option<&str>, usage: Option<&str>, balance: Option<&str>| {
+            GenericOpenAiAccountInput {
+                provider_id: "generic.openai_compatible".to_owned(),
+                label: "Test".to_owned(),
+                base_url: "https://provider.test/v1".to_owned(),
+                api_key: "key".to_owned(),
+                quota_endpoint: quota.map(ToOwned::to_owned),
+                usage_endpoint: usage.map(ToOwned::to_owned),
+                balance_endpoint: balance.map(ToOwned::to_owned),
+            }
+        };
+        let (_, endpoints) = validate_new_account(&input(None, None, None)).expect("defaults");
+        assert_eq!(endpoints.quota.as_deref(), Some("/usage"));
+        assert!(endpoints.usage.is_none() && endpoints.balance.is_none());
+
+        let (_, endpoints) =
+            validate_new_account(&input(None, Some("/v1/usage"), Some("/v1/balance")))
+                .expect("multi-endpoint input");
+        assert!(
+            endpoints.quota.is_none(),
+            "default quota must be suppressed when other endpoints are configured"
+        );
+        assert_eq!(endpoints.usage.as_deref(), Some("/v1/usage"));
+        assert_eq!(endpoints.balance.as_deref(), Some("/v1/balance"));
+
+        let error = validate_new_account(&input(None, Some("https://evil.test/x"), None))
+            .expect_err("absolute endpoint must be rejected");
+        assert!(matches!(error, CommandError::InvalidInput(_)));
     }
 }

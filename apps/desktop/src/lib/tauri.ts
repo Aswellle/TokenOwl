@@ -4,6 +4,8 @@ import type {
   AccountViewModel,
   DashboardBridge,
   GenericOpenAiAccountInput,
+  NotificationPreferencesViewModel,
+  NotificationViewModel,
   UpdateInfo,
 } from "../types";
 
@@ -20,6 +22,14 @@ export const tauriBridge: DashboardBridge = {
     invoke<AccountViewModel[]>("accounts_refresh", accountId ? { accountId } : undefined),
   checkForUpdate: () => invoke<UpdateInfo | null>("updater_check"),
   installUpdate: () => invoke<void>("updater_install"),
+  listNotifications: (limit?: number) =>
+    invoke<NotificationViewModel[]>("notifications_list", limit ? { limit } : undefined),
+  markNotificationsRead: (ids?: string[]) =>
+    invoke<void>("notifications_mark_read", ids && ids.length > 0 ? { ids } : undefined),
+  getNotificationPreferences: () =>
+    invoke<NotificationPreferencesViewModel>("notification_preferences_get"),
+  setNotificationPreferences: (prefs: NotificationPreferencesViewModel) =>
+    invoke<void>("notification_preferences_set", { prefs }),
 };
 
 /** Window-shell actions that stay in Rust so capabilities stay narrow. */

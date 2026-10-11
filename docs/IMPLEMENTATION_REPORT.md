@@ -220,3 +220,109 @@ SQLite。
 
 - 错误指标的旧数值随集合替换丢失（错误态显式可见为补偿）；per-metric 保留旧值需要指标级合并，留待历史序列设计。
 - 下一阶段：通知触发链路（需权限决策）→ 历史趋势（v2 迁移）。
+
+## Round 4 — 通知触发链路：低额度 / 重置临近 / 认证过期 → OS 通知（P1）
+
+日期：2026-10-11 | 基线：Round 3 工作区 | 平台：Windows 11 x64
+
+### 目标与依据
+
+`IMPLEMENTATION-GAP.md` 中下一项 P1：**通知触发链路未实现**（原 `notifications/` 模块只有孤立
+结构体，未接存储、刷新链路与系统通知）。依据 docs/01 §12（触发条件、Windows/macOS 通知、
+静默模式、只提醒 Critical、"可选，不打扰为原则"）、docs/02 §7（SQLite 保存 Notification
+history）、docs/04 §11（`notification:enqueue` 事件词汇）。
+
+**权限边界决策（用户确认）**：OS 通知仅由 Rust 端触发——新增 `tauri-plugin-notification`
+依赖并在 Rust 注册，但 `capabilities/default.json` **零改动**，webview 不持有任何通知权限，
+只能通过语义命令读历史/标已读/改偏好。符合最小权限原则；webview 侧代码被注入也无法绕过
+后端节流直接弹系统通知。
+
+### 需求完成矩阵
+
+| 要求 | 来源 | 结果 |
+|---|---|---|
+| 低额度提醒 | 01 §12 | ✅ 最差可信指标剩余比例 < 用户阈值（默认 20%，`NotificationPreferences` 可配 1–99）；< 10%（`CRITICAL_RATIO`）升级 CRITICAL，否则 WARNING；仅统计 `Available`/`Partial` 快照，未知不补零 |
+| Balance < 用户设定金额 | 01 §12 | ✅ `metric_id == "balance"`（多端点合并时已标注）或 metric_name 为 balance 的快照，remaining < 阈值（默认关闭，`None`）触发 WARNING |
+| reset 即将发生 | 01 §12 | ✅ `window.reset_at` → 快照 `reset_at` → `ends_at` 依次回退，RFC3339 解析（chrono），默认提前 30 分钟（300s–24h 可配）；dedup key 含重置时间戳，每周期只提醒一次 |
+| 认证过期 | 01 §12 | ✅ 刷新失败且 error_code 为 `AuthRequired`/`AuthExpired` → CRITICAL，本周期取代数值类规则（避免在陈旧值上叠加噪音） |
+| Provider 长时间失去连接 | 01 §12 | ✅ 连续 ≥3 次网络类失败（NetworkUnavailable/Timeout/TlsError/ProviderUnavailable）→ WARNING |
+| 静默模式 / 只提醒 Critical | 01 §12 | ✅ `silent_mode` 仍记历史不弹横幅；`critical_only` 仅 CRITICAL 弹横幅；`enabled=false` 完全不评估 |
+| Windows/macOS Notification | 01 §12 / 05 §14 | ✅ `tauri-plugin-notification` Rust API，派发前经插件授权面（`request_permission`）守卫（Windows 已随构建验证编译链接；横幅实机弹出待安装版环境） |
+| SQLite 通知历史 | 02 §7 | ✅ 迁移 v2 `notifications` 表：24h 去重冷却、30 天保留 + 200 条上限修剪、账户删除 `ON DELETE SET NULL` 保留历史、外键开启 |
+| `notification:enqueue` 事件 | 04 §11 | ✅ 每条实际入队（通过去重）的通知 emit 一次，前端监听刷新列表 |
+| 不打扰原则 | 01 §12 | ✅ 每条件每冷却窗口至多一条；认证过期当周期独占；OS 派发失败仅记日志不影响刷新 |
+
+### 代码变更
+
+- **`notifications/mod.rs`（重写）**：`NotificationKind`/`NotificationSeverity`（serde 协议
+  枚举 + DB 字符串互转）、`Notification`（含 `dedup_key`）、`NotificationPreferences`
+  （serde default + `validate()` 边界校验）、纯函数 `evaluate_account_notifications(TriggerContext)`
+  拆为 5 个规则助手（auth/unreachable/low_quota/balance/reset）、`enqueue_new`（去重入队 →
+  按 `NotificationSink` 派发 → 修剪）、`NotificationSink` trait + `LogSink`（测试）+
+  `OsNotificationSink`（AppHandle → 插件 Rust API，派发前调用插件 `request_permission`
+  守卫：非 `Granted` 跳过系统派发只记日志）；14 个评估测试 + 4 个入队测试。
+- **`storage/migrations/0002_notifications.sql` + `MIGRATIONS` 追加**：通知历史表（两个索引），
+  版本升至 2，老库升级自动走 Round 2 的备份 + 完整性检查路径。
+- **`storage/mod.rs`**：`NotificationRecord`（存储层自有类型，不依赖 notifications 模块）+
+  `insert_notification`（冷却查询 + 事务插入）/`notifications`/`mark_notifications_read`/
+  `mark_all_notifications_read`/`prune_notifications`；4 个存储测试（含外键 SET NULL 行为）。
+- **`commands/mod.rs`**：`notifications_list`/`notifications_mark_read`/
+  `notification_preferences_get`/`notification_preferences_set` 4 个命令 +
+  `NotificationViewModel`；`refresh_accounts` 增加 `handle: Option<&AppHandle>`，每个账户刷新后
+  调用 `notify_account_events`（评估 → 入队 → emit，失败仅 warn 日志）；偏好存 settings 表
+  （`notification_preferences` key），缺失/损坏回退默认值。
+- **`app/mod.rs`**：注册 `tauri_plugin_notification::init()`；后台刷新循环与 `accounts_create`/
+  `accounts_refresh` 命令传入 `AppHandle`；invoke_handler 注册 4 个新命令。
+- **前端**：`types/`（通知视图模型/偏好/桥接 4 方法）、`lib/tauri.ts`（语义命令）、
+  `lib/mock.ts`（演示通知 + 偏好）、`styles/copy.ts`（通知文案 + a11y）、新组件
+  `features/dashboard/components/NotificationSection.tsx`（通知中心 + `<details>` 设置表单：
+  开关立即提交、数字字段失焦提交、列表与偏好独立降级）、`App.tsx` 集成 +
+  `notification:enqueue` 监听、`App.css` 通知样式（明暗主题、severity chip、窄窗换行）。
+
+未改动：Tauri capabilities、CSP、网络层、凭据层、provider 适配器。
+
+### 行为变化
+
+- 后台刷新循环（1800s）与手动刷新后：每个账户触发一次通知评估；命中条件且通过 24h 去重的
+  条目写入历史、弹出系统横幅（受静默/只提醒紧急过滤）并向前端发 `notification:enqueue`。
+- 老库（v1）首次打开自动升级到 v2（生成 `*.pre-migration.bak` 备份后建表），既有数据不动。
+- 仪表盘新增"通知"区块：未读徽标、逐条/全部已读、严重级别标签（文字 + 色彩双编码）、
+  可折叠通知设置。
+
+### 测试与构建（全部通过）
+
+- Rust：`cargo test` **149 通过**（142 单元 + 7 fixture；新增通知评估 14、入队 4、存储 4）；
+  `cargo fmt --all -- --check` 通过；`cargo clippy --all-targets --all-features -- -D warnings`
+  0 错误 0 警告。
+- 前端：`pnpm typecheck` 通过；`pnpm test` **30 通过**（新增 NotificationSection 8 个：渲染、
+  未读徽标、逐条/全部已读、偏好即时提交、数字失焦提交、偏好失败降级、保存失败告警）；
+  `pnpm build` 成功。
+- 手动 UX（mock 桥接 + 浏览器，1280/375 双宽、暗色）：通知中心渲染与严重级别 chip、全部已读
+  联动（徽标/按钮消失、条目保留变暗）、设置开关联动（总开关关闭禁用子控件 + `已保存` 反馈）、
+  窄窗时间戳独立成行，均通过截图核对。
+
+### Diff 自审（docs/07 §5）
+
+1. **术语一致**：通知 kind/severity 命名与 docs/04 事件词汇、PRD §12 条件一一对应。
+2. **失败不变量**：通知评估/派发失败仅 `tracing::warn`，绝不影响刷新结果；OS 派发失败静默。
+3. **unknown ≠ zero**：仅 `Available`/`Partial` 快照参与阈值判定；无值不触发。
+4. **状态可见性**：severity 用文字标签 + 颜色双编码；未读用圆点 + 徽标 + 已读按钮三重表达。
+5. **IPC 边界**：前端只发语义命令；通知文本由 Rust 渲染并存储，webview 不拼装业务文案。
+6. **权限边界**：capabilities 零改动（用户确认的方案）；OS 通知仅 Rust 端可触发。
+7. **性能**：评估为每次刷新每账户一次纯函数；历史有保留上限；事件只在有新通知时发出。
+8. **schema 变化**：v2 迁移新增 `notifications` 表，走备份 + 完整性检查 + 事务升级路径。
+9. **secret 风险**：无——通知文本只含账户名与归一化数值；日志只记 kind/severity，不记消息体。
+10. **架构耦合**：存储层不反向依赖 notifications 模块（`NotificationRecord` 自有类型），
+    转换由 notifications 层负责；OS Sink 独立于评估逻辑，可替换可测试。
+
+### 已知限制与下一阶段
+
+- "OAuth/API key 即将过期"（PRD §12）仅在凭据已被明确拒绝时可判；主动预测过期时间需
+  provider 侧元数据，未实现。
+- Windows 通知横幅的实机弹出（安装版 AUMID 身份）未验证——开发环境无法覆盖，需安装版冒烟。
+  已核实（tauri-plugin-notification 2.4.0 源码）：桌面端 `request_permission`/`permission_state`
+  是恒 `Granted` 的桩（真实授权仅在移动端实现）；macOS 底层走遗留 `NSUserNotification` API，
+  首次派发由系统自动弹出授权提示，无需显式申请。派发路径中的授权守卫因此是前向兼容设计：
+  插件未来实现桌面授权时无需改代码；本机（Windows）工具链可完整编译验证该路径。
+- 低额度/余额阈值变更不回溯评估（下次刷新生效）；通知不支持按账户静音。
+- 下一阶段：历史趋势与基础图表（需 v3 迁移）→ 真实 provider 端点接入。

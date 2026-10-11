@@ -2,6 +2,8 @@ import type {
   AccountViewModel,
   DashboardBridge,
   GenericOpenAiAccountInput,
+  NotificationPreferencesViewModel,
+  NotificationViewModel,
 } from "../types";
 
 /**
@@ -164,8 +166,57 @@ function demoAccounts(now: number): AccountViewModel[] {
   ];
 }
 
+function demoNotifications(now: number): NotificationViewModel[] {
+  return [
+    {
+      id: "demo-ntf-1",
+      kind: "low_quota",
+      severity: "CRITICAL",
+      title: "额度紧张",
+      message: "「公司中转站」的每日 Token 仅剩 5%。",
+      accountId: "demo-relay",
+      providerId: "generic.openai_compatible:demo-relay",
+      createdAt: now - 6 * minute,
+      readAt: null,
+    },
+    {
+      id: "demo-ntf-2",
+      kind: "reset_approaching",
+      severity: "INFO",
+      title: "额度即将重置",
+      message: "「公司中转站」的额度将在约 45 分钟后重置。",
+      accountId: "demo-relay",
+      providerId: "generic.openai_compatible:demo-relay",
+      createdAt: now - 40 * minute,
+      readAt: null,
+    },
+    {
+      id: "demo-ntf-3",
+      kind: "provider_unreachable",
+      severity: "WARNING",
+      title: "长时间无法连接",
+      message: "「备用网关」已连续 3 次刷新失败，请检查网络或服务状态。",
+      accountId: "demo-backup",
+      providerId: "generic.openai_compatible:demo-backup",
+      createdAt: now - 3 * hour,
+      readAt: now - 2 * hour,
+    },
+  ];
+}
+
+const demoPreferences: NotificationPreferencesViewModel = {
+  enabled: true,
+  silentMode: false,
+  criticalOnly: false,
+  lowQuotaThreshold: 20,
+  balanceThreshold: null,
+  resetSoonWindow: 1_800,
+};
+
 export function createMockBridge(): DashboardBridge {
   let accounts = demoAccounts(Date.now());
+  let notifications = demoNotifications(Date.now());
+  let preferences: NotificationPreferencesViewModel = { ...demoPreferences };
   const latency = () => 180 + Math.random() * 260;
 
   return {
@@ -213,6 +264,29 @@ export function createMockBridge(): DashboardBridge {
     },
     async installUpdate() {
       /* demo no-op */
+    },
+    async listNotifications(limit?: number) {
+      await new Promise((resolve) => setTimeout(resolve, latency()));
+      return structuredClone(notifications.slice(0, limit ?? 50));
+    },
+    async markNotificationsRead(ids?: string[]) {
+      await new Promise((resolve) => setTimeout(resolve, latency()));
+      const now = Date.now();
+      notifications = notifications.map((notification) =>
+        ids && ids.length > 0
+          ? ids.includes(notification.id) && notification.readAt === null
+            ? { ...notification, readAt: now }
+            : notification
+          : { ...notification, readAt: notification.readAt ?? now },
+      );
+    },
+    async getNotificationPreferences() {
+      await new Promise((resolve) => setTimeout(resolve, latency()));
+      return structuredClone(preferences);
+    },
+    async setNotificationPreferences(prefs: NotificationPreferencesViewModel) {
+      await new Promise((resolve) => setTimeout(resolve, latency()));
+      preferences = { ...prefs };
     },
   };
 }

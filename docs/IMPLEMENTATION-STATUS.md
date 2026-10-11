@@ -19,10 +19,10 @@
 - 健康分级（2026-10-11）：`domain/health.rs` 按 PRD §5.1 阈值实现剩余比例分级（<10% critical、<25% attention，严格边界），`commands::account_view_to_model` 将分级接入账户状态——`error`/`unavailable` 保持最高优先级，其次 `critical`/`attention`，再退回 `stale`/`healthy`；前端 `overallHealth`、`attentionCount` 筛选与 chip/bubble 样式透传显示，条形/ring 色调阈值从 15%/40% 统一为 PRD 的 10%/25%。
 - SQLite 迁移框架（2026-10-11）：`storage/migrations/` 目录按 docs/06 §18 版本化（`0001_initial_schema.sql` 经 `include_str!` 嵌入），打开数据库时先 `PRAGMA integrity_check`，对含数据的库用 `VACUUM INTO` 生成 `*.pre-migration.bak` 备份（仅保留最近一代），每个迁移独立事务并在完成后复查完整性；单个迁移失败自动回滚到原版本，损坏库拒绝打开（safe mode），`user_version` 高于支持版本仍然拒绝打开。
 - Provider 多端点合并（2026-10-11）：OpenAI-compatible 适配器按 `quota → usage → balance` 顺序请求全部已配置端点（按路径去重），解析结果合并为一个 `QuotaSnapshotSet` 并为缺失 metric_id 的快照标注端点类型；单端点失败生成 `Error` 状态指标（前端显示"该指标读取失败"），其余端点继续更新；全部端点失败时返回首个错误走 stale fallback。响应无额度字段的端点静默跳过（`parse_openai_compatible_lenient`）。表单新增用量/余额接口字段；默认 `/usage` 仅在未配置任何其他端点时生效。渲染审计修复：账户列表改为真实 `<ul>` 语义（此前 `li` 直接挂在 `section` 下导致无效 HTML 与原生列表圆点泄漏）。
+- 通知触发链路（2026-10-11）：`notifications/` 模块重写为"纯函数评估 → SQLite 历史去重 → Sink 派发"管线。触发规则按 PRD §12：低额度（剩余 < 用户阈值，默认 20%；< 10% 升级为紧急）、余额低于用户设定下限、重置临近（默认提前 30 分钟，dedup key 含重置时间戳，每周期只提醒一次）、认证过期（`AuthRequired`/`AuthExpired`，本周期取代数值类规则）、连续 ≥3 次网络类失败（长时间失联）。`NotificationPreferences`（enabled/silent/critical_only/低额度阈值/余额下限/重置提前窗口）持久化在 settings 表并带校验；通知历史存于迁移 v2 新增的 `notifications` 表（24h 去重冷却、30 天保留 + 200 条上限、账户删除时 `ON DELETE SET NULL` 保留历史）。OS 通知经 `tauri-plugin-notification` 的 Rust API 由后端刷新链路触发——**webview 能力集零改动**（用户确认的权限边界：前端无任何通知权限，仅能通过语义命令读历史/标已读/改偏好）。派发前经插件 `request_permission` 授权守卫（非 `Granted` 跳过系统派发只记日志；已核实 2.4.0 桌面端该调用是恒 `Granted` 桩、macOS 首次授权由遗留 `NSUserNotification` 路径在首次派发时自动弹出，守卫为前向兼容设计）。新命令 `notifications_list`/`notifications_mark_read`/`notification_preferences_get`/`notification_preferences_set`，`notification:enqueue` 事件按 docs/04 §11 词汇表命名。前端新增通知中心（未读徽标、逐条/全部已读、严重级别标签不依赖颜色单一编码）与通知设置表单（开关立即提交、数字字段失焦提交）。
 - Scheduler：`Scheduler` 基于 BinaryHeap 优先级队列，支持 jitter、backoff、per-provider 配置。
 - 统一 HTTP 客户端：`networking::HttpClient` 提供 timeout、connect timeout、response size limit、sensitive header redaction。
 - Telemetry：`telemetry` 模块提供结构化日志事件和 secret redaction。
-- Notifications：`Notification`、`NotificationPreferences`、`NotificationFilter` 支持低额度警告和严重额度警报。
 - Rust 领域原语：`src-tauri/src/provider.rs`（provider 描述符、能力位、统一 `ProviderError`、归一化 `QuotaSnapshot`、OpenAI-compatible 响应解析与 registry）和 `src-tauri/src/state.rs`（账户元数据、freshness 策略、位置、刷新状态、退避策略）。
 - SQLite 持久化：`src-tauri/src/persistence.rs` 提供 WAL、外键、schema 版本与 `providers`/`accounts`/`snapshots`/`refresh_states` 表；只写入归一化数据，不写入原始响应体或凭证。
 - OS 凭证库：`src-tauri/src/credentials.rs` 基于 `keyring` 封装，SQLite 只保存 `credential_ref`；`CredentialValue` 的 `Debug` 输出为 `REDACTED`，不实现序列化。
@@ -112,16 +112,16 @@ MSVC 产物写入 `src-tauri/target-msvc`（由 `CARGO_TARGET_DIR` 指定），�
 
 ## Testing & Build
 
-- 前端：`pnpm typecheck`、`pnpm build`、`pnpm test`（vitest，22 测试通过，含健康分级边界测试）。
-- Rust：`cargo fmt --check` 通过；`cargo test` 137 测试通过（130 单元 + 7 fixture，含 domain/health 13 个、storage/migrations 6 个、多端点合并 6 个新测试）；`cargo clippy --all-targets --all-features -- -D warnings` 0 错误 0 警告。
-- 渲染审计（design-review checklist + mock 桥接 + 浏览器截图，1280/375 宽）：列表语义、多桶卡片、部分/错误态、窄屏布局、表单焦点与帮助文案均验证通过；删除流程端到端走查正常。
+- 前端：`pnpm typecheck`、`pnpm build`、`pnpm test`（vitest，30 测试通过，含通知中心 8 个：渲染/未读徽标/逐条与全部已读/偏好提交/失败降级）。
+- Rust：`cargo fmt --check` 通过；`cargo test` 149 测试通过（142 单元 + 7 fixture，含通知触发判定 14 个、通知入队去重/静默/修剪 4 个、通知存储 4 个、迁移框架 6 个、多端点合并 6 个）；`cargo clippy --all-targets --all-features -- -D warnings` 0 错误 0 警告。
+- 渲染审计（design-review checklist + mock 桥接 + 浏览器截图，1280/375 宽）：列表语义、多桶卡片、部分/错误态、窄屏布局、表单焦点与帮助文案均验证通过；删除流程端到端走查正常。通知触发链路轮追加验证（1280/375，mock 桥接）：通知中心渲染、严重级别 chip、全部已读联动（徽标/按钮消失、条目保留变暗）、设置开关联动（总开关关闭禁用子控件、`已保存`反馈）、窄窗时间戳换行。
 - E2E：Playwright smoke test 脚本已创建，需原生 Tauri 环境执行。
 - CI：`.github/workflows/ci-release.yml` 运行 typecheck、test、build、fmt、check、clippy、cargo test 与版本一致性校验。
 - Windows 构建：MSI (5.49 MiB) + NSIS (4.04 MiB) 已验证产出。
 
 ## Next Recommended Phase
 
-1. 通知触发链路：低额度/重置临近/认证过期（健康分级阈值已就绪，需评估 tauri-plugin-notification 权限）。
-2. 历史趋势与基础图表（需要 v2 迁移新增历史序列表）。
-3. BubbleView 和 Dashboard 测试在真实 Tauri 环境中验证。
-4. 接入第一个真实 provider 的官方限额端点。
+1. 历史趋势与基础图表（需要 v3 迁移新增历史序列表）。
+2. BubbleView 和 Dashboard 测试在真实 Tauri 环境中验证。
+3. 接入第一个真实 provider 的官方限额端点。
+4. 真实环境验证 OS 通知横幅（需安装版应用与系统通知权限，开发环境无法覆盖）。

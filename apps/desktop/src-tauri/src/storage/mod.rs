@@ -63,6 +63,23 @@ pub struct AccountViewDto {
     pub refresh: RefreshState,
 }
 
+/// One stored notification. `kind`/`severity` are the stable string forms of
+/// the domain enums so this layer stays independent of the notifications
+/// module; the conversion back is owned there.
+#[derive(Clone, Debug, PartialEq)]
+pub struct NotificationRecord {
+    pub id: String,
+    pub account_id: Option<String>,
+    pub provider_id: Option<String>,
+    pub kind: String,
+    pub severity: String,
+    pub title: String,
+    pub message: String,
+    pub dedup_key: String,
+    pub created_at: u64,
+    pub read_at: Option<u64>,
+}
+
 /// Synchronous repository. Tauri callers can place it behind `Arc<Mutex<_>>`.
 pub struct LocalRepository {
     connection: Connection,
@@ -440,6 +457,117 @@ impl LocalRepository {
         )?;
         Ok(())
     }
+
+    /// Inserts a notification unless the same `dedup_key` was already recorded
+    /// within `cooldown_secs`. Returns `true` when the row was written, i.e.
+    /// the caller may raise the banner.
+    pub fn insert_notification(
+        &self,
+        record: NotificationRecord,
+        cooldown_secs: u64,
+        now: u64,
+    ) -> Result<bool, StorageError> {
+        let cooldown_start = now.saturating_sub(cooldown_secs);
+        let recent: i64 = self.connection.query_row(
+            "SELECT COUNT(*) FROM notifications WHERE dedup_key = ?1 AND created_at > ?2",
+            params![record.dedup_key, cooldown_start],
+            |row| row.get(0),
+        )?;
+        if recent > 0 {
+            return Ok(false);
+        }
+        let transaction = self.connection.unchecked_transaction()?;
+        transaction.execute(
+            "INSERT INTO notifications
+                (id, account_id, provider_id, kind, severity, title, message, dedup_key, created_at, read_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+            params![
+                record.id,
+                record.account_id,
+                record.provider_id,
+                record.kind,
+                record.severity,
+                record.title,
+                record.message,
+                record.dedup_key,
+                record.created_at,
+                record.read_at,
+            ],
+        )?;
+        transaction.commit()?;
+        Ok(true)
+    }
+
+    /// Most recent notifications, newest first.
+    pub fn notifications(&self, limit: u32) -> Result<Vec<NotificationRecord>, StorageError> {
+        let mut statement = self.connection.prepare(
+            "SELECT id, account_id, provider_id, kind, severity, title, message, dedup_key, created_at, read_at
+               FROM notifications ORDER BY created_at DESC, rowid DESC LIMIT ?1",
+        )?;
+        let rows = statement.query_map([i64::from(limit.max(1))], |row| {
+            Ok(NotificationRecord {
+                id: row.get(0)?,
+                account_id: row.get(1)?,
+                provider_id: row.get(2)?,
+                kind: row.get(3)?,
+                severity: row.get(4)?,
+                title: row.get(5)?,
+                message: row.get(6)?,
+                dedup_key: row.get(7)?,
+                created_at: row.get(8)?,
+                read_at: row.get(9)?,
+            })
+        })?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(StorageError::from)
+    }
+
+    /// Marks the given notifications read; unknown ids are ignored.
+    pub fn mark_notifications_read(&self, ids: &[&str], now: u64) -> Result<usize, StorageError> {
+        if ids.is_empty() {
+            return Ok(0);
+        }
+        let placeholders = ids
+            .iter()
+            .enumerate()
+            .map(|(index, _)| format!("?{}", index + 2))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let sql = format!(
+            "UPDATE notifications SET read_at = ?1 WHERE read_at IS NULL AND id IN ({placeholders})"
+        );
+        let mut parameters: Vec<&dyn rusqlite::ToSql> = vec![&now];
+        parameters.extend(ids.iter().map(|id| id as &dyn rusqlite::ToSql));
+        Ok(self.connection.execute(&sql, parameters.as_slice())?)
+    }
+
+    /// Marks every unread notification read; returns how many changed.
+    pub fn mark_all_notifications_read(&self, now: u64) -> Result<usize, StorageError> {
+        Ok(self.connection.execute(
+            "UPDATE notifications SET read_at = ?1 WHERE read_at IS NULL",
+            [now],
+        )?)
+    }
+
+    /// Bounds history growth: drops rows older than `retention_secs`, then
+    /// keeps at most `max_rows` newest.
+    pub fn prune_notifications(
+        &self,
+        now: u64,
+        retention_secs: u64,
+        max_rows: i64,
+    ) -> Result<(), StorageError> {
+        let cutoff = now.saturating_sub(retention_secs);
+        self.connection
+            .execute("DELETE FROM notifications WHERE created_at < ?1", [cutoff])?;
+        self.connection.execute(
+            "DELETE FROM notifications WHERE id NOT IN (
+                 SELECT id FROM notifications ORDER BY created_at DESC, rowid DESC LIMIT ?1
+             )",
+            [max_rows],
+        )?;
+        Ok(())
+    }
 }
 
 fn snapshot_key(snapshot: &QuotaSnapshot, index: usize) -> String {
@@ -576,5 +704,148 @@ mod tests {
             .latest_snapshot_views("account-1", 101, policy())
             .expect("views");
         assert_eq!(cleared, Vec::<SnapshotViewDto>::new());
+    }
+
+    fn notification_record(id: &str, dedup_key: &str, created_at: u64) -> NotificationRecord {
+        NotificationRecord {
+            id: id.to_owned(),
+            account_id: Some("account-1".to_owned()),
+            provider_id: Some("generic".to_owned()),
+            kind: "low_quota".to_owned(),
+            severity: "WARNING".to_owned(),
+            title: "额度紧张".to_owned(),
+            message: "仅剩 5%。".to_owned(),
+            dedup_key: dedup_key.to_owned(),
+            created_at,
+            read_at: None,
+        }
+    }
+
+    /// Notifications carry foreign keys, so standalone inserts need the
+    /// referenced provider and account to exist — same as the live enqueue path.
+    fn seed_account(repository: &LocalRepository) {
+        repository.upsert_provider(&config(), 1).expect("provider");
+        repository.upsert_account(&account(), 1).expect("account");
+    }
+
+    #[test]
+    fn notifications_dedup_within_cooldown_and_repeat_afterwards() {
+        let repository = LocalRepository::open_in_memory().expect("database");
+        seed_account(&repository);
+        let first = repository
+            .insert_notification(
+                notification_record("n1", "low-quota:a1", 1_000),
+                86_400,
+                1_000,
+            )
+            .expect("insert");
+        assert!(first, "first occurrence must be stored");
+        let suppressed = repository
+            .insert_notification(
+                notification_record("n2", "low-quota:a1", 2_000),
+                86_400,
+                2_000,
+            )
+            .expect("insert");
+        assert!(!suppressed, "cooldown must suppress the repeat");
+        let later = repository
+            .insert_notification(
+                notification_record("n3", "low-quota:a1", 1_000 + 86_400 + 1),
+                86_400,
+                1_000 + 86_400 + 1,
+            )
+            .expect("insert");
+        assert!(later, "after the cooldown the condition may fire again");
+    }
+
+    #[test]
+    fn notifications_list_is_newest_first_and_mark_read_only_touches_unread() {
+        let repository = LocalRepository::open_in_memory().expect("database");
+        seed_account(&repository);
+        for index in 0..3_u64 {
+            repository
+                .insert_notification(
+                    notification_record(&format!("n{index}"), &format!("k{index}"), 1_000 + index),
+                    86_400,
+                    1_000 + index,
+                )
+                .expect("insert");
+        }
+        let listed = repository.notifications(2).expect("list");
+        assert_eq!(listed.len(), 2);
+        assert_eq!(listed[0].id, "n2", "newest first");
+
+        let changed = repository
+            .mark_notifications_read(&["n1", "unknown"], 5_000)
+            .expect("mark");
+        assert_eq!(changed, 1, "unknown ids are ignored");
+        let changed = repository
+            .mark_notifications_read(&["n1"], 5_001)
+            .expect("mark");
+        assert_eq!(changed, 0, "already-read rows stay untouched");
+        let all = repository
+            .mark_all_notifications_read(5_002)
+            .expect("mark all");
+        assert_eq!(all, 2, "only the still-unread rows change");
+        let listed = repository.notifications(10).expect("list");
+        assert!(listed.iter().all(|record| record.read_at.is_some()));
+        assert_eq!(
+            listed
+                .iter()
+                .find(|record| record.id == "n1")
+                .and_then(|record| record.read_at),
+            Some(5_000),
+            "earlier read timestamp is preserved"
+        );
+    }
+
+    #[test]
+    fn notifications_prune_by_age_and_cap() {
+        let repository = LocalRepository::open_in_memory().expect("database");
+        seed_account(&repository);
+        let now = 5_000_000_u64;
+        for index in 0..10_u64 {
+            let created_at = now - (9 - index) * 100;
+            repository
+                .insert_notification(
+                    notification_record(&format!("n{index}"), &format!("k{index}"), created_at),
+                    0,
+                    created_at,
+                )
+                .expect("insert");
+        }
+        // Everything is recent relative to now, so only the cap can drop rows.
+        repository
+            .prune_notifications(now, 30 * 86_400, 100)
+            .expect("prune");
+        assert_eq!(repository.notifications(100).expect("list").len(), 10);
+        // Cap keeps the newest rows only.
+        repository
+            .prune_notifications(now, 30 * 86_400, 4)
+            .expect("prune");
+        let remaining = repository.notifications(100).expect("list");
+        assert_eq!(remaining.len(), 4);
+        assert_eq!(remaining[0].id, "n9");
+    }
+
+    #[test]
+    fn notifications_survive_account_deletion_with_cleared_link() {
+        let repository = LocalRepository::open_in_memory().expect("database");
+        repository.upsert_provider(&config(), 1).expect("provider");
+        repository.upsert_account(&account(), 1).expect("account");
+        repository
+            .insert_notification(
+                notification_record("n1", "low-quota:account-1", 1_000),
+                0,
+                1_000,
+            )
+            .expect("insert");
+        repository.delete_account("account-1").expect("delete");
+        let remaining = repository.notifications(10).expect("list");
+        assert_eq!(remaining.len(), 1, "history is kept");
+        assert_eq!(
+            remaining[0].account_id, None,
+            "link cleared by ON DELETE SET NULL"
+        );
     }
 }

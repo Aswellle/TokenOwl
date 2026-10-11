@@ -6,6 +6,9 @@ use crate::domain::provider::{
     AuthMethod, DataSource, OpenAiCompatibleConfig, ProviderError, QuotaUnit, SnapshotStatus,
 };
 use crate::domain::state::{AccountMetadata, Freshness, FreshnessPolicy, RefreshStatus};
+use crate::notifications::{
+    self, Notification, NotificationPreferences, OsNotificationSink, PREFERENCES_KEY,
+};
 use crate::providers::builtin::openai::OpenAiCompatibleAdapter;
 use crate::scheduler::refresh_account;
 use crate::storage::{AccountViewDto, LocalRepository, SnapshotViewDto, StorageError};
@@ -14,7 +17,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
-use tauri::State;
+use tauri::{AppHandle, Emitter, State};
 use thiserror::Error;
 
 const DEFAULT_QUOTA_ENDPOINT: &str = "/usage";
@@ -153,6 +156,36 @@ pub struct AccountViewModel {
     pub error_message: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NotificationViewModel {
+    pub id: String,
+    pub kind: String,
+    pub severity: String,
+    pub title: String,
+    pub message: String,
+    pub account_id: Option<String>,
+    pub provider_id: Option<String>,
+    pub created_at: u64,
+    pub read_at: Option<u64>,
+}
+
+impl NotificationViewModel {
+    fn from_record(record: crate::storage::NotificationRecord) -> Self {
+        Self {
+            id: record.id,
+            kind: record.kind,
+            severity: record.severity,
+            title: record.title,
+            message: record.message,
+            account_id: record.account_id,
+            provider_id: record.provider_id,
+            created_at: record.created_at,
+            read_at: record.read_at,
+        }
+    }
+}
+
 #[tauri::command]
 pub fn accounts_list(state: State<'_, Arc<AppRuntime>>) -> Result<Vec<AccountViewModel>, String> {
     list_accounts(&state).map_err(String::from)
@@ -160,6 +193,7 @@ pub fn accounts_list(state: State<'_, Arc<AppRuntime>>) -> Result<Vec<AccountVie
 
 #[tauri::command]
 pub async fn accounts_create(
+    app: AppHandle,
     input: GenericOpenAiAccountInput,
     state: State<'_, Arc<AppRuntime>>,
 ) -> Result<AccountViewModel, String> {
@@ -167,7 +201,7 @@ pub async fn accounts_create(
     let account_id = account.id.clone();
     // Best-effort first snapshot. A failed request keeps the account plus an explicit
     // refresh error state instead of dropping the account or inventing values.
-    if let Err(error) = refresh_accounts(&state, Some(account_id.clone())).await {
+    if let Err(error) = refresh_accounts(&state, Some(&app), Some(account_id.clone())).await {
         tracing::warn!("initial refresh failed for account {account_id}: {error}");
     }
     list_accounts(&state)
@@ -199,16 +233,18 @@ pub fn accounts_delete(
 
 #[tauri::command]
 pub async fn accounts_refresh(
+    app: AppHandle,
     account_id: Option<String>,
     state: State<'_, Arc<AppRuntime>>,
 ) -> Result<Vec<AccountViewModel>, String> {
-    refresh_accounts(&state, account_id)
+    refresh_accounts(&state, Some(&app), account_id)
         .await
         .map_err(String::from)
 }
 
 pub(crate) async fn refresh_accounts(
     state: &AppRuntime,
+    handle: Option<&AppHandle>,
     account_id: Option<String>,
 ) -> Result<Vec<AccountViewModel>, CommandError> {
     let refresh_one = account_id.is_some();
@@ -234,6 +270,10 @@ pub(crate) async fn refresh_accounts(
             started_at,
         )
         .await;
+        // Notifications are best-effort and never change the refresh outcome.
+        if let Some(handle) = handle {
+            notify_account_events(state, handle, &account_id);
+        }
         if result.is_err() && refresh_one {
             return Err(CommandError::InvalidInput(
                 "failed to refresh account".to_owned(),
@@ -241,6 +281,124 @@ pub(crate) async fn refresh_accounts(
         }
     }
     list_accounts(state)
+}
+
+#[tauri::command]
+pub fn notifications_list(
+    state: State<'_, Arc<AppRuntime>>,
+    limit: Option<u32>,
+) -> Result<Vec<NotificationViewModel>, String> {
+    let repository = state.repository().map_err(String::from)?;
+    let limit = limit.unwrap_or(50).clamp(1, 200);
+    let records = repository
+        .notifications(limit)
+        .map_err(|error| error.to_string())?;
+    Ok(records
+        .into_iter()
+        .map(NotificationViewModel::from_record)
+        .collect())
+}
+
+#[tauri::command]
+pub fn notifications_mark_read(
+    state: State<'_, Arc<AppRuntime>>,
+    ids: Option<Vec<String>>,
+) -> Result<(), String> {
+    let repository = state.repository().map_err(String::from)?;
+    let now = unix_seconds();
+    let changed = match ids.as_deref() {
+        Some(list) if !list.is_empty() => {
+            let refs = list.iter().map(String::as_str).collect::<Vec<_>>();
+            repository.mark_notifications_read(&refs, now)
+        }
+        _ => repository.mark_all_notifications_read(now),
+    };
+    changed.map(|_| ()).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn notification_preferences_get(
+    state: State<'_, Arc<AppRuntime>>,
+) -> Result<NotificationPreferences, String> {
+    load_notification_preferences(&state).map_err(String::from)
+}
+
+#[tauri::command]
+pub fn notification_preferences_set(
+    state: State<'_, Arc<AppRuntime>>,
+    prefs: NotificationPreferences,
+) -> Result<(), String> {
+    prefs.validate()?;
+    let repository = state.repository().map_err(String::from)?;
+    let value = serde_json::to_value(&prefs).map_err(|error| error.to_string())?;
+    repository
+        .set_setting(PREFERENCES_KEY, &value)
+        .map_err(|error| error.to_string())
+}
+
+/// Loads persisted preferences; a missing or malformed entry means defaults.
+fn load_notification_preferences(
+    state: &AppRuntime,
+) -> Result<NotificationPreferences, CommandError> {
+    let value = state.repository()?.get_setting(PREFERENCES_KEY)?;
+    value
+        .map(|value| {
+            serde_json::from_value::<NotificationPreferences>(value)
+                .map_err(|error| CommandError::InvalidInput(error.to_string()))
+        })
+        .transpose()
+        .map(Option::unwrap_or_default)
+}
+
+/// Runs the trigger evaluation for one account after its refresh and raises
+/// the enqueue event for everything that was actually delivered. Failures are
+/// logged and swallowed: notification problems must never fail a refresh.
+fn notify_account_events(state: &AppRuntime, handle: &AppHandle, account_id: &str) {
+    let sink = OsNotificationSink {
+        app: handle.clone(),
+    };
+    match enqueue_account_notifications(state, &sink, account_id) {
+        Ok(delivered) => {
+            for notification in &delivered {
+                let _ = handle.emit("notification:enqueue", notification);
+            }
+        }
+        Err(error) => {
+            tracing::warn!("notification evaluation failed for account {account_id}: {error}");
+        }
+    }
+}
+
+/// Shared evaluation + enqueue path, separated from the OS sink so tests can
+/// pass a `LogSink`.
+pub(crate) fn enqueue_account_notifications(
+    state: &AppRuntime,
+    sink: &dyn notifications::NotificationSink,
+    account_id: &str,
+) -> Result<Vec<Notification>, CommandError> {
+    let prefs = load_notification_preferences(state)?;
+    if !prefs.enabled {
+        return Ok(Vec::new());
+    }
+    let repository = state.repository()?;
+    let account = repository
+        .account(account_id)?
+        .ok_or_else(|| CommandError::InvalidInput("account not found".to_owned()))?;
+    let now = unix_seconds();
+    let view = repository
+        .account_view(account_id, now, state.freshness_policy)?
+        .ok_or_else(|| CommandError::InvalidInput("account view unavailable".to_owned()))?;
+    let candidates = notifications::evaluate_account_notifications(notifications::TriggerContext {
+        account_id: &account.id,
+        account_label: &account.label,
+        provider_id: &account.provider_id,
+        snapshots: &view.snapshots,
+        refresh: &view.refresh,
+        prefs: &prefs,
+        now,
+    });
+    notifications::enqueue_new(&repository, sink, &prefs, candidates, now)
+        .map_err(CommandError::from)
 }
 
 fn list_accounts(state: &AppRuntime) -> Result<Vec<AccountViewModel>, CommandError> {

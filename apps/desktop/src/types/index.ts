@@ -76,6 +76,36 @@ export interface UpdateInfo {
   publishedAt?: string | null;
 }
 
+export type NotificationSeverity = "INFO" | "WARNING" | "CRITICAL";
+
+export type NotificationKind =
+  | "low_quota"
+  | "reset_approaching"
+  | "auth_expired"
+  | "provider_unreachable"
+  | "balance_below";
+
+export interface NotificationViewModel {
+  id: string;
+  kind: NotificationKind;
+  severity: NotificationSeverity;
+  title: string;
+  message: string;
+  accountId?: string | null;
+  providerId?: string | null;
+  createdAt: number;
+  readAt?: number | null;
+}
+
+export interface NotificationPreferencesViewModel {
+  enabled: boolean;
+  silentMode: boolean;
+  criticalOnly: boolean;
+  lowQuotaThreshold: number;
+  balanceThreshold?: number | null;
+  resetSoonWindow: number;
+}
+
 export interface DashboardBridge {
   listAccounts(): Promise<AccountViewModel[]>;
   createAccount(input: GenericOpenAiAccountInput): Promise<AccountViewModel>;
@@ -83,4 +113,10 @@ export interface DashboardBridge {
   refresh(accountId?: string): Promise<AccountViewModel[]>;
   checkForUpdate(): Promise<UpdateInfo | null>;
   installUpdate(): Promise<void>;
+  listNotifications(limit?: number): Promise<NotificationViewModel[]>;
+  markNotificationsRead(ids?: string[]): Promise<void>;
+  getNotificationPreferences(): Promise<NotificationPreferencesViewModel>;
+  setNotificationPreferences(
+    prefs: NotificationPreferencesViewModel,
+  ): Promise<void>;
 }

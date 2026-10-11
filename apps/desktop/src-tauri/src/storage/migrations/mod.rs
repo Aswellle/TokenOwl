@@ -21,11 +21,18 @@ pub struct Migration {
     pub sql: &'static str,
 }
 
-pub const MIGRATIONS: &[Migration] = &[Migration {
-    version: 1,
-    name: "initial_schema",
-    sql: include_str!("0001_initial_schema.sql"),
-}];
+pub const MIGRATIONS: &[Migration] = &[
+    Migration {
+        version: 1,
+        name: "initial_schema",
+        sql: include_str!("0001_initial_schema.sql"),
+    },
+    Migration {
+        version: 2,
+        name: "notifications_history",
+        sql: include_str!("0002_notifications.sql"),
+    },
+];
 
 pub const SCHEMA_VERSION: i32 = MIGRATIONS[MIGRATIONS.len() - 1].version;
 

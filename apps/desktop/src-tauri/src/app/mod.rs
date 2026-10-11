@@ -266,7 +266,7 @@ fn start_background_tasks(app: &AppHandle) {
 
             let result = if let Some(runtime) = handle.try_state::<Arc<commands::AppRuntime>>() {
                 let runtime = Arc::clone(runtime.inner());
-                commands::refresh_accounts(runtime.as_ref(), None).await
+                commands::refresh_accounts(runtime.as_ref(), Some(&handle), None).await
             } else {
                 Ok(Vec::new())
             };
@@ -323,6 +323,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
             let database_path = app
@@ -350,6 +351,10 @@ pub fn run() {
             commands::accounts_create,
             commands::accounts_delete,
             commands::accounts_refresh,
+            commands::notifications_list,
+            commands::notifications_mark_read,
+            commands::notification_preferences_get,
+            commands::notification_preferences_set,
             #[cfg(desktop)]
             updater_check,
             #[cfg(desktop)]

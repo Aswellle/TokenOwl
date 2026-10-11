@@ -19,4 +19,5 @@
 | CI / release | 06 / 10 | Windows/macOS build、签名、checksum、updater | Windows MSI+NSIS 已验证；CI 路径正确 | Partial | macOS 未验证；未在真实 release 上演练 | P1 | 用测试密钥跑一次 draft release |
 | 自动更新运行时 | 06 / 11 | 检查、用户确认、签名校验、重启 | 插件已注册，命令 + 事件 + UI 提示完成 | Partial | 端到端未验证（缺签名资产） | P1 | 结合 draft release 验证安装与重启 |
 | 健康分级阈值 | 01 / 05 | Critical/attention 按剩余比例与重置时间分级 | `domain/health.rs` 按 PRD §5.1 阈值（<10% critical、<25% attention，严格边界）分级，账户状态透传到 bubble/仪表盘；条形色调阈值同步统一 | Done | 仅剩余比例参与分级（reset 邻近度留给通知阶段）；error 优先于数值分级 | P1 | 无 |
-| 历史趋势与通知 | 01 / 10 | 历史图表、通知 | 未实现 | Missing | 无数据聚合 | P2 | 在设计确认后再开始 |
+| 通知触发链路 | 01 §12 / 02 §7 / 04 §11 | 低额度/余额下限/reset 临近/认证过期/长时间失联 → 系统通知；静默模式、只提醒 Critical；SQLite 通知历史 | 纯函数触发判定 + `notifications` 表（迁移 v2，24h 去重冷却 + 保留上限）+ `tauri-plugin-notification` Rust 端派发（`request_permission` 授权守卫）+ `notification:enqueue` 事件 + 通知中心/偏好设置 UI | Done | OS 通知仅由 Rust 刷新链路触发，webview 零通知权限（用户确认的权限边界）；"OAuth/API key 即将过期"仅在明确可判时提醒——当前仅覆盖已被拒绝的情形；Windows 横幅实机弹出未验证；macOS 首次授权由系统在首次派发时自动弹出（插件 2.4 桌面端权限 API 为恒 Granted 桩，守卫为前向兼容） | P1 | 真实环境验证 Windows 横幅与 macOS 首次授权 |
+| 历史趋势与图表 | 01 §13 / 10 | 最近 7/30 天 usage、窗口变化 | 未实现（`HistoryPoint`/`HistorySeries` 领域类型已就绪，无持久化聚合与 UI） | Missing | 需要 v3 迁移新增历史序列表 | P2 | 在设计确认后再开始 |

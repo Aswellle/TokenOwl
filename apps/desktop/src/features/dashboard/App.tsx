@@ -22,6 +22,7 @@ import {
   IconTrash,
 } from "../../components/icons";
 import { StatusChip } from "./components/StatusChip";
+import { NotificationSection } from "./components/NotificationSection";
 import { ProviderIcon } from "../../components/ProviderIcon";
 import {
   accountResetAt,
@@ -656,6 +657,7 @@ export function App({ bridge = tauriBridge }: AppProps = {}) {
   const [updateState, setUpdateState] = useState<ActionState>("idle");
   const [pendingUpdate, setPendingUpdate] = useState<UpdateInfo | null>(null);
   const [now, setNow] = useState(() => Date.now());
+  const [notificationTick, setNotificationTick] = useState(0);
   const overallStatus = overallHealth(accounts, phase);
 
   const loadAccounts = async () => {
@@ -710,6 +712,19 @@ export function App({ bridge = tauriBridge }: AppProps = {}) {
       if (!active) return;
       setUpdateState("available");
       setPendingUpdate(event.payload);
+    }).catch(() => null);
+    return () => {
+      active = false;
+      void unlisten.then((dispose) => dispose?.());
+    };
+  }, []);
+
+  // The backend raises this event for every notification that was actually
+  // delivered (history insert passed the dedup cooldown).
+  useEffect(() => {
+    let active = true;
+    const unlisten = listen("notification:enqueue", () => {
+      if (active) setNotificationTick((tick) => tick + 1);
     }).catch(() => null);
     return () => {
       active = false;
@@ -1085,6 +1100,8 @@ export function App({ bridge = tauriBridge }: AppProps = {}) {
             </ul>
           )}
         </section>
+
+        <NotificationSection bridge={bridge} reloadSignal={notificationTick} />
       </div>
 
       <footer className="footer">

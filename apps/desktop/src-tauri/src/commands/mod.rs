@@ -1,6 +1,7 @@
 // IPC command implementations (Application Layer)
 // Original content moved from src-tauri/src/commands.rs
 use crate::credentials::CredentialStore;
+use crate::domain::health::{HealthGrade, remaining_ratio, worst_grade};
 use crate::domain::provider::{
     AuthMethod, DataSource, OpenAiCompatibleConfig, ProviderError, QuotaUnit, SnapshotStatus,
 };
@@ -347,6 +348,22 @@ fn normalize_endpoint(value: &str) -> Result<String, CommandError> {
     Ok(value.to_owned())
 }
 
+/// Worst PRD health grade across the account's usable quota values. Only
+/// snapshots the parser trusted (`Available`/`Partial`) can drive a severity;
+/// unknown or failed metrics stay unmeasurable instead of implying an empty
+/// quota. Last known values count regardless of snapshot age — freshness is
+/// surfaced separately in the UI.
+fn account_data_grade(snapshots: &[SnapshotViewDto]) -> Option<HealthGrade> {
+    worst_grade(snapshots.iter().map(|view| match view.snapshot.status {
+        SnapshotStatus::Available | SnapshotStatus::Partial => remaining_ratio(
+            view.snapshot.remaining,
+            view.snapshot.used,
+            view.snapshot.limit,
+        ),
+        _ => None,
+    }))
+}
+
 fn account_view_to_model(view: AccountViewDto) -> AccountViewModel {
     let provider_name = view.provider.as_ref().map_or_else(
         || view.account.provider_id.clone(),
@@ -370,14 +387,20 @@ fn account_view_to_model(view: AccountViewDto) -> AccountViewModel {
         .to_owned();
     let error_code = view.refresh.error_code.clone();
     let has_error = view.refresh.status == RefreshStatus::Failed;
+    // Error and unavailable describe connection/data reliability and win over
+    // value-driven grades; a critical/attention ratio outranks plain staleness
+    // because the stale state stays visible through freshness and notices.
     let status = if has_error {
         "error"
     } else if snapshots.is_empty() {
         "unavailable"
-    } else if freshness == "stale" {
-        "stale"
     } else {
-        "healthy"
+        match account_data_grade(&view.snapshots) {
+            Some(HealthGrade::Critical) => "critical",
+            Some(HealthGrade::Attention) => "attention",
+            _ if freshness == "stale" => "stale",
+            _ => "healthy",
+        }
     };
     let source = snapshots.first().map(|snapshot| snapshot.source.clone());
     let last_updated_at = view
@@ -495,5 +518,180 @@ mod tests {
     fn source_and_freshness_names_are_stable() {
         assert_eq!(source_name(DataSource::CustomEndpoint), "CUSTOM_ENDPOINT");
         assert_eq!(freshness_name(Freshness::Stale), "stale");
+    }
+
+    use crate::domain::provider::QuotaSnapshot;
+    use crate::domain::state::RefreshState;
+
+    fn snapshot_view(
+        remaining: Option<f64>,
+        used: Option<f64>,
+        limit: Option<f64>,
+        status: SnapshotStatus,
+        freshness: Freshness,
+    ) -> SnapshotViewDto {
+        SnapshotViewDto {
+            account_id: "a1".to_owned(),
+            snapshot: QuotaSnapshot {
+                used,
+                limit,
+                remaining,
+                status,
+                ..QuotaSnapshot::default()
+            },
+            observed_at: 1,
+            freshness,
+        }
+    }
+
+    fn view_with(snapshots: Vec<SnapshotViewDto>, refresh_status: RefreshStatus) -> AccountViewDto {
+        AccountViewDto {
+            account: AccountMetadata::from_auth_input(
+                "a1",
+                "generic.openai_compatible:a1",
+                "Test",
+                "api_key",
+                None,
+                HashMap::new(),
+                true,
+                None,
+            ),
+            provider: None,
+            snapshots,
+            refresh: RefreshState {
+                status: refresh_status,
+                ..RefreshState::default()
+            },
+        }
+    }
+
+    fn status_of(view: AccountViewDto) -> String {
+        account_view_to_model(view).status
+    }
+
+    #[test]
+    fn fresh_low_remaining_grades_critical_and_attention() {
+        let critical = view_with(
+            vec![snapshot_view(
+                Some(8.0),
+                None,
+                Some(100.0),
+                SnapshotStatus::Available,
+                Freshness::Fresh,
+            )],
+            RefreshStatus::Idle,
+        );
+        assert_eq!(status_of(critical), "critical");
+        // Exactly 10% is the attention bound; strictly below is critical.
+        let at_bound = view_with(
+            vec![snapshot_view(
+                Some(10.0),
+                None,
+                Some(100.0),
+                SnapshotStatus::Available,
+                Freshness::Fresh,
+            )],
+            RefreshStatus::Idle,
+        );
+        assert_eq!(status_of(at_bound), "attention");
+    }
+
+    #[test]
+    fn attention_band_ends_at_twenty_five_percent() {
+        let attention = view_with(
+            vec![snapshot_view(
+                Some(24.0),
+                None,
+                Some(100.0),
+                SnapshotStatus::Available,
+                Freshness::Fresh,
+            )],
+            RefreshStatus::Idle,
+        );
+        assert_eq!(status_of(attention), "attention");
+        let healthy = view_with(
+            vec![snapshot_view(
+                Some(25.0),
+                None,
+                Some(100.0),
+                SnapshotStatus::Available,
+                Freshness::Fresh,
+            )],
+            RefreshStatus::Idle,
+        );
+        assert_eq!(status_of(healthy), "healthy");
+    }
+
+    #[test]
+    fn derived_used_limit_ratio_grades_without_remaining() {
+        let view = view_with(
+            vec![snapshot_view(
+                None,
+                Some(92.0),
+                Some(100.0),
+                SnapshotStatus::Available,
+                Freshness::Fresh,
+            )],
+            RefreshStatus::Idle,
+        );
+        assert_eq!(status_of(view), "critical");
+    }
+
+    #[test]
+    fn urgent_ratio_outranks_stale_but_plain_stale_survives() {
+        let stale_critical = view_with(
+            vec![snapshot_view(
+                Some(5.0),
+                None,
+                Some(100.0),
+                SnapshotStatus::Available,
+                Freshness::Stale,
+            )],
+            RefreshStatus::Idle,
+        );
+        assert_eq!(status_of(stale_critical), "critical");
+        let stale = view_with(
+            vec![snapshot_view(
+                Some(60.0),
+                None,
+                Some(100.0),
+                SnapshotStatus::Available,
+                Freshness::Stale,
+            )],
+            RefreshStatus::Idle,
+        );
+        assert_eq!(status_of(stale), "stale");
+    }
+
+    #[test]
+    fn refresh_error_keeps_precedence_over_grades() {
+        let view = view_with(
+            vec![snapshot_view(
+                Some(5.0),
+                None,
+                Some(100.0),
+                SnapshotStatus::Available,
+                Freshness::Fresh,
+            )],
+            RefreshStatus::Failed,
+        );
+        assert_eq!(status_of(view), "error");
+    }
+
+    #[test]
+    fn untrusted_snapshots_never_grade_the_account() {
+        let view = view_with(
+            vec![snapshot_view(
+                Some(5.0),
+                None,
+                Some(100.0),
+                SnapshotStatus::Unavailable,
+                Freshness::Fresh,
+            )],
+            RefreshStatus::Idle,
+        );
+        assert_eq!(status_of(view), "healthy");
+        let empty = view_with(Vec::new(), RefreshStatus::Idle);
+        assert_eq!(status_of(empty), "unavailable");
     }
 }

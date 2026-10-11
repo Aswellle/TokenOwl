@@ -98,15 +98,17 @@ export function pressure(snapshots: QuotaViewModel[]): number | null {
   return ratios.length > 0 ? Math.min(...ratios) : null;
 }
 
-const CRITICAL_THRESHOLD = 0.15;
-const WARNING_THRESHOLD = 0.4;
+// PRD health thresholds, identical to the Rust domain grading (domain/health.rs):
+// strictly below 10% is critical, strictly below 25% is attention.
+const CRITICAL_THRESHOLD = 0.1;
+const ATTENTION_THRESHOLD = 0.25;
 
-/** Threshold tone shared by bars, rings and chips: <=15% critical, <=40% warning. */
+/** Threshold tone shared by bars, rings and chips: <10% critical, <25% attention. */
 export function ratioTone(ratio: number | null): "healthy" | "attention" | "critical" | null {
   if (ratio === null) return null;
-  return ratio <= CRITICAL_THRESHOLD
+  return ratio < CRITICAL_THRESHOLD
     ? "critical"
-    : ratio <= WARNING_THRESHOLD
+    : ratio < ATTENTION_THRESHOLD
       ? "attention"
       : "healthy";
 }

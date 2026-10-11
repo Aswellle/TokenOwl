@@ -50,7 +50,7 @@ export function AccountRow({
     >
       <div className="account__head">
         <div className="account__identity">
-          <ProviderIcon providerId={account.providerId} size={28} />
+          <ProviderIcon providerId={account.providerId} size={32} />
           <div className="account__names">
             <h3 className="account__label" title={account.label}>
               {account.label}

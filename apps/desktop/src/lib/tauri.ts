@@ -4,9 +4,12 @@ import type {
   AccountViewModel,
   DashboardBridge,
   GenericOpenAiAccountInput,
+  HistoryDayBreakdownViewModel,
+  HistorySummaryViewModel,
   NotificationPreferencesViewModel,
   NotificationViewModel,
   UpdateInfo,
+  UsageWindowsViewModel,
 } from "../types";
 
 /**
@@ -30,6 +33,22 @@ export const tauriBridge: DashboardBridge = {
     invoke<NotificationPreferencesViewModel>("notification_preferences_get"),
   setNotificationPreferences: (prefs: NotificationPreferencesViewModel) =>
     invoke<void>("notification_preferences_set", { prefs }),
+  historySummary: (days?: number, accountId?: string) => {
+    const params: Record<string, string | number> = {};
+    if (days) params.days = days;
+    if (accountId) params.accountId = accountId;
+    return invoke<HistorySummaryViewModel>(
+      "history_summary",
+      Object.keys(params).length > 0 ? params : undefined,
+    );
+  },
+  historyBreakdown: (days?: number) =>
+    invoke<HistoryDayBreakdownViewModel[]>(
+      "history_breakdown",
+      days ? { days } : undefined,
+    ),
+  usageWindows: (accountId?: string) =>
+    invoke<UsageWindowsViewModel>("usage_windows", accountId ? { accountId } : undefined),
 };
 
 /** Window-shell actions that stay in Rust so capabilities stay narrow. */
@@ -39,6 +58,7 @@ export const shell = {
   minimizeDashboard: () => invoke<void>("minimize_dashboard"),
   showBubble: () => invoke<void>("show_bubble"),
   persistBubblePosition: () => invoke<void>("persist_bubble_position"),
+  openProjectPage: () => invoke<void>("open_project_page"),
 };
 
 /** True when running inside the Tauri webview (as opposed to a plain browser). */

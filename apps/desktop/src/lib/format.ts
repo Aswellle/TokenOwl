@@ -16,6 +16,19 @@ export function formatValue(value: number | null | undefined, quota: QuotaViewMo
   return quota.unit === "currency" && quota.currency ? `${quota.currency} ${number}` : number;
 }
 
+/** Compact magnitude for large counts, using the Chinese 万/亿 scale. */
+export function formatCompact(value: number | null | undefined): string {
+  if (value === null || value === undefined || !Number.isFinite(value)) return copy.summary.none;
+  const trim = (scaled: number) =>
+    new Intl.NumberFormat("zh-CN", { maximumFractionDigits: 2 }).format(scaled);
+  const abs = Math.abs(value);
+  if (abs >= 1e8) return `${trim(value / 1e8)} 亿`;
+  if (abs >= 1e4) return `${trim(value / 1e4)} 万`;
+  return new Intl.NumberFormat("zh-CN", {
+    maximumFractionDigits: abs < 10 ? 2 : 0,
+  }).format(value);
+}
+
 export function formatRelative(value: string | number | null | undefined, now: number): string | null {
   const observed = timestamp(value);
   if (observed === null) return null;
@@ -111,4 +124,29 @@ export function ratioTone(ratio: number | null): "healthy" | "attention" | "crit
     : ratio < ATTENTION_THRESHOLD
       ? "attention"
       : "healthy";
+}
+
+/**
+ * Short window tag from the quota window's own span: the PRD's canonical
+ * "5h"/"7d" when the span matches, otherwise the actual span in h/d.
+ */
+export function quotaWindowTag(quota: QuotaViewModel): string | null {
+  const start = quota.window?.startsAt ? Date.parse(String(quota.window.startsAt)) : NaN;
+  const end = quota.window?.endsAt ? Date.parse(String(quota.window.endsAt)) : NaN;
+  if (Number.isFinite(start) && Number.isFinite(end) && end > start) {
+    const hours = (end - start) / 3_600_000;
+    if (hours >= 4 && hours <= 6) return "5h";
+    if (hours >= 144 && hours <= 192) return "7d";
+    return hours >= 24 ? `${Math.round(hours / 24)}d` : `${Math.round(hours)}h`;
+  }
+  // No span reported: fall back to the provider's own metric naming so the
+  // tag reflects what the provider calls the window instead of "unknown".
+  const text = `${quota.metricName ?? ""} ${quota.id ?? ""}`;
+  if (/5\s*小时|5\s*h/i.test(text)) return "5h";
+  if (/7\s*天|7\s*d|周/i.test(text)) return "7d";
+  const hoursMatch = /(\d+)\s*小时/.exec(text);
+  if (hoursMatch) return `${hoursMatch[1]}h`;
+  const daysMatch = /(\d+)\s*天/.exec(text);
+  if (daysMatch) return `${daysMatch[1]}d`;
+  return null;
 }

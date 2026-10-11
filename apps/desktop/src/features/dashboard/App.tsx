@@ -7,12 +7,14 @@ import {
   IconAlert,
   IconBubble,
   IconCheck,
-  IconChevronRight,
   IconCircleUser,
   IconClock,
   IconClose,
   IconDownload,
   IconGauge,
+  IconGear,
+  IconGitHub,
+  IconGrid,
   IconKey,
   IconMinus,
   IconOwl,
@@ -23,17 +25,17 @@ import {
 } from "../../components/icons";
 import { StatusChip } from "./components/StatusChip";
 import { NotificationSection } from "./components/NotificationSection";
+import { HistorySection } from "./components/HistorySection";
+import { ProviderView } from "./components/ProviderView";
+import { QuotaMetric } from "./components/QuotaMetric";
 import { ProviderIcon } from "../../components/ProviderIcon";
 import {
   accountResetAt,
   displaySource,
-  formatCountdown,
   formatRelative,
   formatResetShort,
-  formatValue,
   overallHealth,
   pressure,
-  quotaRatio,
   ratioTone,
   timestamp,
 } from "../../lib/format";
@@ -42,13 +44,17 @@ import type {
   AccountViewModel,
   DashboardBridge,
   GenericOpenAiAccountInput,
-  QuotaViewModel,
   UpdateInfo,
 } from "../../types";
 
 type LoadPhase = "loading" | "ready" | "offline";
 type ActionState = "idle" | "checking" | "available" | "current";
 type FilterId = "all" | "attention";
+type ViewId = "overview" | "provider" | "history" | "notifications" | "settings";
+
+const VIEW_ORDER: ViewId[] = ["overview", "provider", "history", "notifications", "settings"];
+/** Provider icons the rail can show before the rest live in the overview. */
+const RAIL_MAX = 5;
 
 /* ---------- motion vocabulary (critically damped, Apple-style) ---------- */
 
@@ -202,88 +208,6 @@ function PressureRing({ ratio, tone }: { ratio: number | null; tone: "healthy" |
   );
 }
 
-function QuotaValues({ quota }: { quota: QuotaViewModel }) {
-  const hasValue =
-    (quota.remaining !== null && quota.remaining !== undefined) ||
-    (quota.limit !== null && quota.limit !== undefined) ||
-    (quota.used !== null && quota.used !== undefined);
-  if (!hasValue) return null;
-  return (
-    <dl className="quota__values">
-      {quota.remaining !== null && quota.remaining !== undefined && (
-        <div className="quota__value">
-          <dt>{copy.quota.remaining}</dt>
-          <dd>{formatValue(quota.remaining, quota)}</dd>
-        </div>
-      )}
-      {quota.limit !== null && quota.limit !== undefined && (
-        <div className="quota__value quota__value--muted">
-          <dt>{copy.quota.limit}</dt>
-          <dd>{formatValue(quota.limit, quota)}</dd>
-        </div>
-      )}
-      {quota.used !== null && quota.used !== undefined && (
-        <div className="quota__value quota__value--muted">
-          <dt>{copy.quota.used}</dt>
-          <dd>{formatValue(quota.used, quota)}</dd>
-        </div>
-      )}
-    </dl>
-  );
-}
-
-function QuotaMetric({ quota, now }: { quota: QuotaViewModel; now: number }) {
-  const ratio = quotaRatio(quota);
-  const tone = ratioTone(ratio);
-  const percent = ratio === null ? null : `${Math.round(ratio * 100)}%`;
-  const resetText = formatCountdown(quota.window?.resetAt ?? quota.window?.endsAt, now);
-  const source = displaySource(quota.source);
-  const unit = quota.unit && quota.unit !== "unknown" ? (copy.units[quota.unit] ?? quota.unit) : null;
-  // Endpoint kind ids ("quota"/"usage"/"balance") localize through copy.metrics;
-  // provider-supplied metric names pass through untouched.
-  const metricName = copy.metrics[quota.metricName] ?? quota.metricName;
-  const windowLabel = quota.window?.type
-    ? (copy.windowTypes[quota.window.type] ?? quota.window.type)
-    : null;
-  const state = quota.status ?? "available";
-  return (
-    <li className="quota">
-      <div className="quota__head">
-        <h4 className="quota__name">
-          {metricName}
-          {unit && <span className="quota__unit">{unit}</span>}
-        </h4>
-        {windowLabel && <span className="quota__window">{windowLabel}</span>}
-      </div>
-      <QuotaValues quota={quota} />
-      {ratio !== null && tone && (
-        <div
-          className={`bar bar--${tone}`}
-          role="img"
-          aria-label={copy.a11y.quotaBar(metricName, percent ?? "")}
-        >
-          <span className="bar__fill" style={{ transform: `scaleX(${ratio})` }} />
-        </div>
-      )}
-      <div className="quota__foot">
-        {resetText && (
-          <span className="quota__reset">
-            <IconClock size={13} />
-            {resetText}
-          </span>
-        )}
-        {ratio !== null && <span className="bar__value num">{percent}</span>}
-        {source && <span>{source}</span>}
-        {state === "partial" && <span className="quota__state">{copy.quota.partial}</span>}
-        {state === "unavailable" && <span className="quota__state">{copy.quota.notReported}</span>}
-        {state === "error" && (
-          <span className="quota__state quota__state--error">{copy.quota.readError}</span>
-        )}
-      </div>
-    </li>
-  );
-}
-
 function AccountRow({
   account,
   index,
@@ -320,7 +244,7 @@ function AccountRow({
     >
       <div className="account__head">
         <div className="account__identity">
-          <ProviderIcon providerId={account.providerId} size={28} />
+          <ProviderIcon providerId={account.providerId} size={32} />
           <div className="account__names">
             <h3 className="account__label" title={account.label}>
               {account.label}
@@ -498,7 +422,6 @@ function SetupForm({
             onChange={(event) => setLabel(event.currentTarget.value)}
             placeholder={copy.form.labelPlaceholder}
             autoComplete="off"
-            autoFocus
             required
           />
         </div>
@@ -645,7 +568,10 @@ export interface AppProps {
 
 export function App({ bridge = tauriBridge }: AppProps = {}) {
   const loadAccountsRequestId = useRef(0);
-  const [showForm, setShowForm] = useState(false);
+  const viewRef = useRef<ViewId>("overview");
+  const [view, setView] = useState<ViewId>("overview");
+  const [direction, setDirection] = useState(1);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [accounts, setAccounts] = useState<AccountViewModel[]>([]);
   const [phase, setPhase] = useState<LoadPhase>("loading");
   const [filter, setFilter] = useState<FilterId>("all");
@@ -658,7 +584,22 @@ export function App({ bridge = tauriBridge }: AppProps = {}) {
   const [pendingUpdate, setPendingUpdate] = useState<UpdateInfo | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const [notificationTick, setNotificationTick] = useState(0);
+  const [historyTick, setHistoryTick] = useState(0);
+  const reduce = useReducedMotion();
   const overallStatus = overallHealth(accounts, phase);
+
+  const goView = (next: ViewId) => {
+    const from = VIEW_ORDER.indexOf(viewRef.current);
+    const to = VIEW_ORDER.indexOf(next);
+    setDirection(to >= from ? 1 : -1);
+    viewRef.current = next;
+    setView(next);
+  };
+
+  const openProvider = (accountId: string) => {
+    setSelectedId(accountId);
+    goView("provider");
+  };
 
   const loadAccounts = async () => {
     const requestId = ++loadAccountsRequestId.current;
@@ -698,7 +639,9 @@ export function App({ bridge = tauriBridge }: AppProps = {}) {
   useEffect(() => {
     let active = true;
     const unlisten = listen("quota:updated", () => {
-      if (active) void loadAccounts();
+      if (!active) return;
+      setHistoryTick((tick) => tick + 1);
+      void loadAccounts();
     }).catch(() => null);
     return () => {
       active = false;
@@ -708,10 +651,8 @@ export function App({ bridge = tauriBridge }: AppProps = {}) {
 
   useEffect(() => {
     let active = true;
-    const unlisten = listen<UpdateInfo>("app:update-available", (event) => {
-      if (!active) return;
-      setUpdateState("available");
-      setPendingUpdate(event.payload);
+    const unlisten = listen("notification:enqueue", () => {
+      if (active) setNotificationTick((tick) => tick + 1);
     }).catch(() => null);
     return () => {
       active = false;
@@ -719,12 +660,12 @@ export function App({ bridge = tauriBridge }: AppProps = {}) {
     };
   }, []);
 
-  // The backend raises this event for every notification that was actually
-  // delivered (history insert passed the dedup cooldown).
   useEffect(() => {
     let active = true;
-    const unlisten = listen("notification:enqueue", () => {
-      if (active) setNotificationTick((tick) => tick + 1);
+    const unlisten = listen<UpdateInfo>("app:update-available", (event) => {
+      if (!active) return;
+      setUpdateState("available");
+      setPendingUpdate(event.payload);
     }).catch(() => null);
     return () => {
       active = false;
@@ -763,6 +704,8 @@ export function App({ bridge = tauriBridge }: AppProps = {}) {
   const attentionCount = accounts.filter(
     (account) => account.status !== "healthy" && account.status !== "syncing",
   ).length;
+  const railAccounts = accounts.slice(0, RAIL_MAX);
+  const selected = accounts.find((account) => account.id === selectedId) ?? null;
   const visibleAccounts =
     filter === "all" ? accounts : accounts.filter((account) => account.status !== "healthy" && account.status !== "syncing");
 
@@ -819,7 +762,6 @@ export function App({ bridge = tauriBridge }: AppProps = {}) {
       });
       setAccounts((current) => [...current.filter((item) => item.id !== account.id), account]);
       setPhase("ready");
-      setShowForm(false);
       setNotice(null);
     } catch {
       setFormError(copy.form.failed);
@@ -834,6 +776,7 @@ export function App({ bridge = tauriBridge }: AppProps = {}) {
     try {
       await bridge.deleteAccount(accountId);
       setAccounts((current) => current.filter((account) => account.id !== accountId));
+      if (selectedId === accountId) goView("overview");
     } catch {
       setNotice({ text: copy.notices.deleteFailed, tone: "danger" });
     } finally {
@@ -870,6 +813,23 @@ export function App({ bridge = tauriBridge }: AppProps = {}) {
     }
   };
 
+  const viewVariants = {
+    hidden: (dir: number) =>
+      reduce ? { opacity: 0 } : { opacity: 0, x: dir * 28 },
+    show: { opacity: 1, x: 0, transition: springPanel },
+    hide: (dir: number) =>
+      reduce
+        ? { opacity: 0, transition: { duration: 0.12 } }
+        : { opacity: 0, x: dir * -20, transition: { duration: 0.18, ease: [0.23, 1, 0.32, 1] as const } },
+  };
+
+  const dockItems: Array<{ id: ViewId; label: string; icon: typeof IconGauge }> = [
+    { id: "overview", label: copy.views.overview, icon: IconGauge },
+    { id: "history", label: copy.views.history, icon: IconClock },
+    { id: "notifications", label: copy.views.notifications, icon: IconAlert },
+    { id: "settings", label: copy.views.settings, icon: IconGear },
+  ];
+
   return (
     <div className="window morph-enter morph-enter-active">
       <header className="titlebar" data-tauri-drag-region>
@@ -893,85 +853,46 @@ export function App({ bridge = tauriBridge }: AppProps = {}) {
             <IconBubble size={15} />
             {copy.titlebar.bubble}
           </button>
-          <button
-            className="btn btn--icon"
-            type="button"
-            onClick={() => {
-              setShowForm((value) => !value);
-              setFormError(null);
-            }}
-            aria-label={showForm ? copy.actions.closeSetup : copy.actions.addAccount}
-            title={showForm ? copy.actions.closeSetup : copy.actions.addAccount}
-          >
-            {showForm ? <IconClose size={16} /> : <IconPlus size={16} />}
-          </button>
         </div>
       </header>
 
-      <div className="content">
-        <section className="stats" aria-label={copy.a11y.summaryRegion}>
-          <div className="stat">
-            <span className="stat__icon stat__icon--pressure">
-              <IconGauge size={14} />
-            </span>
-            <span className="stat__label">{copy.summary.pressure}</span>
-            <span className="stat__main">
-              <PressureRing ratio={summary.pressure} tone={pressureTone} />
-              <strong className="stat__value num">
-                {summary.pressure !== null ? (
-                  <AnimatedNumber
-                    value={summary.pressure}
-                    format={(value) => `${Math.round(value * 100)}%`}
-                  />
-                ) : (
-                  copy.summary.none
-                )}
-              </strong>
-            </span>
-            <span className="stat__hint">
-              {summary.pressure !== null ? copy.summary.knownWindow : copy.summary.waitingData}
-            </span>
+      {accounts.length > 0 && (
+        <nav className="rail" aria-label={copy.a11y.providerRail}>
+          <div className="rail__track">
+            {railAccounts.map((account) => (
+              <button
+                key={account.id}
+                type="button"
+                className={`rail__item${view === "provider" && selectedId === account.id ? " is-active" : ""}`}
+                aria-pressed={view === "provider" && selectedId === account.id}
+                aria-label={copy.a11y.selectProvider(`${account.label}（${copy.health[account.status] ?? account.status}）`)}
+                title={`${account.label} · ${copy.health[account.status] ?? account.status}`}
+                onClick={() => openProvider(account.id)}
+              >
+                <ProviderIcon providerId={account.providerId} size={25} />
+                <span className={`rail__dot rail__dot--${account.status}`} aria-hidden="true" />
+              </button>
+            ))}
+            {accounts.length > RAIL_MAX && (
+              <span className="rail__hint" aria-hidden="true">
+                +{accounts.length - RAIL_MAX}
+              </span>
+            )}
+            <button
+              type="button"
+              className={`rail__item rail__item--all${view === "overview" ? " is-active" : ""}`}
+              aria-pressed={view === "overview"}
+              aria-label={copy.rail.allProviders}
+              title={copy.rail.allProviders}
+              onClick={() => goView("overview")}
+            >
+              <IconGrid size={17} />
+            </button>
           </div>
-          <div className="stat">
-            <span className="stat__icon">
-              <IconCircleUser size={14} />
-            </span>
-            <span className="stat__label">{copy.summary.accounts}</span>
-            <strong className="stat__value num">
-              {accounts.length > 0 ? <AnimatedNumber value={accounts.length} /> : copy.summary.none}
-            </strong>
-            <span className="stat__hint">
-              {accounts.length === 0 ? copy.summary.notConnected : copy.summary.configuredLocally}
-            </span>
-          </div>
-          <div className="stat">
-            <span className="stat__icon stat__icon--ok">
-              <IconCheck size={14} />
-            </span>
-            <span className="stat__label">{copy.summary.healthy}</span>
-            <strong className="stat__value num">
-              {accounts.length > 0 ? <AnimatedNumber value={summary.healthy} /> : copy.summary.none}
-            </strong>
-            <span className="stat__hint">
-              {accounts.length > 0
-                ? copy.summary.needsAttention(attentionCount)
-                : copy.summary.waitingData}
-            </span>
-          </div>
-          <div className="stat">
-            <span className="stat__icon stat__icon--clock">
-              <IconClock size={14} />
-            </span>
-            <span className="stat__label">{copy.summary.nextReset}</span>
-            <strong className="stat__value">
-              {summary.resetAt ? (formatResetShort(summary.resetAt, now) ?? copy.summary.none) : copy.summary.none}
-            </strong>
-            <span className="stat__hint">
-              {summary.resetAt ? copy.summary.knownWindow : copy.summary.unknown}
-            </span>
-          </div>
-        </section>
+        </nav>
+      )}
 
+      <div className="content">
         <AnimatePresence initial={false}>
           {notice && !(phase === "offline" && accounts.length === 0) && (
             <Notice key="notice" tone={notice.tone}>
@@ -1014,111 +935,237 @@ export function App({ bridge = tauriBridge }: AppProps = {}) {
           )}
         </AnimatePresence>
 
-        <AnimatePresence initial={false}>
-          {showForm && (
-            <SetupForm
-              key="form"
-              submitting={formSubmitting}
-              error={formError}
-              onCancel={() => {
-                setShowForm(false);
-                setFormError(null);
-              }}
-              onSubmit={handleCreate}
-            />
-          )}
-        </AnimatePresence>
+        <AnimatePresence initial={false} mode="wait" custom={direction}>
+          <motion.div
+            key={view + (view === "provider" ? selectedId ?? "" : "")}
+            className="view"
+            variants={viewVariants}
+            custom={direction}
+            initial="hidden"
+            animate="show"
+            exit="hide"
+          >
+            {view === "overview" && (
+              <>
+                <section className="stats" aria-label={copy.a11y.summaryRegion}>
+                  <div className="stat">
+                    <span className="stat__icon stat__icon--pressure">
+                      <IconGauge size={14} />
+                    </span>
+                    <span className="stat__label">{copy.summary.pressure}</span>
+                    <span className="stat__main">
+                      <PressureRing ratio={summary.pressure} tone={pressureTone} />
+                      <strong className="stat__value num">
+                        {summary.pressure !== null ? (
+                          <AnimatedNumber
+                            value={summary.pressure}
+                            format={(value) => `${Math.round(value * 100)}%`}
+                          />
+                        ) : (
+                          copy.summary.none
+                        )}
+                      </strong>
+                    </span>
+                    <span className="stat__hint">
+                      {summary.pressure !== null ? copy.summary.knownWindow : copy.summary.waitingData}
+                    </span>
+                  </div>
+                  <div className="stat">
+                    <span className="stat__icon">
+                      <IconCircleUser size={14} />
+                    </span>
+                    <span className="stat__label">{copy.summary.accounts}</span>
+                    <strong className="stat__value num">
+                      {accounts.length > 0 ? <AnimatedNumber value={accounts.length} /> : copy.summary.none}
+                    </strong>
+                    <span className="stat__hint">
+                      {accounts.length === 0 ? copy.summary.notConnected : copy.summary.configuredLocally}
+                    </span>
+                  </div>
+                  <div className="stat">
+                    <span className="stat__icon stat__icon--ok">
+                      <IconCheck size={14} />
+                    </span>
+                    <span className="stat__label">{copy.summary.healthy}</span>
+                    <strong className="stat__value num">
+                      {accounts.length > 0 ? <AnimatedNumber value={summary.healthy} /> : copy.summary.none}
+                    </strong>
+                    <span className="stat__hint">
+                      {accounts.length > 0
+                        ? copy.summary.needsAttention(attentionCount)
+                        : copy.summary.waitingData}
+                    </span>
+                  </div>
+                  <div className="stat">
+                    <span className="stat__icon stat__icon--clock">
+                      <IconClock size={14} />
+                    </span>
+                    <span className="stat__label">{copy.summary.nextReset}</span>
+                    <strong className="stat__value">
+                      {summary.resetAt ? (formatResetShort(summary.resetAt, now) ?? copy.summary.none) : copy.summary.none}
+                    </strong>
+                    <span className="stat__hint">
+                      {summary.resetAt ? copy.summary.knownWindow : copy.summary.unknown}
+                    </span>
+                  </div>
+                </section>
 
-        <section className="section" aria-label={copy.a11y.accountsRegion}>
-          <div className="section__head">
-            <div className="section__titlewrap">
-              <h2 className="section__title">{copy.accountsTitle}</h2>
-              {accounts.length > 0 && <span className="section__count num">{accounts.length}</span>}
-            </div>
-            <div className="section__actions">
-              {accounts.length > 0 && (
-                <>
-                  <Segmented
-                    value={filter}
-                    onChange={setFilter}
-                    options={[
-                      { id: "all", label: copy.filter.all, count: accounts.length },
-                      { id: "attention", label: copy.filter.attention, count: attentionCount },
-                    ]}
-                  />
-                  <button
-                    className="btn btn--icon"
-                    type="button"
-                    onClick={() => void handleRefresh()}
-                    disabled={refreshingId !== null}
-                    aria-label={copy.actions.refreshAll}
-                    title={refreshingId === "all" ? copy.actions.refreshing : copy.actions.refreshAll}
-                  >
-                    <IconRefresh size={16} className={refreshingId === "all" ? "is-spinning" : undefined} />
-                  </button>
-                </>
-              )}
-            </div>
-          </div>
-
-          {phase === "loading" && accounts.length === 0 ? (
-            <div aria-label={copy.a11y.loadingAccounts}>
-              {[0, 1].map((row) => (
-                <div className="skeleton" key={row}>
-                  <div className="skeleton__line skeleton__line--short" />
-                  <div className="skeleton__line" />
-                  <div className="skeleton__line" />
+                <section className="section" aria-label={copy.a11y.accountsRegion}>
+                <div className="section__head">
+                  <div className="section__titlewrap">
+                    <h2 className="section__title">{copy.rail.allProviders}</h2>
+                    {accounts.length > 0 && <span className="section__count num">{accounts.length}</span>}
+                  </div>
+                  <div className="section__actions">
+                    {accounts.length > 0 && (
+                      <>
+                        <Segmented
+                          value={filter}
+                          onChange={setFilter}
+                          options={[
+                            { id: "all", label: copy.filter.all, count: accounts.length },
+                            { id: "attention", label: copy.filter.attention, count: attentionCount },
+                          ]}
+                        />
+                        <button
+                          className="btn btn--icon"
+                          type="button"
+                          onClick={() => void handleRefresh()}
+                          disabled={refreshingId !== null}
+                          aria-label={copy.actions.refreshAll}
+                          title={refreshingId === "all" ? copy.actions.refreshing : copy.actions.refreshAll}
+                        >
+                          <IconRefresh size={16} className={refreshingId === "all" ? "is-spinning" : undefined} />
+                        </button>
+                      </>
+                    )}
+                  </div>
                 </div>
-              ))}
-            </div>
-          ) : accounts.length === 0 ? (
-            <EmptyState
-              offline={phase === "offline"}
-              onAdd={() => setShowForm(true)}
-              onRetry={() => void loadAccounts()}
-            />
-          ) : visibleAccounts.length === 0 ? (
-            <motion.p key="filtered-empty" className="section__empty" variants={fadeVariants} initial="hidden" animate="show">
-              {copy.filter.attention}：{copy.summary.none}
-            </motion.p>
-          ) : (
-            <ul className="accounts">
-              <AnimatePresence initial={false} mode="popLayout">
-                {visibleAccounts.map((account, index) => (
-                  <AccountRow
-                    key={account.id}
-                    account={account}
-                    index={index}
-                    now={now}
-                    refreshing={refreshingId === account.id || refreshingId === "all"}
-                    deleting={deletingId === account.id}
-                    onRefresh={() => void handleRefresh(account.id)}
-                    onDelete={() => void handleDelete(account.id)}
-                  />
-                ))}
-              </AnimatePresence>
-            </ul>
-          )}
-        </section>
 
-        <NotificationSection bridge={bridge} reloadSignal={notificationTick} />
+                {phase === "loading" && accounts.length === 0 ? (
+                  <div aria-label={copy.a11y.loadingAccounts}>
+                    {[0, 1].map((row) => (
+                      <div className="skeleton" key={row}>
+                        <div className="skeleton__line skeleton__line--short" />
+                        <div className="skeleton__line" />
+                        <div className="skeleton__line" />
+                      </div>
+                    ))}
+                  </div>
+                ) : accounts.length === 0 ? (
+                  <EmptyState
+                    offline={phase === "offline"}
+                    onAdd={() => goView("settings")}
+                    onRetry={() => void loadAccounts()}
+                  />
+                ) : visibleAccounts.length === 0 ? (
+                  <motion.p key="filtered-empty" className="section__empty" variants={fadeVariants} initial="hidden" animate="show">
+                    {copy.filter.attention}：{copy.summary.none}
+                  </motion.p>
+                ) : (
+                  <ul className="accounts">
+                    <AnimatePresence initial={false} mode="popLayout">
+                      {visibleAccounts.map((account, index) => (
+                        <AccountRow
+                          key={account.id}
+                          account={account}
+                          index={index}
+                          now={now}
+                          refreshing={refreshingId === account.id || refreshingId === "all"}
+                          deleting={deletingId === account.id}
+                          onRefresh={() => void handleRefresh(account.id)}
+                          onDelete={() => void handleDelete(account.id)}
+                        />
+                      ))}
+                    </AnimatePresence>
+                  </ul>
+                )}
+                </section>
+              </>
+            )}
+
+            {view === "provider" && selected && (
+              <ProviderView
+                account={selected}
+                now={now}
+                refreshing={refreshingId === selected.id || refreshingId === "all"}
+                bridge={bridge}
+                onRefresh={() => void handleRefresh(selected.id)}
+              />
+            )}
+
+            {view === "history" && (
+              <HistorySection bridge={bridge} accounts={accounts} reloadSignal={historyTick} />
+            )}
+
+            {view === "notifications" && (
+              <NotificationSection bridge={bridge} reloadSignal={notificationTick} />
+            )}
+
+            {view === "settings" && (
+              <section className="section" aria-label={copy.views.settings}>
+                <SetupForm
+                  submitting={formSubmitting}
+                  error={formError}
+                  onCancel={() => goView("overview")}
+                  onSubmit={handleCreate}
+                />
+                <div className="settings__about">
+                  <button className="btn btn--quiet" type="button" onClick={() => void handleUpdateCheck()} disabled={updateState === "checking"}>
+                    <IconRefresh size={14} className={updateState === "checking" ? "is-spinning" : undefined} />
+                    {updateState === "checking" ? copy.actions.checkingUpdate : copy.actions.checkUpdate}
+                  </button>
+                  <button
+                    className="btn btn--quiet"
+                    type="button"
+                    onClick={() => void shell.openProjectPage().catch(() => null)}
+                  >
+                    <IconGitHub size={15} />
+                    GitHub
+                  </button>
+                  <span className="settings__note">
+                    <IconShield size={14} />
+                    {copy.notices.localOnly}
+                  </span>
+                </div>
+              </section>
+            )}
+          </motion.div>
+        </AnimatePresence>
       </div>
 
-      <footer className="footer">
-        <span className="footer__note">
-          {phase === "offline" ? <IconAlert size={14} /> : <IconShield size={14} />}
-          {phase === "offline" ? copy.notices.bridgeUnavailable : copy.notices.localOnly}
-        </span>
+      <nav className="dock" aria-label={copy.a11y.dockRegion}>
+        {dockItems.map((item) => (
+          <button
+            key={item.id}
+            type="button"
+            className={`dock__item${view === item.id ? " is-active" : ""}`}
+            aria-pressed={view === item.id}
+            aria-label={item.label}
+            onClick={() => goView(item.id)}
+          >
+            {view === item.id && (
+              <motion.span
+                className="dock__pill"
+                layoutId="dock-pill"
+                transition={{ type: "spring", bounce: 0, duration: 0.32 }}
+              />
+            )}
+            <item.icon size={17} />
+            <span className="dock__label">{item.label}</span>
+          </button>
+        ))}
+        <span className="dock__spacer" aria-hidden="true" />
         <button
-          className="btn btn--quiet"
           type="button"
-          onClick={() => void handleUpdateCheck()}
-          disabled={updateState === "checking"}
+          className="dock__item dock__item--icon"
+          aria-label={copy.a11y.openGithub}
+          title={copy.a11y.openGithub}
+          onClick={() => void shell.openProjectPage().catch(() => null)}
         >
-          <IconChevronRight size={14} />
-          {updateState === "checking" ? copy.actions.checkingUpdate : copy.actions.checkUpdate}
+          <IconGitHub size={19} />
         </button>
-      </footer>
+      </nav>
     </div>
   );
 }

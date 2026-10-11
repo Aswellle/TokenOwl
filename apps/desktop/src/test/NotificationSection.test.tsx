@@ -65,6 +65,20 @@ function makeBridge(overrides: Partial<DashboardBridge> = {}): DashboardBridge {
     markNotificationsRead: vi.fn(async () => {}),
     getNotificationPreferences: vi.fn(async () => structuredClone(prefs)),
     setNotificationPreferences: vi.fn(async () => {}),
+    historySummary: vi.fn(async () => ({
+      days: [],
+      totalTokens: 0,
+      totalCost: null,
+      currency: null,
+      activeDays: 0,
+      rangeDays: 182,
+    })),
+    historyBreakdown: vi.fn(async () => []),
+    usageWindows: vi.fn(async () => ({
+      hours2: { tokens: 0, cost: null, currency: null, hasData: false },
+      hours24: { tokens: 0, cost: null, currency: null, hasData: false },
+      days30: { tokens: 0, cost: null, currency: null, hasData: false },
+    })),
     ...overrides,
   };
 }

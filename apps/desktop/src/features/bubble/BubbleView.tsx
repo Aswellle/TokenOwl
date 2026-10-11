@@ -4,17 +4,60 @@ import { listen } from "@tauri-apps/api/event";
 import "../../styles/App.css";
 import { copy } from "../../styles/copy";
 import { IconOwl } from "../../components/icons";
-import { overallHealth, pressure } from "../../lib/format";
+import { ProviderIcon } from "../../components/ProviderIcon";
+import { overallHealth, pressure, quotaRatio, quotaWindowTag } from "../../lib/format";
 import { shell, tauriBridge } from "../../lib/tauri";
-import type { AccountHealth, AccountViewModel, DashboardBridge } from "../../types";
+import type { AccountHealth, AccountViewModel, DashboardBridge, QuotaViewModel } from "../../types";
 
-const RADIUS = 22.5;
-const CIRCUMFERENCE = 2 * Math.PI * RADIUS;
 const DRAG_THRESHOLD_PX = 5;
+const RING_RADII = [21.5, 14.5];
+
+interface Ring {
+  label: string;
+  ratio: number | null;
+}
+
+function circumference(radius: number): number {
+  return 2 * Math.PI * radius;
+}
+
+/** Window span in hours from the quota window's own start/end timestamps. */
+function spanHours(quota: QuotaViewModel): number {
+  const start = quota.window?.startsAt ? Date.parse(String(quota.window.startsAt)) : NaN;
+  const end = quota.window?.endsAt ? Date.parse(String(quota.window.endsAt)) : NaN;
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return 0;
+  return (end - start) / 3_600_000;
+}
+
+/**
+ * The dual activity rings of the collapsed bubble: one ring per quota window
+ * of the primary account (shortest window outside, longest inside), in the
+ * Apple-Watch style. Accounts without windowed quotas fall back to a single
+ * worst-pressure ring.
+ */
+function ringsFor(account: AccountViewModel | undefined): Ring[] {
+  if (!account) return [];
+  const windowed = account.snapshots
+    .filter((quota) => {
+      const trusted = quota.status === "available" || quota.status === "partial";
+      return trusted && quotaWindowTag(quota) !== null;
+    })
+    .sort(
+      (left, right) =>
+        spanHours(left) - spanHours(right),
+    )
+    .slice(0, RING_RADII.length)
+    .map((quota) => ({
+      label: quotaWindowTag(quota) ?? "",
+      ratio: quotaRatio(quota),
+    }));
+  return windowed;
+}
 
 /**
  * The compact always-on-top floating bubble. Lives in its own 56×56 window:
- * click opens the dashboard, drag moves the window (position persists in Rust).
+ * click opens the dashboard, drag moves the window (position snaps to the
+ * nearest screen edge and persists in Rust).
  */
 export function BubbleView({ bridge = tauriBridge }: { bridge?: DashboardBridge }) {
   const [accounts, setAccounts] = useState<AccountViewModel[]>([]);
@@ -90,8 +133,24 @@ export function BubbleView({ bridge = tauriBridge }: { bridge?: DashboardBridge 
   };
 
   const status: AccountHealth = overallHealth(accounts, phase);
-  const ratio = pressure(accounts.flatMap((account) => account.snapshots));
-  const Icon = IconOwl;
+  const primary =
+    accounts.find((account) => account.status !== "error") ?? accounts[0] ?? undefined;
+  const rings = ringsFor(primary);
+  const fallbackRatio = rings.length === 0 ? pressure(accounts.flatMap((account) => account.snapshots)) : null;
+  const ringSummary =
+    rings.length > 0
+      ? copy.bubble.rings(
+          rings
+            .map((ring) =>
+              ring.ratio === null
+                ? `${ring.label} ${copy.summary.unknown}`
+                : `${ring.label} ${Math.round(ring.ratio * 100)}%`,
+            )
+            .join("，"),
+        )
+      : fallbackRatio !== null
+        ? copy.bubble.rings(`${Math.round(fallbackRatio * 100)}%`)
+        : copy.bubble.noWindow;
 
   return (
     <div className="bubwin">
@@ -106,24 +165,47 @@ export function BubbleView({ bridge = tauriBridge }: { bridge?: DashboardBridge 
           }
           void shell.openDashboard().catch(() => null);
         }}
-        aria-label={`${copy.brand}：${copy.health[status] ?? status}。${copy.bubble.openDashboard}`}
-        title={copy.bubble.openDashboard}
+        aria-label={`${copy.brand}：${copy.health[status] ?? status}。${ringSummary}。${copy.bubble.openDashboard}`}
+        title={`${ringSummary} · ${copy.bubble.openDashboard}`}
       >
-        <svg className="bubble__ring" viewBox="0 0 50 50" aria-hidden="true">
-          <circle className="bubble__ring-track" cx="25" cy="25" r={RADIUS} />
-          {ratio !== null && (
-            <circle
-              className="bubble__ring-value"
-              cx="25"
-              cy="25"
-              r={RADIUS}
-              strokeDasharray={CIRCUMFERENCE}
-              strokeDashoffset={CIRCUMFERENCE * (1 - ratio)}
-            />
+        <svg className="bubble__rings" viewBox="0 0 50 50" aria-hidden="true">
+          {rings.length === 0 && fallbackRatio !== null && (
+            <g>
+              <circle className="bubble__ring-track" cx="25" cy="25" r={RING_RADII[0]} />
+              <circle
+                className="bubble__ring-value bubble__ring-value--0"
+                cx="25"
+                cy="25"
+                r={RING_RADII[0]}
+                strokeDasharray={circumference(RING_RADII[0])}
+                strokeDashoffset={circumference(RING_RADII[0]) * (1 - fallbackRatio)}
+              />
+            </g>
           )}
+          {rings.map((ring, index) => {
+            const radius = RING_RADII[index];
+            const ratio = ring.ratio ?? 0;
+            return (
+              <g key={ring.label}>
+                <circle className="bubble__ring-track" cx="25" cy="25" r={radius} />
+                <circle
+                  className={`bubble__ring-value bubble__ring-value--${index}`}
+                  cx="25"
+                  cy="25"
+                  r={radius}
+                  strokeDasharray={circumference(radius)}
+                  strokeDashoffset={ratio === null ? circumference(radius) : circumference(radius) * (1 - ratio)}
+                />
+              </g>
+            );
+          })}
         </svg>
         <span className="bubble__mark">
-          <Icon size={26} strokeWidth={1.5} />
+          {primary ? (
+            <ProviderIcon providerId={primary.providerId} size={20} />
+          ) : (
+            <IconOwl size={18} strokeWidth={1.5} />
+          )}
         </span>
       </button>
     </div>

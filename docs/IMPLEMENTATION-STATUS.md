@@ -20,6 +20,9 @@
 - SQLite 迁移框架（2026-10-11）：`storage/migrations/` 目录按 docs/06 §18 版本化（`0001_initial_schema.sql` 经 `include_str!` 嵌入），打开数据库时先 `PRAGMA integrity_check`，对含数据的库用 `VACUUM INTO` 生成 `*.pre-migration.bak` 备份（仅保留最近一代），每个迁移独立事务并在完成后复查完整性；单个迁移失败自动回滚到原版本，损坏库拒绝打开（safe mode），`user_version` 高于支持版本仍然拒绝打开。
 - Provider 多端点合并（2026-10-11）：OpenAI-compatible 适配器按 `quota → usage → balance` 顺序请求全部已配置端点（按路径去重），解析结果合并为一个 `QuotaSnapshotSet` 并为缺失 metric_id 的快照标注端点类型；单端点失败生成 `Error` 状态指标（前端显示"该指标读取失败"），其余端点继续更新；全部端点失败时返回首个错误走 stale fallback。响应无额度字段的端点静默跳过（`parse_openai_compatible_lenient`）。表单新增用量/余额接口字段；默认 `/usage` 仅在未配置任何其他端点时生效。渲染审计修复：账户列表改为真实 `<ul>` 语义（此前 `li` 直接挂在 `section` 下导致无效 HTML 与原生列表圆点泄漏）。
 - 通知触发链路（2026-10-11）：`notifications/` 模块重写为"纯函数评估 → SQLite 历史去重 → Sink 派发"管线。触发规则按 PRD §12：低额度（剩余 < 用户阈值，默认 20%；< 10% 升级为紧急）、余额低于用户设定下限、重置临近（默认提前 30 分钟，dedup key 含重置时间戳，每周期只提醒一次）、认证过期（`AuthRequired`/`AuthExpired`，本周期取代数值类规则）、连续 ≥3 次网络类失败（长时间失联）。`NotificationPreferences`（enabled/silent/critical_only/低额度阈值/余额下限/重置提前窗口）持久化在 settings 表并带校验；通知历史存于迁移 v2 新增的 `notifications` 表（24h 去重冷却、30 天保留 + 200 条上限、账户删除时 `ON DELETE SET NULL` 保留历史）。OS 通知经 `tauri-plugin-notification` 的 Rust API 由后端刷新链路触发——**webview 能力集零改动**（用户确认的权限边界：前端无任何通知权限，仅能通过语义命令读历史/标已读/改偏好）。派发前经插件 `request_permission` 授权守卫（非 `Granted` 跳过系统派发只记日志；已核实 2.4.0 桌面端该调用是恒 `Granted` 桩、macOS 首次授权由遗留 `NSUserNotification` 路径在首次派发时自动弹出，守卫为前向兼容设计）。新命令 `notifications_list`/`notifications_mark_read`/`notification_preferences_get`/`notification_preferences_set`，`notification:enqueue` 事件按 docs/04 §11 词汇表命名。前端新增通知中心（未读徽标、逐条/全部已读、严重级别标签不依赖颜色单一编码）与通知设置表单（开关立即提交、数字字段失焦提交）。
+- 历史趋势与热力图（2026-10-11）：迁移 v3 新增 `history_points` 原始观测表（快照键为指标身份，可信快照在 `upsert_snapshot_set` 同事务内幂等采集，90 天保留 + 随账户级联删除）；`domain/history.rs` 新增按日聚合纯函数 `aggregate_daily_usage`——token 指标取 `used` 正增量（窗口重置导致的下降不计、缺口不补零），currency 指标取 `used` 增量或 balance 型 `remaining` 降幅（充值不算消费），按本地时区日桶分桶（时区由命令侧注入便于测试），混币种取主导币种。新命令 `history_summary` 返回 26 周逐日 Tokens/计费 + 汇总。前端新增 GitHub 风格热力图（月份/工作日标尺、品牌色单色相 5 级强度阶梯经 `color-mix` 适配明暗主题、无数据日与零消耗日视觉区分、图例 + 说明）、近 30 天统计卡（Tokens/计费/活跃天数，tabular-nums）与方向键漫游焦点（WAI-Grid 模式，无 182 个 tab 停留点）。设计与可达性按 better-typography/colors/layout/ui 四项 skill 审查后落地。
+- 桌面视图导航与气泡双环（2026-10-11）：主窗口从纵向长页重构为应用外壳（标题栏 + 供应商导轨 + 视图区 + 底部 Dock）。顶部导轨为每个**已配置连通**的账户显示圆形品牌图标（含状态点、最多 5 个，超出以 "+N" 提示并收进概览），末尾固定"全部供应商"按钮打开集中面板；点击图标滑入该供应商专属视图——用量统计卡带 **2 小时/24 小时/30 天** 分段切换（新命令 `usage_windows`，由 `domain::history::range_usage` 从历史观测正增量推导，窗口无记录时显示"暂无记录"而非零）+ 该账户全部额度卡片。底部 Dock 固定四个功能区（概览/历史/通知/设置，layoutId 药丸高亮）+ GitHub 项目主页外链（新命令 `open_project_page`，URL 为编译期常量，经 opener Rust API 打开，webview 不持有任意外链能力）；视图切换带方向感知滑入滑出动效（reduced-motion 降级为淡入淡出）。气泡收拢形态重设计为 **Apple Watch 风格双活动圆环**：按主账户最短的两个窗口化额度自动映射（4–6h 标注 5h、144–192h 标注 7d，其余按实际跨度），外环短窗/内环长窗、中心供应商品牌图标，无窗口额度时回退单环压力显示。气泡拖动后按 48px 阈值**吸附到最近的屏幕边沿**（四边均可，角落双轴吸附）并持久化，`show_bubble` 恢复吸附位置。设计与可达性按 better-typography/colors/layout/ui/accessibility 落地：44px 命中目标、aria-pressed 视图状态、可见焦点环、状态点配文字提示不依赖颜色。
+- 图标库与图表可视化（2026-10-11）：按 lobehub 官方 skill 说明重构 `ProviderIcon`——品牌按 providerId **冒号前缀**匹配（openai/anthropic/claude/gemini/google/deepseek/qwen/kimi/moonshot/minimax/zhipu/mistral/groq/xai/cohere/perplexity/ollama 等 30 个前缀），`generic.openai_compatible` 等未知前缀回退中性钥匙图标；演示账户改用 openai/anthropic/deepseek/gemini 四种品牌展示。引入 **recharts**（本地渲染，无外部请求，CSP 不变）：历史视图新增近 30 天用量趋势面积图（品牌青单色相、`var(--brand)` 直接进 SVG、无记录日断线不补零、峰值标注、深色适配 Tooltip），供应商视图新增 30 天迷你趋势（`history_summary` 新增按账户过滤参数）；Dock 的 GitHub 入口改为**章鱼猫站点图标**（填充式 IconGitHub）替换分享图标+文字。布局：汇总统计卡移入概览视图（其余视图只显示本页内容）；历史视图改为纵向弹性布局——趋势卡固定高度、热力图 `flex: 1` 铺满剩余纵向空间（单元格 1fr 流式伸缩，窄窗保留横向滚动）；修复流式单元格背景下级别色被同特异性基础规则覆盖的问题（级别色重声明置于其后）。
 - Scheduler：`Scheduler` 基于 BinaryHeap 优先级队列，支持 jitter、backoff、per-provider 配置。
 - 统一 HTTP 客户端：`networking::HttpClient` 提供 timeout、connect timeout、response size limit、sensitive header redaction。
 - Telemetry：`telemetry` 模块提供结构化日志事件和 secret redaction。
@@ -112,16 +115,16 @@ MSVC 产物写入 `src-tauri/target-msvc`（由 `CARGO_TARGET_DIR` 指定），�
 
 ## Testing & Build
 
-- 前端：`pnpm typecheck`、`pnpm build`、`pnpm test`（vitest，30 测试通过，含通知中心 8 个：渲染/未读徽标/逐条与全部已读/偏好提交/失败降级）。
-- Rust：`cargo fmt --check` 通过；`cargo test` 149 测试通过（142 单元 + 7 fixture，含通知触发判定 14 个、通知入队去重/静默/修剪 4 个、通知存储 4 个、迁移框架 6 个、多端点合并 6 个）；`cargo clippy --all-targets --all-features -- -D warnings` 0 错误 0 警告。
-- 渲染审计（design-review checklist + mock 桥接 + 浏览器截图，1280/375 宽）：列表语义、多桶卡片、部分/错误态、窄屏布局、表单焦点与帮助文案均验证通过；删除流程端到端走查正常。通知触发链路轮追加验证（1280/375，mock 桥接）：通知中心渲染、严重级别 chip、全部已读联动（徽标/按钮消失、条目保留变暗）、设置开关联动（总开关关闭禁用子控件、`已保存`反馈）、窄窗时间戳换行。
+- 前端：`pnpm typecheck`、`pnpm build`、`pnpm test`（vitest，34 测试通过）。
+- Rust：`cargo fmt --check` 通过；`cargo test` 161 测试通过（154 单元 + 7 fixture，含范围用量聚合 2 个——窗口归属/重置与余额规则）；`cargo clippy --all-targets --all-features -- -D warnings` 0 错误 0 警告。
+- 渲染审计（design-review checklist + mock 桥接 + 浏览器截图，1280/375 宽）：列表语义、多桶卡片、部分/错误态、窄屏布局、表单焦点与帮助文案均验证通过；删除流程端到端走查正常。通知触发链路轮追加验证（1280/375，mock 桥接）：通知中心渲染、严重级别 chip、全部已读联动（徽标/按钮消失、条目保留变暗）、设置开关联动（总开关关闭禁用子控件、`已保存`反馈）、窄窗时间戳换行。历史趋势轮追加验证（1280/375，暗色，mock 桥接）：热力图渲染与月份/工作日标尺、强度阶梯与无数据区分、方向键漫游焦点落点与单元格 tooltip 内容、窄窗热力图容器内滚动且页面无横向溢出（scrollWidth == clientWidth）。视图导航轮追加验证（1280/375，暗色，mock 桥接）：导轨图标/状态点/全部按钮、供应商视图用量 tabs 切换数值联动（2 小时→10.29 万）、Dock 四视图切换与高亮、设置视图表单与外链、窄窗 Dock 收纳为图标且页面无横向溢出。
 - E2E：Playwright smoke test 脚本已创建，需原生 Tauri 环境执行。
 - CI：`.github/workflows/ci-release.yml` 运行 typecheck、test、build、fmt、check、clippy、cargo test 与版本一致性校验。
 - Windows 构建：MSI (5.49 MiB) + NSIS (4.04 MiB) 已验证产出。
 
 ## Next Recommended Phase
 
-1. 历史趋势与基础图表（需要 v3 迁移新增历史序列表）。
-2. BubbleView 和 Dashboard 测试在真实 Tauri 环境中验证。
-3. 接入第一个真实 provider 的官方限额端点。
-4. 真实环境验证 OS 通知横幅（需安装版应用与系统通知权限，开发环境无法覆盖）。
+1. 接入第一个真实 provider 的官方限额端点（历史/通知/视图导航链路已就绪）。
+2. BubbleView 和 Dashboard 测试在真实 Tauri 环境中验证（含双环与贴边吸附的实际窗口行为）。
+3. 真实环境验证 OS 通知横幅（需安装版应用与系统通知权限，开发环境无法覆盖）。
+4. 每个 quota window 的趋势线（PRD §13 MVP 的剩余项，需要按指标序列查询）。

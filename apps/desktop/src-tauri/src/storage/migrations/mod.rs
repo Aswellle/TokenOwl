@@ -32,6 +32,11 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "notifications_history",
         sql: include_str!("0002_notifications.sql"),
     },
+    Migration {
+        version: 3,
+        name: "history_points",
+        sql: include_str!("0003_history_points.sql"),
+    },
 ];
 
 pub const SCHEMA_VERSION: i32 = MIGRATIONS[MIGRATIONS.len() - 1].version;

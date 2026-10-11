@@ -2,8 +2,11 @@ import type {
   AccountViewModel,
   DashboardBridge,
   GenericOpenAiAccountInput,
+  HistoryDayViewModel,
+  HistorySummaryViewModel,
   NotificationPreferencesViewModel,
   NotificationViewModel,
+  UsageWindowsViewModel,
 } from "../types";
 
 /**
@@ -19,7 +22,7 @@ function demoAccounts(now: number): AccountViewModel[] {
   return [
     {
       id: "demo-primary",
-      providerId: "generic.openai_compatible",
+      providerId: "openai:demo-primary",
       providerName: "OpenAI 兼容",
       label: "OpenAI 官方",
       status: "healthy",
@@ -58,7 +61,7 @@ function demoAccounts(now: number): AccountViewModel[] {
     },
     {
       id: "demo-relay",
-      providerId: "generic.openai_compatible",
+      providerId: "anthropic:demo-relay",
       providerName: "OpenAI 兼容",
       label: "公司中转站",
       status: "attention",
@@ -83,8 +86,8 @@ function demoAccounts(now: number): AccountViewModel[] {
     },
     {
       id: "demo-multi",
-      providerId: "generic.openai_compatible",
-      providerName: "OpenAI 兼容",
+      providerId: "deepseek:demo-multi",
+      providerName: "DeepSeek",
       label: "多端点网关",
       status: "healthy",
       freshness: "fresh",
@@ -138,7 +141,7 @@ function demoAccounts(now: number): AccountViewModel[] {
     },
     {
       id: "demo-backup",
-      providerId: "generic.openai_compatible",
+      providerId: "gemini:demo-backup",
       providerName: "OpenAI 兼容",
       label: "备用网关",
       status: "error",
@@ -175,7 +178,7 @@ function demoNotifications(now: number): NotificationViewModel[] {
       title: "额度紧张",
       message: "「公司中转站」的每日 Token 仅剩 5%。",
       accountId: "demo-relay",
-      providerId: "generic.openai_compatible:demo-relay",
+      providerId: "anthropic:demo-relay",
       createdAt: now - 6 * minute,
       readAt: null,
     },
@@ -186,7 +189,7 @@ function demoNotifications(now: number): NotificationViewModel[] {
       title: "额度即将重置",
       message: "「公司中转站」的额度将在约 45 分钟后重置。",
       accountId: "demo-relay",
-      providerId: "generic.openai_compatible:demo-relay",
+      providerId: "anthropic:demo-relay",
       createdAt: now - 40 * minute,
       readAt: null,
     },
@@ -197,7 +200,7 @@ function demoNotifications(now: number): NotificationViewModel[] {
       title: "长时间无法连接",
       message: "「备用网关」已连续 3 次刷新失败，请检查网络或服务状态。",
       accountId: "demo-backup",
-      providerId: "generic.openai_compatible:demo-backup",
+      providerId: "gemini:demo-backup",
       createdAt: now - 3 * hour,
       readAt: now - 2 * hour,
     },
@@ -212,6 +215,59 @@ const demoPreferences: NotificationPreferencesViewModel = {
   balanceThreshold: null,
   resetSoonWindow: 1_800,
 };
+
+/** Deterministic PRNG so the demo heatmap is stable within a session. */
+function mulberry32(seed: number): () => number {
+  return () => {
+    seed = (seed + 0x6d2b79f5) | 0;
+    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function demoHistory(now: number): HistorySummaryViewModel {
+  const rand = mulberry32(20261011);
+  const rangeDays = 182;
+  const recordingDays = 120;
+  const today = new Date(new Date(now).toDateString());
+  const days: HistoryDayViewModel[] = [];
+  let totalTokens = 0;
+  let totalCost = 0;
+  let activeDays = 0;
+  for (let offset = rangeDays - 1; offset >= 0; offset--) {
+    const date = new Date(today.getTime() - offset * 86_400_000);
+    const dayStart = Math.floor(date.getTime() / 1000);
+    const hasData = offset < recordingDays;
+    const weekday = date.getDay();
+    const weekendFactor = weekday === 0 || weekday === 6 ? 0.35 : 1;
+    // Adoption ramp: usage grows as the app keeps recording.
+    const ramp = offset > recordingDays - 30 ? 1 : offset > recordingDays - 75 ? 0.55 : 0.2;
+    const active = hasData && rand() > 0.14 ? 1 : 0;
+    const tokens = active
+      ? Math.round((150_000 + rand() * 1_600_000) * weekendFactor * ramp)
+      : 0;
+    const cost = active ? Math.round((tokens / 1_000_000) * 4.5 * (0.8 + rand() * 0.4) * 100) / 100 : 0;
+    if (tokens > 0) activeDays += 1;
+    totalTokens += tokens;
+    totalCost += cost;
+    days.push({
+      dayStart,
+      tokens,
+      cost: cost > 0 ? cost : null,
+      currency: cost > 0 ? "¥" : null,
+      hasData,
+    });
+  }
+  return {
+    days,
+    totalTokens,
+    totalCost: totalCost > 0 ? Math.round(totalCost * 100) / 100 : null,
+    currency: totalCost > 0 ? "¥" : null,
+    activeDays,
+    rangeDays,
+  };
+}
 
 export function createMockBridge(): DashboardBridge {
   let accounts = demoAccounts(Date.now());
@@ -287,6 +343,59 @@ export function createMockBridge(): DashboardBridge {
     async setNotificationPreferences(prefs: NotificationPreferencesViewModel) {
       await new Promise((resolve) => setTimeout(resolve, latency()));
       preferences = { ...prefs };
+    },
+    async historySummary(days?: number) {
+      await new Promise((resolve) => setTimeout(resolve, latency()));
+      const summary = demoHistory(Date.now());
+      return structuredClone({ ...summary, rangeDays: days ?? summary.rangeDays });
+    },
+    async historyBreakdown(days?: number) {
+      await new Promise((resolve) => setTimeout(resolve, latency()));
+      const range = days ?? 30;
+      const summary = demoHistory(Date.now());
+      const rand = mulberry32(42);
+      const roster: Array<{ id: string; label: string; weight: number }> = [
+        { id: "demo-primary", label: "OpenAI 官方", weight: 0.42 },
+        { id: "demo-relay", label: "公司中转站", weight: 0.28 },
+        { id: "demo-multi", label: "多端点网关", weight: 0.22 },
+        { id: "demo-backup", label: "备用网关", weight: 0.08 },
+      ];
+      return summary.days
+        .filter((day) => day.hasData && day.tokens > 0)
+        .slice(-range)
+        .map((day) => ({
+          dayStart: day.dayStart,
+          accounts: roster
+            .map((member) => ({
+              accountId: member.id,
+              label: member.label,
+              tokens: Math.round(day.tokens * member.weight * (0.85 + rand() * 0.3)),
+              cost:
+                day.cost !== null
+                  ? Math.round((day.cost ?? 0) * member.weight * 100) / 100
+                  : null,
+              currency: day.currency,
+            }))
+            .filter((entry) => entry.tokens > 0),
+        }));
+    },
+    async usageWindows(accountId?: string) {
+      await new Promise((resolve) => setTimeout(resolve, latency()));
+      void accountId;
+      const now = Date.now();
+      const rand = mulberry32(Math.floor(now / 3_600_000));
+      const window = (tokens: number, cost: number, hasData: boolean) => ({
+        tokens,
+        cost: hasData && cost > 0 ? cost : null,
+        currency: hasData && cost > 0 ? "¥" : null,
+        hasData,
+      });
+      const usage: UsageWindowsViewModel = {
+        hours2: window(Math.round(30_000 + rand() * 90_000), Math.round(rand() * 40) / 100, true),
+        hours24: window(Math.round(600_000 + rand() * 900_000), Math.round(rand() * 500) / 100, true),
+        days30: window(Math.round(18_000_000 + rand() * 8_000_000), 380 + Math.round(rand() * 100) / 100, true),
+      };
+      return usage;
     },
   };
 }

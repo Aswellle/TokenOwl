@@ -326,3 +326,223 @@ history）、docs/04 §11（`notification:enqueue` 事件词汇）。
   插件未来实现桌面授权时无需改代码；本机（Windows）工具链可完整编译验证该路径。
 - 低额度/余额阈值变更不回溯评估（下次刷新生效）；通知不支持按账户静音。
 - 下一阶段：历史趋势与基础图表（需 v3 迁移）→ 真实 provider 端点接入。
+
+## Round 5 — 历史趋势：GitHub 风格热力图（每日 Tokens / 计费）（P1）
+
+日期：2026-10-11 | 基线：Round 4 工作区 | 平台：Windows 11 x64
+
+### 目标与依据
+
+`IMPLEMENTATION-GAP.md` 中下一项 P1：**历史趋势与图表未实现**。依据 docs/01 §13（MVP：最近
+7/30 天 usage、每个 quota window 的变化）、docs/02 §7（SQLite 保存 Usage points）。用户附加
+要求：GitHub 风格热力图展示每一天的总 Tokens 使用量与计费额度，并用 better-* 设计 skills
+（better-typography / better-colors / better-layout / better-ui）打磨整体 UI/UX。
+
+### 需求完成矩阵
+
+| 要求 | 来源 | 结果 |
+|---|---|---|
+| 历史数据持久化 | 02 §7 | ✅ 迁移 v3 `history_points` 表：快照键为指标身份、与快照写入同事务幂等采集、`observed_at` 索引、随账户级联删除、90 天保留（每次采集修剪） |
+| 最近 7/30 天 usage | 01 §13 | ✅ 近 30 天统计卡（Tokens 总量 / 计费总额 / 活跃天数）+ 26 周热力图逐日数值 |
+| 每日总 Tokens 使用量 | 用户要求 | ✅ token 指标 `used` 正增量求和；窗口重置造成的下降不计、重置前缺口不虚构 |
+| 每日计费额度 | 用户要求 | ✅ currency 指标 `used` 增量 + balance 型指标 `remaining` 降幅（充值不算消费）；混币种日取主导币种并在文档注明 |
+| GitHub 风格热力图 | 用户要求 | ✅ 26 周日历网格（月份/工作日标尺）、品牌色单色相 5 级强度阶梯（非零值四分位分档）、无数据日与零消耗日视觉区分、图例 少→多 |
+| UI/UX 打磨 | 用户要求 | ✅ better-* 四项 skill 审查后实现：tabular-nums 统计、单色相语义（品牌青=用量，与额度条一致）、间距分组节奏、热力图容器内滚动（窄窗页面零溢出）、≤150ms 状态过渡、reduced-motion 降级 |
+| 可达性 | 05 §13 | ✅ 方向键漫游焦点（WAI grid 模式，避免 182 个 tab 停留点）、逐日 sr-only 文案 + title 提示（日期 + Tokens + 金额）、图例非颜色单一编码、`:focus-visible` 环 |
+| "不打扰"数据原则 | 总规范 | ✅ 未观测 ≠ 零：无记录日期渲染为空格；数值全部来自可信快照 |
+
+### 代码变更
+
+- **`storage/migrations/0003_history_points.sql` + `MIGRATIONS` 追加**：历史观测表（复合主键
+  account/metric/observed_at，外键级联），schema v3。
+- **`storage/mod.rs`**：`HistorySample` + `HISTORY_RETENTION_SECS`；`upsert_snapshot_set` 在同一
+  事务内为可信快照（Available/Partial）写 `INSERT OR IGNORE` 历史行并按保留窗修剪；
+  `history_samples(from, to)` 按 account/metric/时间排序返回。
+- **`domain/history.rs`**：`DailySample`/`DailyUsage` + 纯函数 `aggregate_daily_usage(samples,
+  local_offset)`——按 (account, metric) 分组取相邻正增量，token→Tokens、currency→费用、
+  balance 降幅→费用、其他单位仅标记 has_data；`local_offset(timestamp)` 注入时区（生产用
+  chrono Local，测试用固定偏移）；8 个新测试。
+- **`commands/mod.rs`**：`history_summary` 命令（范围 7–365 天，默认 182）+ `HistoryDayViewModel`
+  /`HistorySummaryViewModel` + `local_offset_at`；注册进 invoke_handler。
+- **前端**：`types`（历史视图模型 + 桥接方法）、`lib/tauri.ts`、`lib/mock.ts`（确定性伪随机
+  演示数据：工作日/周末节奏 + 采用爬坡 + 40 天无记录期）、`lib/format.ts`（`formatCompact`
+  万/亿紧凑数值）、`styles/copy.ts`（历史文案 + a11y）、新组件
+  `features/dashboard/components/HistorySection.tsx`（统计卡 + 热力图 + 图例 + 漫游键盘导航）、
+  `App.tsx` 集成（`quota:updated` 事件驱动刷新）、`App.css`（热力图样式 + sr-only + 窄窗/减少动效）。
+- **测试**：`src/test/HistorySection.test.tsx` 4 个（统计卡紧凑数值、逐日无障碍标签与图例、
+  空态、ArrowLeft 漫游焦点）。
+
+未改动：Tauri capabilities、CSP、网络层、凭据层、通知管线。
+
+### 行为变化
+
+- 每次成功刷新（后台 1800s 或手动）把可信快照写入历史；老库（v2）首次打开自动升级 v3
+  （备份 + 完整性检查路径不变）。
+- 仪表盘新增"历史趋势"区块：26 周热力图 + 近 30 天统计；`quota:updated` 事件同步刷新。
+- 历史从本版本开始积累；安装前的日期显示为无数据（空格），不补零。
+
+### 测试与构建（全部通过）
+
+- Rust：`cargo test` **159 通过**（152 单元 + 7 fixture；新增聚合 8、采集 2）；fmt、clippy
+  `-D warnings` 全绿。
+- 前端：`pnpm typecheck`、`pnpm test`（**34 通过**，新增 4）、`pnpm build` 全部通过。
+- 手动 UX（mock 桥接 + 浏览器截图，1280/375、暗色）：热力图与标尺渲染、强度阶梯与无数据
+  区分、ArrowLeft 漫游焦点落点及单元格提示内容（"10月4日：5.89 万 Tokens，¥0.22"）、窄窗
+  热力图容器内滚动且页面无横向溢出（scrollWidth == clientWidth）均通过。
+- 明色主题未截图验证（强度阶梯以 alpha 混合构建、双主题共用令牌，理论自适应）；标注
+  Not verified。
+
+### Diff 自审（docs/07 §5）
+
+1. **术语一致**：DailyUsage/HistorySample 与 docs/02 §7 "Usage points" 对应；热力图文案与
+   copy.ts 单源。
+2. **失败不变量**：历史采集随快照事务，失败即整体回滚，不影响快照正确性；`history_summary`
+   失败仅令区块保持原状（前端 catch 保留旧数据）。
+3. **unknown ≠ zero**：无观测日 `has_data=false` 渲染空格；错误/不可信快照不入历史；
+   重置缺口不虚构。
+4. **状态可见性**：强度阶梯 + 图例 + sr-only 文案三重编码；焦点环独立于颜色。
+5. **IPC 边界**：聚合在 Rust 完成，前端只接收逐日视图模型；原始 history_points 不过 IPC。
+6. **权限边界**：零改动。
+7. **性能**：采集为同事务 1 条 INSERT/快照 + 1 条修剪；聚合单次 SQL 范围查询 + O(n) 遍历；
+   热力图 182 个静态按钮 + 事件委托式键盘导航。
+8. **schema 变化**：v3 迁移，走备份 + 完整性检查 + 事务升级。
+9. **secret 风险**：无——历史只含归一化数值与单位；无凭据、无原始响应。
+10. **架构耦合**：聚合时区以闭包注入（领域不依赖 chrono Local）；存储层 `HistorySample`
+    为自有类型，与领域 `DailySample` 在命令层转换。
+
+### 已知限制与下一阶段
+
+- "每个 quota window 的变化"（PRD §13 MVP 剩余项）未做——需要按指标序列的窗口对比视图。
+- 混币种日在热力图只显示主导币种金额；按币种拆分视图未做。
+- 单位未知（`unit="unknown"`）的快照只标记 has_data，不计入 Tokens/费用（不猜单位）。
+- 下一阶段：接入第一个真实 provider 官方限额端点 → quota window 趋势线。
+
+## Round 6 — 桌面视图导航 + 供应商导轨 + 气泡双环与贴边吸附（P1）
+
+日期：2026-10-11 | 基线：Round 5 工作区 | 平台：Windows 11 x64
+
+### 目标与依据
+
+用户需求（参照三张 macOS 菜单栏监控截图）：顶部供应商圆形图标导轨（仅显示已配置连通者，
+数量随布局受限，末位为"全部面板"入口）；供应商专属视图带 2h/每日/每月用量切换；底部固定
+功能区（设置/主窗口/GitHub 主页）替代整页纵向滚动；气泡收拢为当前供应商圆形图标 +
+5h/7d 双活动圆环（Apple Watch 风格）；气泡支持四边贴边吸附持久化。设计与可达性按
+better-typography / better-colors / better-layout / better-ui / better-accessibility 执行。
+
+### 需求完成矩阵
+
+| 要求 | 结果 |
+|---|---|
+| 顶部供应商圆形图标排列 | ✅ 导轨显示每个已配置账户的圆形品牌图标 + 状态点；`RAIL_MAX = 5`，超出显示 "+N" 并提示进概览面板；末尾固定"全部供应商"按钮 |
+| 仅已配置连通者出现 | ✅ 导轨数据源即账户列表（已配置账户）；每个图标 aria-label 携带实时健康状态 |
+| 点击图标 → 供应商专属视图 | ✅ 滑入该账户的额度卡片 + 用量统计卡 + 刷新按钮；导轨图标 accent 高亮 |
+| 2h / 每日(24h) / 每月(30d) 统计切换 | ✅ 分段控件三档切换；数据来自新命令 `usage_windows`（`range_usage` 正增量推导：token→Tokens、currency used 增量/balance 降幅→计费）；窗口无记录显示"暂无记录"而非零 |
+| 底部固定功能区 | ✅ Dock：概览/历史/通知/设置（layoutId 药丸高亮、aria-pressed）+ GitHub 项目主页（`open_project_page` 命令，URL 编译期常量，opener Rust API，webview 无任意外链能力） |
+| 告别整页纵向滚动 | ✅ 应用外壳：标题栏 + 导轨 + 可滚动视图区 + 固定 Dock；视图间方向感知滑入滑出（reduced-motion 淡入淡出）；设置视图收纳表单/检查更新/本地声明 |
+| 气泡双活动圆环 | ✅ 主账户窗口化额度按时长升序取前二映射双环（4–6h→"5h"、144–192h→"7d"、其余实际跨度），外环短窗内环长窗、中心品牌图标；无窗口额度回退单环压力；无可信数据回退猫头鹰图标 |
+| 四边贴边吸附持久化 | ✅ `persist_bubble_position` 内 48px 阈值逐轴吸附（角落双轴）、吸附后窗口回弹到目标位置并连同 SQLite 持久化；`show_bubble` 恢复吸附位 |
+
+### 代码变更
+
+- **`domain/history.rs`**：`RangeUsage` + `range_usage(samples, from, to)`（正增量窗口求和，
+  基线取窗口前最近一次观测；重置/充值规则与日聚合一致）+ 2 个测试。
+- **`commands/mod.rs`**：`usage_windows` 命令（2h/24h/30d 三档，可按账户过滤）；
+  `open_project_page` 命令（常量 URL，OpenerExt Rust API）。
+- **`app/mod.rs`**：`persist_bubble_position` 增加 `snap_to_edge`（逐轴 48px 阈值，吸附后
+  `set_position` 回弹）+ 注册两个新命令。
+- **前端**：`types`（RangeUsage/UsageWindows + 桥接 `usageWindows`）、`shell.openProjectPage`、
+  `mock.ts` 演示用量、`copy.ts`（views/rail/usage/bubble 文案与 a11y 标签）、
+  `components/QuotaMetric.tsx`（自 App 抽出复用）、`components/ProviderView.tsx`（新）、
+  `App.tsx` 重构为应用外壳（导轨 + AnimatePresence mode="wait" 视图切换 + Dock + 设置视图，
+  移除顶部"+"入口与页脚，改由 Dock/设置视图承载）、`BubbleView.tsx` 双环重写、
+  `icons.tsx` 新增 IconGear/IconExternal/IconGrid、`App.css`（导轨/Dock/pview/双环/窄窗规则）。
+- **测试**：既有 34 个 vitest 与全部 cargo 测试保持通过（桥接 mock 补 `usageWindows`）。
+
+未改动：Tauri capabilities、CSP、网络层、凭据层、通知管线、迁移 schema（无 v4）。
+
+### 测试与构建（全部通过）
+
+- Rust：`cargo test` **161 通过**（154 单元 + 7 fixture）；fmt、clippy `-D warnings` 全绿。
+- 前端：`pnpm typecheck`、`pnpm test`（34）、`pnpm build` 全部通过。
+- 手动 UX（mock 桥接 + 浏览器截图，1280/375、暗色）：概览 + 导轨 + Dock 布局、供应商视图
+  tabs 切换数值联动（24h→141.89 万 / 2h→10.29 万）、设置视图、Dock 标签可见性（DOM 实测
+  5 个标签可见）、窄窗（375）Dock 收纳图标 + 页面零横向溢出。
+- Not verified：明色主题截图；气泡双环与贴边吸附的实机窗口行为（Tauri 窗口行为无法在
+  纯浏览器预览覆盖，吸附逻辑在 Rust 侧且 clippy/test 通过）。
+
+### Diff 自审（docs/07 §5）
+
+1. **术语一致**：views/rail/usage 文案入 copy.ts 单源；Dock/导轨 aria 标签齐全。
+2. **失败不变量**：`usage_windows` 失败时供应商视图保留额度卡片（统计卡显示"暂无记录"）；
+   视图切换不重置账户数据。
+3. **unknown ≠ zero**：窗口无观测 → `has_data: false` →"暂无记录"；双环无窗口额度 → 回退
+   而非画零环。
+4. **状态可见性**：导轨状态点 + aria 文字 + title 三重表达；Dock 药丸高亮 + aria-pressed。
+5. **IPC 边界**：外链 URL 为 Rust 常量，webview 不可指定任意外链；用量聚合在 Rust 完成。
+6. **权限边界**：零改动（opener 已有权限，Rust 端调用不经能力门）。
+7. **性能**：视图切换挂载/卸载对应区块（AnimatePresence mode="wait"），无隐藏页常驻；
+   usage_windows 单次范围查询。
+8. **schema 变化**：无。
+9. **secret 风险**：无。
+10. **架构耦合**：QuotaMetric 抽为共享组件消除 App 内联重复；范围聚合与日聚合共享规则但
+    独立实现，避免为复用引入过度抽象。
+
+### 已知限制与下一阶段
+
+- 供应商导轨图标来自 `providerId` → lobe 图标映射；generic.openai_compatible 显示通用钥匙
+  图标，接入真实 provider 后自动切换为品牌图标。
+- 2h/24h 统计在安装初期历史不足时诚实显示"暂无记录"。
+- 气泡双环的窗口标注依赖 provider 上报 startsAt/endsAt；仅有 reset_at 的端点回退单环。
+- 下一阶段：接入第一个真实 provider 官方限额端点 → quota window 趋势线 → 实机验证
+  双环/吸附/通知横幅。
+
+## Round 7 — 品牌图标映射 + recharts 趋势图 + 视图内容净化与热力图纵向填充
+
+日期：2026-10-11 | 基线：Round 6 工作区 | 平台：Windows 11 x64
+
+### 需求完成矩阵
+
+| 要求 | 结果 |
+|---|---|
+| 按 lobehub skill 使用 @lobehub/icons，真实品牌图标 | ✅ `ProviderIcon` 重写为 providerId **冒号前缀**映射（30 个品牌前缀 → lobe 图标）；`generic.openai_compatible` 等未知前缀回退中性钥匙图标；mock 演示改用 openai/anthropic/deepseek/gemini 四品牌，导轨/卡片/供应商视图/Dock 全部显示真实品牌图标 |
+| Dock 各页只显示当前页内容 | ✅ 汇总统计卡（额度压力/账户/正常/下次重置）从全局区移入概览视图；历史/通知/设置/供应商视图不再出现仪表盘元素；全局仅保留瞬时通知与更新横幅 |
+| 布局适应完整页面空间；热力图铺满纵向 | ✅ 历史视图弹性布局：趋势卡固定高度 + 热力图 `flex: 1` 铺满剩余纵向（单元格 1fr 流式伸缩、`min-width: max-content` 窄窗横向滚动）；修复级别色被后声明的基础规则覆盖导致的"全灰"缺陷 |
+| GitHub 跳转显示站点图标 | ✅ 新增填充式 `IconGitHub`（章鱼猫 mark），Dock 入口改为纯图标（aria-label 保留），设置视图同步替换 |
+| 第三方图表库优化趋势/用量可视化 | ✅ 引入 **recharts 3.10**（纯本地渲染，无外部请求，CSP 不变）：历史视图近 30 天用量趋势面积图（品牌青单色相、`var(--brand)` 直入 SVG、断线不补零、峰值标注、深色适配 Tooltip）；供应商视图 30 天迷你趋势（`history_summary` 新增 `account_id` 过滤参数） |
+
+### 代码变更与验证
+
+- `components/ProviderIcon.tsx`（前缀映射重写）、`components/icons.tsx`（+IconGitHub）、
+  `commands/mod.rs`（history_summary 按账户过滤）、`lib/tauri.ts`（签名扩展）、`lib/mock.ts`
+  （品牌多样化）、`App.tsx`（stats 移入概览 + Dock 图标化）、`HistorySection.tsx`
+  （recharts 趋势 + 流式热力图）、`ProviderView.tsx`（迷你趋势）、`App.css`（弹性布局 +
+  级别色级联修复 + sr-only 等沿用）、`package.json`（+recharts）。
+- 验证：`cargo test` 161（154+7）、fmt、clippy `-D warnings`；vitest 34、typecheck、build 全绿。
+- 浏览器审计（1280，暗色，mock）：导轨四品牌图标、趋势面积图完整渲染（峰值 34.17 万）、
+  热力图纵向铺满 + 空数据期与强度阶梯区分、供应商视图迷你趋势、Dock GitHub 图标。
+- Not verified：明色主题；实机双环/吸附（同前轮）。
+
+## Round 8 — 字体/图标可见度审计 + 趋势悬停详情（供应商分解 + 额度概览）
+
+日期：2026-10-11 | 基线：Round 7 工作区 | 平台：Windows 11 x64
+
+### 需求完成矩阵
+
+| 要求 | 结果 |
+|---|---|
+| 字体/字重/数字可见度 | ✅ 主要数值强调升级：额度卡"剩余"从 13px→17px（--step-4、650 字重）；历史统计卡与供应商用量数值统一 650；Dock 标签 500；全部数值保持 tabular-nums。字体栈维持系统栈（CSP 禁网络字体，Segoe UI Variable/PingFang 等为平台最佳选择） |
+| 图标与圆边框贴合 + 尺寸 | ✅ `.provider-icon` 改 grid 居中 + `line-height: 0`；尺寸整体上调：导轨 22→25（圆钮 34→36）、账户卡 28→32、供应商视图头 34→40、气泡 18→20 |
+| 趋势悬停详情 | ✅ 自定义 Tooltip：日期 + 当日 Tokens 总量 + **按供应商分解**（品牌图标 + 各自 tokens，新命令 `history_breakdown` 按日按账户聚合）+ **当前额度概览**（各账户窗口化额度百分比，`quotaWindowTag` 抽为共享 helper 并增加指标名称回退——无 startsAt/endsAt 时从供应商自己的指标命名推断 5h/7d/Nd/Nh，推断不出如实显示"未知"） |
+| 模型型号说明 | ⚠️ 本机不采集模型级用量（历史只有账户×指标维度），分解到供应商/账户层级；模型维度需 provider 上报 per-model usage，记入下一阶段 |
+
+### 代码变更与验证
+
+- `lib/format.ts`（quotaWindowTag 共享 + 名称回退）、`commands/mod.rs`（`history_breakdown` +
+  视图模型）、`app/mod.rs`（注册）、`types`/`lib/tauri.ts`/`lib/mock.ts`（桥接与演示数据）、
+  `HistorySection.tsx`（TrendTooltip + accounts 属性 + 趋势点携带 dayStart）、
+  `BubbleView.tsx`（改用共享 quotaWindowTag）、`App.css`（数值字重/图标居中/trend-tip 样式）、
+  组件尺寸上调、测试桥补 `historyBreakdown` + recharts/ProviderIcon 桩（vitest 无法解析
+  lobehub 传递 JSON 导入——生产构建不受影响，图表与图标由浏览器审计覆盖）。
+- 验证：cargo 161（154+7）、fmt/clippy 全绿；vitest 34、typecheck、build 全绿。
+- 浏览器审计（浅色主题）：Tooltip 显示"9月28日 · Tokens 3.83 万 + 四供应商分解 + OpenAI 官方
+  5h 84% · 7d 90%"；明色主题首次截图验证通过（此前 Not verified 项消除）。

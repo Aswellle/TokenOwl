@@ -5,7 +5,9 @@
 //! The database deliberately stores normalized data only. Provider response bodies and
 //! credential values never cross this module's API or appear in its schema.
 
-use crate::domain::provider::{OpenAiCompatibleConfig, QuotaSnapshot, QuotaSnapshotSet};
+use crate::domain::provider::{
+    OpenAiCompatibleConfig, QuotaSnapshot, QuotaSnapshotSet, SnapshotStatus,
+};
 use crate::domain::state::{
     AccountMetadata, Freshness, FreshnessPolicy, RefreshState, RefreshStatus,
 };
@@ -79,6 +81,24 @@ pub struct NotificationRecord {
     pub created_at: u64,
     pub read_at: Option<u64>,
 }
+
+/// One recorded usage observation. `unit` is the lowercase string form of
+/// `QuotaUnit` (`token`/`currency`/…), kept as text so this layer stays
+/// independent of the daily-aggregation policy.
+#[derive(Clone, Debug, PartialEq)]
+pub struct HistorySample {
+    pub account_id: String,
+    pub metric_key: String,
+    pub observed_at: u64,
+    pub used: Option<f64>,
+    pub remaining: Option<f64>,
+    pub limit: Option<f64>,
+    pub unit: String,
+    pub currency: Option<String>,
+}
+
+/// History observations older than this are pruned whenever new ones land.
+pub const HISTORY_RETENTION_SECS: u64 = 90 * 86_400;
 
 /// Synchronous repository. Tauri callers can place it behind `Arc<Mutex<_>>`.
 pub struct LocalRepository {
@@ -275,6 +295,9 @@ impl LocalRepository {
     }
 
     /// Persists only normalized snapshots and atomically replaces the prior set.
+    /// Trusted snapshots are also recorded as history observations in the same
+    /// transaction (idempotent per timestamp), so the usage timeline grows with
+    /// every refresh without a separate write path.
     pub fn upsert_snapshot_set(
         &self,
         account_id: &str,
@@ -299,9 +322,61 @@ impl LocalRepository {
                  VALUES (?1, ?2, ?3, ?4)",
                 params![account_id, key, snapshot_json, observed_at],
             )?;
+            if matches!(
+                snapshot.status,
+                SnapshotStatus::Available | SnapshotStatus::Partial
+            ) {
+                let unit = snapshot.unit.as_ref().map_or("unknown".to_owned(), |unit| {
+                    format!("{unit:?}").to_lowercase()
+                });
+                transaction.execute(
+                    "INSERT OR IGNORE INTO history_points
+                        (account_id, metric_key, observed_at, used, remaining, quota_limit, unit, currency)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                    params![
+                        account_id,
+                        key,
+                        observed_at,
+                        snapshot.used,
+                        snapshot.remaining,
+                        snapshot.limit,
+                        unit,
+                        snapshot.currency,
+                    ],
+                )?;
+            }
         }
+        transaction.execute(
+            "DELETE FROM history_points WHERE observed_at < ?1",
+            [observed_at.saturating_sub(HISTORY_RETENTION_SECS)],
+        )?;
         transaction.commit()?;
         Ok(())
+    }
+
+    /// History observations inside `[from, to)`, ordered so consecutive points
+    /// of one metric are adjacent (the shape the daily aggregator expects).
+    pub fn history_samples(&self, from: u64, to: u64) -> Result<Vec<HistorySample>, StorageError> {
+        let mut statement = self.connection.prepare(
+            "SELECT account_id, metric_key, observed_at, used, remaining, quota_limit, unit, currency
+               FROM history_points
+              WHERE observed_at >= ?1 AND observed_at < ?2
+              ORDER BY account_id, metric_key, observed_at",
+        )?;
+        let rows = statement.query_map(params![from, to], |row| {
+            Ok(HistorySample {
+                account_id: row.get(0)?,
+                metric_key: row.get(1)?,
+                observed_at: row.get(2)?,
+                used: row.get(3)?,
+                remaining: row.get(4)?,
+                limit: row.get(5)?,
+                unit: row.get(6)?,
+                currency: row.get(7)?,
+            })
+        })?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(StorageError::from)
     }
 
     pub fn latest_snapshot_views(
@@ -587,7 +662,7 @@ fn snapshot_key(snapshot: &QuotaSnapshot, index: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::provider::{Confidence, DataSource, SnapshotStatus};
+    use crate::domain::provider::{Confidence, DataSource, QuotaUnit, SnapshotStatus};
     use std::collections::HashMap;
     use std::time::Duration;
 
@@ -625,6 +700,7 @@ mod tests {
             account_id: Some("account-1".to_owned()),
             metric_id: Some("tokens".to_owned()),
             metric_name: Some("Tokens".to_owned()),
+            unit: Some(QuotaUnit::Token),
             used: Some(10.0),
             limit: Some(100.0),
             remaining: Some(90.0),
@@ -846,6 +922,69 @@ mod tests {
         assert_eq!(
             remaining[0].account_id, None,
             "link cleared by ON DELETE SET NULL"
+        );
+    }
+
+    #[test]
+    fn history_records_trusted_snapshots_idempotently_and_respects_monotonic_guard() {
+        let repository = LocalRepository::open_in_memory().expect("database");
+        repository.upsert_provider(&config(), 1).expect("provider");
+        repository.upsert_account(&account(), 1).expect("account");
+        repository
+            .upsert_snapshot_set("account-1", &QuotaSnapshotSet::new(vec![snapshot()]), 1_000)
+            .expect("first record");
+        // Same observation again is idempotent; an older set is ignored.
+        repository
+            .upsert_snapshot_set("account-1", &QuotaSnapshotSet::new(vec![snapshot()]), 1_000)
+            .expect("repeat record");
+        let mut older = snapshot();
+        older.used = Some(5.0);
+        repository
+            .upsert_snapshot_set("account-1", &QuotaSnapshotSet::new(vec![older]), 999)
+            .expect("older ignored");
+        let samples = repository.history_samples(0, 2_000).expect("samples");
+        assert_eq!(samples.len(), 1);
+        assert_eq!(samples[0].used, Some(10.0));
+        assert_eq!(samples[0].unit, "token");
+        assert_eq!(samples[0].metric_key, "quota-0-Token");
+
+        // Untrusted snapshots carry no history values.
+        let mut untrusted = snapshot();
+        untrusted.status = SnapshotStatus::Unavailable;
+        repository
+            .upsert_snapshot_set("account-1", &QuotaSnapshotSet::new(vec![untrusted]), 1_001)
+            .expect("untrusted upsert");
+        assert_eq!(
+            repository.history_samples(0, 2_000).expect("samples").len(),
+            1,
+            "untrusted status must not add a history row"
+        );
+    }
+
+    #[test]
+    fn history_prunes_beyond_retention_and_cascades_on_account_delete() {
+        let repository = LocalRepository::open_in_memory().expect("database");
+        repository.upsert_provider(&config(), 1).expect("provider");
+        repository.upsert_account(&account(), 1).expect("account");
+        repository
+            .upsert_snapshot_set("account-1", &QuotaSnapshotSet::new(vec![snapshot()]), 1_000)
+            .expect("old record");
+        // A much later refresh prunes everything older than the retention window.
+        let late = 1_000 + HISTORY_RETENTION_SECS + 60;
+        repository
+            .upsert_snapshot_set("account-1", &QuotaSnapshotSet::new(vec![snapshot()]), late)
+            .expect("late record");
+        let samples = repository.history_samples(0, late + 1).expect("samples");
+        assert_eq!(samples.len(), 1, "only the fresh observation survives");
+        assert_eq!(samples[0].observed_at, late);
+
+        repository.delete_account("account-1").expect("delete");
+        assert!(
+            repository
+                .history_samples(0, late + 1)
+                .expect("samples")
+                .is_empty(),
+            "history rows cascade with the account"
         );
     }
 }

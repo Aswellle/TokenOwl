@@ -114,7 +114,9 @@ fn show_bubble(app: AppHandle, state: State<'_, Arc<Mutex<RuntimeState>>>) -> Re
 }
 
 /// Reads the bubble window's current position and stores it for the next
-/// `show_bubble`, so the frontend never needs position permissions.
+/// `show_bubble`, so the frontend never needs position permissions. The
+/// position is snapped to the nearest screen edge within reach, so a drag
+/// near any border makes the bubble hug that edge persistently.
 #[tauri::command]
 fn persist_bubble_position(
     app: AppHandle,
@@ -124,8 +126,14 @@ fn persist_bubble_position(
         .get_webview_window("bubble")
         .ok_or_else(|| "bubble window unavailable".to_string())?;
     let position = bubble.outer_position().map_err(|error| error.to_string())?;
-    let x = f64::from(position.x);
-    let y = f64::from(position.y);
+    let (snapped_x, snapped_y) = snap_to_edge(&bubble, position.x, position.y);
+    // Move the window onto the snap target so what the user sees matches
+    // what will be restored on the next `show_bubble`.
+    bubble
+        .set_position(tauri::PhysicalPosition::new(snapped_x, snapped_y))
+        .map_err(|error| error.to_string())?;
+    let x = f64::from(snapped_x);
+    let y = f64::from(snapped_y);
     let mut runtime = state
         .lock()
         .map_err(|_| "runtime state unavailable".to_string())?;
@@ -139,6 +147,53 @@ fn persist_bubble_position(
     }
 
     Ok(())
+}
+
+/// Distance beyond which a dragged position no longer snaps to an edge.
+const EDGE_SNAP_THRESHOLD_PX: f64 = 48.0;
+
+/// Snaps a physical position to the nearest monitor edge per axis when it is
+/// within [`EDGE_SNAP_THRESHOLD_PX`]. Dragging near a border (or corner)
+/// therefore docks the bubble flush against it, on any of the four edges.
+fn snap_to_edge(bubble: &tauri::WebviewWindow, x: i32, y: i32) -> (i32, i32) {
+    let Ok(Some(monitor)) = bubble.current_monitor() else {
+        return (x, y);
+    };
+    let Ok(size) = bubble.outer_size() else {
+        return (x, y);
+    };
+    let monitor_origin = monitor.position();
+    let monitor_size = monitor.size();
+    let width = i32::try_from(size.width).unwrap_or(0);
+    let height = i32::try_from(size.height).unwrap_or(0);
+    let monitor_width = i32::try_from(monitor_size.width).unwrap_or(i32::MAX);
+    let monitor_height = i32::try_from(monitor_size.height).unwrap_or(i32::MAX);
+    let left = monitor_origin.x;
+    let top = monitor_origin.y;
+    let right = monitor_origin.x + monitor_width - width;
+    let bottom = monitor_origin.y + monitor_height - height;
+
+    let mut snapped_x = x;
+    let mut snapped_y = y;
+    let distance_left = (x - left).abs();
+    let distance_right = (right - x).abs();
+    if distance_left <= distance_right {
+        if f64::from(distance_left) <= EDGE_SNAP_THRESHOLD_PX {
+            snapped_x = left;
+        }
+    } else if f64::from(distance_right) <= EDGE_SNAP_THRESHOLD_PX {
+        snapped_x = right;
+    }
+    let distance_top = (y - top).abs();
+    let distance_bottom = (bottom - y).abs();
+    if distance_top <= distance_bottom {
+        if f64::from(distance_top) <= EDGE_SNAP_THRESHOLD_PX {
+            snapped_y = top;
+        }
+    } else if f64::from(distance_bottom) <= EDGE_SNAP_THRESHOLD_PX {
+        snapped_y = bottom;
+    }
+    (snapped_x, snapped_y)
 }
 
 fn place_bubble_bottom_right(bubble: &tauri::WebviewWindow) {
@@ -355,6 +410,10 @@ pub fn run() {
             commands::notifications_mark_read,
             commands::notification_preferences_get,
             commands::notification_preferences_set,
+            commands::history_summary,
+            commands::usage_windows,
+            commands::history_breakdown,
+            commands::open_project_page,
             #[cfg(desktop)]
             updater_check,
             #[cfg(desktop)]

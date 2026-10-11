@@ -22,9 +22,38 @@ export const copy = {
     attention: "需处理",
   },
 
+  views: {
+    overview: "概览",
+    provider: "供应商",
+    history: "历史",
+    notifications: "通知",
+    settings: "设置",
+  },
+
+  rail: {
+    region: "已连接供应商",
+    allProviders: "全部供应商",
+    switchTo: (label: string) => `切换到 ${label}`,
+    maxHint: "更多供应商在「全部供应商」面板中",
+  },
+
+  usage: {
+    title: "用量统计",
+    hours2: "2 小时",
+    hours24: "24 小时",
+    days30: "30 天",
+    tokens: "Tokens 消耗",
+    cost: "计费金额",
+    noData: "该窗口暂无记录",
+    growing: "用量从本机开始记录后逐步积累。",
+  },
+
   bubble: {
     openDashboard: "展开 TokenOwl 面板",
     loading: "正在获取额度",
+    rings: (parts: string) => `额度剩余：${parts}`,
+    noWindow: "暂无窗口额度",
+    windowTag: (label: string) => `${label}窗口`,
   },
 
   summary: {
@@ -196,6 +225,21 @@ export const copy = {
 
   removeConfirm: (label: string) => `移除「${label}」？本机凭据引用与快照会一起删除。`,
 
+  history: {
+    title: "历史趋势",
+    intro: "从本机开始记录后逐日积累；没有记录的日期不代表零消耗。",
+    empty: "还没有历史记录。连接账户并保持刷新后，这里会逐日累积用量。",
+    tokens30: "近 30 天 Tokens",
+    cost30: "近 30 天计费",
+    activeDays: "活跃天数",
+    legendLess: "少",
+    legendMore: "多",
+    noData: "无记录",
+    trendTitle: "用量趋势（近 30 天）",
+    trendPeak: "峰值 ",
+    quotaOverview: "当前额度",
+  },
+
   notifications: {
     title: "通知",
     empty: "暂无通知，一切正常。",
@@ -238,5 +282,14 @@ export const copy = {
     markAllNotificationsRead: "标记所有通知为已读",
     markNotificationRead: (title: string) => `标记通知已读：${title}`,
     notificationSettings: "通知设置",
+    historyRegion: "历史趋势",
+    heatmap: "每日用量热力图",
+    heatmapHint: "用方向键查看每一天的用量",
+    dayCell: (date: string, detail: string) => `${date}：${detail}`,
+    dockRegion: "功能导航",
+    providerRail: "已连接供应商",
+    usageTabs: "切换统计窗口",
+    selectProvider: (label: string) => `查看供应商 ${label}`,
+    openGithub: "在浏览器打开 GitHub 项目主页",
   },
 };

@@ -1,9 +1,48 @@
 /**
  * Official AI provider brand icons from @lobehub/icons.
- * Falls back to a generic key icon for unknown providers.
+ *
+ * Provider ids carry their brand as the prefix before the colon
+ * (`openai:account-1`), so the brand is matched on the prefix and unknown
+ * prefixes — including `generic.openai_compatible` relays — fall back to a
+ * neutral key glyph instead of guessing a brand.
  */
 
 import { ProviderIcon as LobeProviderIcon } from "@lobehub/icons";
+
+/** providerId prefix → @lobehub/icons provider id. */
+const PROVIDER_PREFIXES: Record<string, string> = {
+  openai: "openai",
+  anthropic: "anthropic",
+  claude: "claude",
+  gemini: "gemini",
+  google: "google",
+  openrouter: "openrouter",
+  deepseek: "deepseek",
+  qwen: "qwen",
+  kimi: "kimi",
+  moonshot: "moonshot",
+  minimax: "minimax",
+  zhipu: "zhipu",
+  glm: "zhipu",
+  mistral: "mistral",
+  groq: "groq",
+  xai: "xai",
+  grok: "xai",
+  cohere: "cohere",
+  perplexity: "perplexity",
+  ollama: "ollama",
+  baichuan: "baichuan",
+  stepfun: "stepfun",
+  siliconcloud: "siliconcloud",
+  together: "together",
+  fireworks: "fireworks",
+  cerebras: "cerebras",
+  huggingface: "huggingface",
+  microsoft: "microsoft",
+  azure: "azure",
+  bedrock: "bedrock",
+  vertexai: "vertexai",
+};
 
 export function ProviderIcon({
   providerId,
@@ -12,18 +51,8 @@ export function ProviderIcon({
   providerId: string;
   size?: number;
 }) {
-  const providerMap: Record<string, string> = {
-    openai: "openai",
-    anthropic: "anthropic",
-    gemini: "google",
-    openrouter: "openrouter",
-    deepseek: "deepseek",
-    qwen: "qwen",
-    kimi: "kimi",
-    minimax: "minimax",
-  };
-
-  const lobeProvider = providerMap[providerId.toLowerCase()];
+  const prefix = providerId.split(":")[0].trim().toLowerCase();
+  const lobeProvider = PROVIDER_PREFIXES[prefix];
 
   if (!lobeProvider) {
     return (
@@ -45,4 +74,3 @@ export function ProviderIcon({
     </span>
   );
 }
-

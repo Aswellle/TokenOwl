@@ -85,6 +85,7 @@ function makeBridge(summary: HistorySummaryViewModel): DashboardBridge {
     setNotificationPreferences: vi.fn(async () => {}),
     historySummary: vi.fn(async () => structuredClone(summary)),
     historyBreakdown: vi.fn(async () => []),
+    providerMatrix: vi.fn(async () => []),
     usageWindows: vi.fn(async () => ({
       hours2: { tokens: 0, cost: null, currency: null, hasData: false },
       hours24: { tokens: 0, cost: null, currency: null, hasData: false },

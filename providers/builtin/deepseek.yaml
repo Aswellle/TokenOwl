@@ -13,3 +13,9 @@ endpoints:
 network:
   timeoutMs: 15000
   followRedirects: false
+capability:
+  level: L3
+  accountTypes: [prepaid, api]
+  quotaUnits: [currency, token]
+  targetWindows: [balance, usage]
+  priority: P0

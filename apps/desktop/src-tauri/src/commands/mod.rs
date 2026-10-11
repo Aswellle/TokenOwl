@@ -672,6 +672,14 @@ pub fn history_breakdown(
         .collect())
 }
 
+/// The `docs/09` provider capability catalog: every planned provider with its
+/// account types, units, and windows; implemented providers carry their
+/// capability level from the embedded manifest.
+#[tauri::command]
+pub fn provider_matrix() -> Result<Vec<crate::providers::builtin::ProviderMatrixRow>, String> {
+    Ok(crate::providers::builtin::provider_matrix())
+}
+
 /// Opens the project's GitHub page in the system browser. The URL is a
 /// compile-time constant: the webview never picks arbitrary external URLs.
 #[tauri::command]

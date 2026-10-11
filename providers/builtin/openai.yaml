@@ -14,3 +14,9 @@ endpoints:
 network:
   timeoutMs: 10000
   followRedirects: false
+capability:
+  level: L4
+  accountTypes: [api, usage]
+  quotaUnits: [currency, token]
+  targetWindows: [monthly, custom]
+  priority: P0

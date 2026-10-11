@@ -546,3 +546,48 @@ better-typography / better-colors / better-layout / better-ui / better-accessibi
 - 验证：cargo 161（154+7）、fmt/clippy 全绿；vitest 34、typecheck、build 全绿。
 - 浏览器审计（浅色主题）：Tooltip 显示"9月28日 · Tokens 3.83 万 + 四供应商分解 + OpenAI 官方
   5h 84% · 7d 90%"；明色主题首次截图验证通过（此前 Not verified 项消除）。
+
+## Round 9 — 全局字体阶梯上调 + 图标细边框根除 + 状态点/图标可见度
+
+日期：2026-10-11 | 基线：Round 8 工作区 | 平台：Windows 11 x64
+
+### 需求完成矩阵
+
+| 要求 | 结果 |
+|---|---|
+| 全部文案可见度 | ✅ 字号阶梯整体上调一档：--step-0/1/2 从 11/12/13px → 12/13/14px（辅助文字不再低于 12px，符合 better-typography 下限）；字重层级保持 400/500/600/650 分明；可视化数值（额度"剩余"、统计卡、用量卡）17px/650 + tabular-nums |
+| 图标细边框根除 | ✅ 根因是 `.provider-icon` 的 `outline: 1px solid oklch(0 0 0 / 0.1)`（为居中外观加的发丝描边），彻底移除；回退图标的自带底板同步去掉，图标直接贴合面板 |
+| 顶部导轨图标调大 | ✅ 圆钮 34→40px、图标 25→28px |
+| 状态点更大更直观 | ✅ 9→12px，改用高饱和系统色（健康 #34c759 / 关注 #ff9500 / 紧急 #ff3b30），明暗主题都一眼可辨 |
+| 其余图标统一调大 | ✅ Dock 17→19、标题栏气泡 15→17、账户/供应商刷新与删除 16→18、统计/通知/护盾 14→15、重置时钟 13→14 |
+| gemini 图标不可见 | ✅ lobe 的 Gemini color 变体为浅色渐变，浅色主题不可见——gemini 前缀改映射 Google 四色 G（明暗主题均高对比）；mock 供应商显示名同步（Anthropic/DeepSeek/Google Gemini） |
+
+### 验证
+
+- vitest 34、typecheck、build、fmt、clippy 全绿（无 Rust 改动，cargo 结果不变）。
+- 浏览器特写审计（浅色 1280）：导轨四品牌图标全部清晰、零描边、状态点高饱和直观。
+
+## Round 10 — Provider 能力矩阵（docs/09）：manifest 元数据 + 目录面板 + 诚实等级标注
+
+日期：2026-10-11 | 基线：Round 9 工作区 | 平台：Windows 11 x64
+
+### 需求完成矩阵
+
+| 要求 | 结果 |
+|---|---|
+| 能力矩阵元数据入配置 | ✅ `ProviderManifest` 新增 `capability` 段（level/accountTypes/quotaUnits/targetWindows/priority，serde default 兼容旧 YAML）；8 个内置 YAML 按 docs/09 首发行补齐 |
+| 运行时目录 | ✅ 8 个 YAML 经 `include_str!` 嵌入运行时；`provider_matrix()` 输出 docs/09 全部 28 行目录——已实现者等级以 YAML capability 为权威（OpenAI/Anthropic/OpenRouter L4，DeepSeek/Qwen/Kimi/Gemini L3，MiniMax L2），未实现者按规划如实不标等级（docs/09 明示"首发规划，需 fixture 验证"） |
+| 命令暴露 | ✅ `provider_matrix` 命令（行结构 serde camelCase 直接复用） |
+| 前端展示 | ✅ 设置视图新增"供应商能力矩阵"面板：L4 青色/L3 蓝色分级徽章 + 规划行灰显"规划中 · Px" + 单位/窗口元数据 + 图例说明；供应商视图头部显示 L1 · 自定义接入徽章 |
+| 诚实展示规则 | ✅ 规划行不发明等级；generic 兼容账户按 docs/09 定义标 L1 自定义接入；"未知不补零"规则不受影响 |
+
+### 代码变更与验证
+
+- `providers/manifest/mod.rs`（ManifestCapability + level_id + 测试扩展）、8 个内置 YAML
+  （capability 块）、`providers/builtin/mod.rs`（BUILTIN_MANIFESTS 嵌入 + ProviderMatrixRow +
+  provider_matrix() + 2 个一致性测试：目录 28 行/8 已实现等级、YAML 与目录逐项匹配）、
+  `commands/mod.rs` + `app/mod.rs`（provider_matrix 命令注册）、前端 ProviderMatrix 组件/
+  ProviderView L1 徽章/copy/types/bridge/mock/CSS（cap-chip 体系）。
+- 验证：`cargo test` 163（156 单元 + 7 fixture，新增矩阵一致性 2 个）、fmt/clippy 全绿；
+  vitest 34、typecheck、build 全绿；浏览器审计（暗色）：矩阵面板 28 行分级渲染、规划行
+  灰显、供应商视图 L1 徽章。

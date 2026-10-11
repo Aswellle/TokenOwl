@@ -18,6 +18,31 @@ pub struct ProviderManifest {
     pub endpoints: ManifestEndpoints,
     pub mapping: Option<ManifestMapping>,
     pub network: Option<ManifestNetwork>,
+    /// `docs/09` capability-matrix metadata; optional so older manifests parse.
+    #[serde(default)]
+    pub capability: Option<ManifestCapability>,
+}
+
+/// `docs/09` capability-matrix metadata for one provider.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ManifestCapability {
+    /// L4 full quota > L3 usage/balance > L2 health/model > L1 custom.
+    pub level: Option<String>,
+    pub account_types: Vec<String>,
+    pub quota_units: Vec<String>,
+    pub target_windows: Vec<String>,
+    pub priority: Option<String>,
+}
+
+impl ManifestCapability {
+    /// Normalized level id (`L1`..`L4`); unknown or missing means L1 custom.
+    pub fn level_id(&self) -> &str {
+        match self.level.as_deref() {
+            Some(level @ ("L4" | "L3" | "L2")) => level,
+            _ => "L1",
+        }
+    }
 }
 
 /// Endpoint paths declared in the manifest.
@@ -141,6 +166,12 @@ endpoints:
 network:
   timeout_ms: 10000
   followRedirects: false
+capability:
+  level: L4
+  accountTypes: [api, usage]
+  quotaUnits: [currency, token]
+  targetWindows: [monthly, custom]
+  priority: P0
 ";
 
     #[test]

@@ -76,7 +76,7 @@ export function QuotaMetric({ quota, now }: { quota: QuotaViewModel; now: number
       <div className="quota__foot">
         {resetText && (
           <span className="quota__reset">
-            <IconClock size={13} />
+            <IconClock size={14} />
             {resetText}
           </span>
         )}

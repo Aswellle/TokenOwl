@@ -11,3 +11,9 @@ endpoints:
 network:
   timeoutMs: 15000
   followRedirects: false
+capability:
+  level: L3
+  accountTypes: [subscription, api]
+  quotaUnits: [quota, token]
+  targetWindows: [provider-defined]
+  priority: P0

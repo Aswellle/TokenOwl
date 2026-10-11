@@ -6,6 +6,7 @@ import type {
   HistorySummaryViewModel,
   NotificationPreferencesViewModel,
   NotificationViewModel,
+  ProviderMatrixRowViewModel,
   UsageWindowsViewModel,
 } from "../types";
 
@@ -62,7 +63,7 @@ function demoAccounts(now: number): AccountViewModel[] {
     {
       id: "demo-relay",
       providerId: "anthropic:demo-relay",
-      providerName: "OpenAI 兼容",
+      providerName: "Anthropic",
       label: "公司中转站",
       status: "attention",
       freshness: "fresh",
@@ -142,7 +143,7 @@ function demoAccounts(now: number): AccountViewModel[] {
     {
       id: "demo-backup",
       providerId: "gemini:demo-backup",
-      providerName: "OpenAI 兼容",
+      providerName: "Google Gemini",
       label: "备用网关",
       status: "error",
       freshness: "expired",
@@ -348,6 +349,44 @@ export function createMockBridge(): DashboardBridge {
       await new Promise((resolve) => setTimeout(resolve, latency()));
       const summary = demoHistory(Date.now());
       return structuredClone({ ...summary, rangeDays: days ?? summary.rangeDays });
+    },
+    async providerMatrix() {
+      await new Promise((resolve) => setTimeout(resolve, latency()));
+      const row = (
+        id: string,
+        name: string,
+        level: string | null,
+        accountTypes: string[],
+        quotaUnits: string[],
+        targetWindows: string[],
+        priority: string,
+        implemented = true,
+      ): ProviderMatrixRowViewModel => ({
+        id,
+        name,
+        level,
+        accountTypes,
+        quotaUnits,
+        targetWindows,
+        priority,
+        implemented,
+      });
+      return [
+        row("openai", "OpenAI", "L4", ["api", "usage"], ["currency", "token"], ["monthly", "custom"], "P0"),
+        row("anthropic", "Anthropic", "L4", ["subscription", "api"], ["token"], ["5h", "7d", "usage"], "P0"),
+        row("openrouter", "OpenRouter", "L4", ["prepaid", "api"], ["currency", "token"], ["balance", "usage"], "P0"),
+        row("deepseek", "DeepSeek", "L3", ["prepaid", "api"], ["currency", "token"], ["balance", "usage"], "P0"),
+        row("qwen", "Qwen / Alibaba", "L3", ["coding", "token", "api"], ["token", "credit"], ["5h", "7d", "balance"], "P0"),
+        row("kimi", "Kimi / Moonshot", "L3", ["subscription", "api"], ["token", "balance"], ["5h", "7d", "balance"], "P0"),
+        row("gemini", "Google Gemini", "L3", ["subscription", "api"], ["quota", "token"], ["provider-defined"], "P0"),
+        row("minimax", "MiniMax", "L2", ["coding", "api"], ["token", "credit"], ["provider-defined"], "P0"),
+        row("new-api", "New API", null, ["gateway"], ["custom"], ["custom"], "P0", false),
+        row("litellm", "LiteLLM", null, ["gateway"], ["custom"], ["custom"], "P0", false),
+        row("zhipu", "Zhipu / GLM", null, ["subscription", "api"], ["quota", "token"], ["provider-defined"], "P1", false),
+        row("groq", "Groq", null, ["api"], ["request", "token", "rate"], ["hourly", "provider-defined"], "P1", false),
+        row("xai", "xAI", null, ["api"], ["currency", "token"], ["billing"], "P1", false),
+        row("iflytek", "iFlytek", null, ["api"], ["quota", "points"], ["provider-defined"], "P2", false),
+      ];
     },
     async historyBreakdown(days?: number) {
       await new Promise((resolve) => setTimeout(resolve, latency()));

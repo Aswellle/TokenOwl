@@ -152,6 +152,17 @@ export interface HistoryDayBreakdownViewModel {
   accounts: HistoryDayAccountViewModel[];
 }
 
+export interface ProviderMatrixRowViewModel {
+  id: string;
+  name: string;
+  level?: string | null;
+  accountTypes: string[];
+  quotaUnits: string[];
+  targetWindows: string[];
+  priority: string;
+  implemented: boolean;
+}
+
 export interface DashboardBridge {
   listAccounts(): Promise<AccountViewModel[]>;
   createAccount(input: GenericOpenAiAccountInput): Promise<AccountViewModel>;
@@ -167,5 +178,6 @@ export interface DashboardBridge {
   ): Promise<void>;
   historySummary(days?: number, accountId?: string): Promise<HistorySummaryViewModel>;
   historyBreakdown(days?: number): Promise<HistoryDayBreakdownViewModel[]>;
+  providerMatrix(): Promise<ProviderMatrixRowViewModel[]>;
   usageWindows(accountId?: string): Promise<UsageWindowsViewModel>;
 }

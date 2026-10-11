@@ -8,6 +8,7 @@ import type {
   HistorySummaryViewModel,
   NotificationPreferencesViewModel,
   NotificationViewModel,
+  ProviderMatrixRowViewModel,
   UpdateInfo,
   UsageWindowsViewModel,
 } from "../types";
@@ -47,6 +48,8 @@ export const tauriBridge: DashboardBridge = {
       "history_breakdown",
       days ? { days } : undefined,
     ),
+  providerMatrix: () =>
+    invoke<ProviderMatrixRowViewModel[]>("provider_matrix"),
   usageWindows: (accountId?: string) =>
     invoke<UsageWindowsViewModel>("usage_windows", accountId ? { accountId } : undefined),
 };

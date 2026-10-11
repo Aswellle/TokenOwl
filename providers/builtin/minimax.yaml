@@ -12,3 +12,9 @@ endpoints:
 network:
   timeoutMs: 15000
   followRedirects: false
+capability:
+  level: L2
+  accountTypes: [coding, api]
+  quotaUnits: [token, credit]
+  targetWindows: [provider-defined]
+  priority: P0

@@ -27,6 +27,7 @@ import { StatusChip } from "./components/StatusChip";
 import { NotificationSection } from "./components/NotificationSection";
 import { HistorySection } from "./components/HistorySection";
 import { ProviderView } from "./components/ProviderView";
+import { ProviderMatrix } from "./components/ProviderMatrix";
 import { QuotaMetric } from "./components/QuotaMetric";
 import { ProviderIcon } from "../../components/ProviderIcon";
 import {
@@ -262,7 +263,7 @@ function AccountRow({
             aria-label={copy.a11y.refreshAccount(account.label)}
             title={copy.actions.refresh}
           >
-            <IconRefresh size={16} className={refreshing ? "is-spinning" : undefined} />
+            <IconRefresh size={18} className={refreshing ? "is-spinning" : undefined} />
           </button>
           <button
             className="btn btn--icon"
@@ -272,7 +273,7 @@ function AccountRow({
             aria-label={copy.a11y.removeAccount(account.label)}
             title={copy.actions.remove}
           >
-            <IconTrash size={16} />
+            <IconTrash size={18} />
           </button>
         </div>
       </div>
@@ -850,7 +851,7 @@ export function App({ bridge = tauriBridge }: AppProps = {}) {
             onClick={() => void shell.showBubble().catch(() => null)}
             title={copy.titlebar.bubbleHint}
           >
-            <IconBubble size={15} />
+            <IconBubble size={17} />
             {copy.titlebar.bubble}
           </button>
         </div>
@@ -869,7 +870,7 @@ export function App({ bridge = tauriBridge }: AppProps = {}) {
                 title={`${account.label} · ${copy.health[account.status] ?? account.status}`}
                 onClick={() => openProvider(account.id)}
               >
-                <ProviderIcon providerId={account.providerId} size={25} />
+                <ProviderIcon providerId={account.providerId} size={28} />
                 <span className={`rail__dot rail__dot--${account.status}`} aria-hidden="true" />
               </button>
             ))}
@@ -950,7 +951,7 @@ export function App({ bridge = tauriBridge }: AppProps = {}) {
                 <section className="stats" aria-label={copy.a11y.summaryRegion}>
                   <div className="stat">
                     <span className="stat__icon stat__icon--pressure">
-                      <IconGauge size={14} />
+                      <IconGauge size={15} />
                     </span>
                     <span className="stat__label">{copy.summary.pressure}</span>
                     <span className="stat__main">
@@ -972,7 +973,7 @@ export function App({ bridge = tauriBridge }: AppProps = {}) {
                   </div>
                   <div className="stat">
                     <span className="stat__icon">
-                      <IconCircleUser size={14} />
+                      <IconCircleUser size={15} />
                     </span>
                     <span className="stat__label">{copy.summary.accounts}</span>
                     <strong className="stat__value num">
@@ -984,7 +985,7 @@ export function App({ bridge = tauriBridge }: AppProps = {}) {
                   </div>
                   <div className="stat">
                     <span className="stat__icon stat__icon--ok">
-                      <IconCheck size={14} />
+                      <IconCheck size={15} />
                     </span>
                     <span className="stat__label">{copy.summary.healthy}</span>
                     <strong className="stat__value num">
@@ -998,7 +999,7 @@ export function App({ bridge = tauriBridge }: AppProps = {}) {
                   </div>
                   <div className="stat">
                     <span className="stat__icon stat__icon--clock">
-                      <IconClock size={14} />
+                      <IconClock size={15} />
                     </span>
                     <span className="stat__label">{copy.summary.nextReset}</span>
                     <strong className="stat__value">
@@ -1110,6 +1111,7 @@ export function App({ bridge = tauriBridge }: AppProps = {}) {
                   onCancel={() => goView("overview")}
                   onSubmit={handleCreate}
                 />
+                <ProviderMatrix bridge={bridge} />
                 <div className="settings__about">
                   <button className="btn btn--quiet" type="button" onClick={() => void handleUpdateCheck()} disabled={updateState === "checking"}>
                     <IconRefresh size={14} className={updateState === "checking" ? "is-spinning" : undefined} />
@@ -1151,7 +1153,7 @@ export function App({ bridge = tauriBridge }: AppProps = {}) {
                 transition={{ type: "spring", bounce: 0, duration: 0.32 }}
               />
             )}
-            <item.icon size={17} />
+            <item.icon size={19} />
             <span className="dock__label">{item.label}</span>
           </button>
         ))}

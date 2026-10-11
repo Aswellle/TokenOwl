@@ -413,6 +413,7 @@ pub fn run() {
             commands::history_summary,
             commands::usage_windows,
             commands::history_breakdown,
+            commands::provider_matrix,
             commands::open_project_page,
             #[cfg(desktop)]
             updater_check,

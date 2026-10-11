@@ -102,6 +102,9 @@ export function ProviderView({
           <p className="pview__provider">{account.providerName}</p>
         </div>
         <StatusChip status={account.status} />
+        <span className="cap-chip cap-chip--l1" title={copy.a11y.capabilityChip("L1")}>
+          {copy.matrix.level.L1}
+        </span>
         <button
           className="btn btn--icon"
           type="button"
@@ -110,7 +113,7 @@ export function ProviderView({
           aria-label={copy.a11y.refreshAccount(account.label)}
           title={copy.actions.refresh}
         >
-          <IconRefresh size={16} className={refreshing ? "is-spinning" : undefined} />
+          <IconRefresh size={18} className={refreshing ? "is-spinning" : undefined} />
         </button>
       </div>
 

@@ -14,7 +14,7 @@ const PROVIDER_PREFIXES: Record<string, string> = {
   openai: "openai",
   anthropic: "anthropic",
   claude: "claude",
-  gemini: "gemini",
+  gemini: "google",
   google: "google",
   openrouter: "openrouter",
   deepseek: "deepseek",

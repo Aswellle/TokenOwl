@@ -240,6 +240,21 @@ export const copy = {
     quotaOverview: "当前额度",
   },
 
+  matrix: {
+    title: "供应商能力矩阵",
+    intro:
+      "能力等级按 docs/09 首发规划：L4 完整额度（含重置）· L3 用量/余额 · L2 健康/模型 · L1 自定义接入。规划中的行以实测 fixture 为准，不预先标注等级。",
+    planned: "规划中",
+    units: "额度单位",
+    windows: "目标窗口",
+    level: {
+      L4: "完整额度",
+      L3: "用量/余额",
+      L2: "健康/模型",
+      L1: "自定义接入",
+    } as Record<string, string>,
+  },
+
   notifications: {
     title: "通知",
     empty: "暂无通知，一切正常。",
@@ -291,5 +306,7 @@ export const copy = {
     usageTabs: "切换统计窗口",
     selectProvider: (label: string) => `查看供应商 ${label}`,
     openGithub: "在浏览器打开 GitHub 项目主页",
+    matrixRegion: "供应商能力矩阵",
+    capabilityChip: (level: string) => `能力等级 ${level}`,
   },
 };

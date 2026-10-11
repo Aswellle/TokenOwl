@@ -74,6 +74,7 @@ function makeBridge(overrides: Partial<DashboardBridge> = {}): DashboardBridge {
       rangeDays: 182,
     })),
     historyBreakdown: vi.fn(async () => []),
+    providerMatrix: vi.fn(async () => []),
     usageWindows: vi.fn(async () => ({
       hours2: { tokens: 0, cost: null, currency: null, hasData: false },
       hours24: { tokens: 0, cost: null, currency: null, hasData: false },

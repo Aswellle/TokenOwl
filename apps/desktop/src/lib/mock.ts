@@ -359,10 +359,13 @@ export function createMockBridge(): DashboardBridge {
         baseUrl: string,
         level: string,
         endpoints: ManifestProfileViewModel["endpoints"],
+        customBaseUrl = false,
       ): ManifestProfileViewModel => ({
         id,
         name,
         baseUrl,
+        apiFormat: "openai-compatible",
+        customBaseUrl,
         level,
         accountTypes: ["api"],
         quotaUnits: ["token"],
@@ -391,6 +394,15 @@ export function createMockBridge(): DashboardBridge {
         profile("minimax", "MiniMax", "https://api.minimax.chat/v1", "L2", {
           models: "/models",
         }),
+        profile("groq", "Groq", "https://api.groq.com/openai/v1", "L2", {
+          models: "/models",
+        }),
+        profile("zhipu", "Zhipu / GLM", "https://open.bigmodel.cn/api/paas/v4", "L2", {
+          models: "/models",
+        }),
+        profile("new-api", "New API", "https://your-gateway.example", "L2", {
+          models: "/v1/models",
+        }, true),
       ];
     },
     async providerMatrix() {
@@ -407,6 +419,7 @@ export function createMockBridge(): DashboardBridge {
       ): ProviderMatrixRowViewModel => ({
         id,
         name,
+        apiFormat: "openai-compatible",
         level,
         accountTypes,
         quotaUnits,

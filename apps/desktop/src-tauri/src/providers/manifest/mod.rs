@@ -21,6 +21,14 @@ pub struct ProviderManifest {
     /// `docs/09` capability-matrix metadata; optional so older manifests parse.
     #[serde(default)]
     pub capability: Option<ManifestCapability>,
+    /// Wire protocol of the provider API: `openai-compatible` (default),
+    /// `anthropic`, `google-ai`, … Account creation is gated to protocols the
+    /// adapter actually speaks.
+    #[serde(default)]
+    pub api_format: Option<String>,
+    /// Gateways have no fixed base URL; the user supplies one at setup.
+    #[serde(default)]
+    pub custom_base_url: Option<bool>,
 }
 
 /// `docs/09` capability-matrix metadata for one provider.

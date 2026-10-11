@@ -43,6 +43,11 @@ impl AdapterRegistry {
     }
 
     /// Returns true if no adapters are registered.
+    /// Snapshot of every registered adapter (unordered).
+    pub fn all(&self) -> Vec<Arc<dyn ProviderAdapter>> {
+        self.adapters.values().cloned().collect()
+    }
+
     pub fn is_empty(&self) -> bool {
         self.adapters.is_empty()
     }

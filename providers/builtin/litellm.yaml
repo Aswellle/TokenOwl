@@ -1,0 +1,22 @@
+id: litellm
+version: 1
+name: LiteLLM
+category: official
+region: global
+auth:
+  - api_key
+baseUrl: https://your-gateway.example
+apiKeyHeader: Authorization
+endpoints:
+  models: /v1/models
+apiFormat: openai-compatible
+customBaseUrl: true
+network:
+  timeoutMs: 15000
+  followRedirects: false
+capability:
+  level: L2
+  accountTypes: [gateway]
+  quotaUnits: [custom]
+  targetWindows: [custom]
+  priority: P1

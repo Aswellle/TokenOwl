@@ -1,0 +1,21 @@
+id: doubao
+version: 1
+name: Doubao / Volcengine
+category: official
+region: china
+auth:
+  - api_key
+baseUrl: https://ark.cn-beijing.volces.com/api/v3
+apiKeyHeader: Authorization
+endpoints:
+
+apiFormat: openai-compatible
+network:
+  timeoutMs: 15000
+  followRedirects: false
+capability:
+  level: L2
+  accountTypes: [api, coding]
+  quotaUnits: [request, token]
+  targetWindows: [provider-defined]
+  priority: P1

@@ -1,0 +1,21 @@
+id: 360
+version: 1
+name: 360
+category: official
+region: china
+auth:
+  - api_key
+baseUrl: https://api.360.cn/v1
+apiKeyHeader: Authorization
+endpoints:
+
+apiFormat: openai-compatible
+network:
+  timeoutMs: 15000
+  followRedirects: false
+capability:
+  level: L2
+  accountTypes: [api]
+  quotaUnits: [credit]
+  targetWindows: [provider-defined]
+  priority: P1

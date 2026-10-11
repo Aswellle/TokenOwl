@@ -1,0 +1,22 @@
+id: siliconflow
+version: 1
+name: SiliconFlow
+category: official
+region: china
+auth:
+  - api_key
+baseUrl: https://api.siliconflow.cn/v1
+apiKeyHeader: Authorization
+endpoints:
+  models: /models
+  balance: /v1/user/balance
+apiFormat: openai-compatible
+network:
+  timeoutMs: 15000
+  followRedirects: false
+capability:
+  level: L3
+  accountTypes: [api]
+  quotaUnits: [currency, token]
+  targetWindows: [balance, usage]
+  priority: P1

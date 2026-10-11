@@ -156,6 +156,7 @@ export interface HistoryDayBreakdownViewModel {
 export interface ProviderMatrixRowViewModel {
   id: string;
   name: string;
+  apiFormat: string;
   level?: string | null;
   accountTypes: string[];
   quotaUnits: string[];
@@ -176,6 +177,9 @@ export interface ManifestProfileViewModel {
   id: string;
   name: string;
   baseUrl: string;
+  apiFormat: string;
+  /** Gateways have no fixed base URL — the user supplies one. */
+  customBaseUrl: boolean;
   level: string;
   accountTypes: string[];
   quotaUnits: string[];

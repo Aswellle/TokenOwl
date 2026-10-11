@@ -2541,3 +2541,14 @@ button:disabled {
   flex-wrap: wrap;
   gap: 6px;
 }
+
+/* 密钥输入用文本框 + 圆点遮蔽：浏览器不再视其为密码字段，
+   也就不会弹出密码生成与自动填充提示。 */
+.secret-input {
+  -webkit-text-security: disc;
+}
+
+.picker__btn--planned {
+  opacity: 0.55;
+  cursor: not-allowed;
+}

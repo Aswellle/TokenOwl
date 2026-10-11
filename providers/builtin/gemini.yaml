@@ -11,6 +11,7 @@ endpoints:
 network:
   timeoutMs: 15000
   followRedirects: false
+apiFormat: google-ai
 capability:
   level: L3
   accountTypes: [subscription, api]

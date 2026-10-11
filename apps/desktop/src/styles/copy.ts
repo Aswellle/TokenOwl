@@ -232,6 +232,10 @@ export const copy = {
     customOption: "自定义 / 兼容",
     builtinNote: "接口地址与端点来自内置清单，按能力矩阵自动填充，无需手填。",
     endpointsAvailable: "内置端点",
+    protocolOpenai: "OpenAI 兼容协议",
+    protocolOther: "其他协议（适配规划中）",
+    gatewayBaseUrl: "网关地址",
+    gatewayBaseUrlHelp: "填入你部署的网关地址，例如 https://your-gateway.example。",
     customNote: "自定义接入按 L1 能力处理：只有对方上报的字段才会显示。",
   },
 
@@ -254,6 +258,7 @@ export const copy = {
 
   matrix: {
     title: "供应商能力矩阵",
+    protocol: "协议",
     intro:
       "能力等级按 docs/09 首发规划：L4 完整额度（含重置）· L3 用量/余额 · L2 健康/模型 · L1 自定义接入。规划中的行以实测 fixture 为准，不预先标注等级。",
     planned: "规划中",

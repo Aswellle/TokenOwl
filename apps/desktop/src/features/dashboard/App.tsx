@@ -406,7 +406,7 @@ function SetupForm({
     await onSubmit({
       providerId: profile ? profile.id : "generic.openai_compatible",
       label: label.trim(),
-      baseUrl: effectiveBaseUrl.trim(),
+      baseUrl: (profile?.customBaseUrl ? baseUrl : effectiveBaseUrl).trim(),
       quotaEndpoint: profile ? undefined : quotaEndpoint.trim() || undefined,
       usageEndpoint: profile ? undefined : usageEndpoint.trim() || undefined,
       balanceEndpoint: profile ? undefined : balanceEndpoint.trim() || undefined,
@@ -439,18 +439,20 @@ function SetupForm({
         </p>
       )}
       <div className="picker" role="group" aria-label={copy.a11y.profilePicker}>
-        {profiles.map((item) => (
-          <button
-            key={item.id}
-            type="button"
-            className={`picker__btn${profileId === item.id ? " is-active" : ""}`}
-            aria-pressed={profileId === item.id}
-            onClick={() => setProfileId(item.id)}
-          >
-            <ProviderIcon providerId={item.id} size={18} />
-            <span>{item.name}</span>
-          </button>
-        ))}
+        {profiles
+          .filter((item) => item.apiFormat === "openai-compatible")
+          .map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              className={`picker__btn${profileId === item.id ? " is-active" : ""}`}
+              aria-pressed={profileId === item.id}
+              onClick={() => setProfileId(item.id)}
+            >
+              <ProviderIcon providerId={item.id} size={18} />
+              <span>{item.name}</span>
+            </button>
+          ))}
         <button
           type="button"
           className={`picker__btn${isCustom ? " is-active" : ""}`}
@@ -460,6 +462,20 @@ function SetupForm({
           <ProviderIcon providerId="generic.openai_compatible" size={18} />
           <span>{copy.form.customOption}</span>
         </button>
+        {profiles
+          .filter((item) => item.apiFormat !== "openai-compatible")
+          .map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              className="picker__btn picker__btn--planned"
+              disabled
+              title={copy.form.protocolOther}
+            >
+              <ProviderIcon providerId={item.id} size={18} />
+              <span>{item.name}</span>
+            </button>
+          ))}
       </div>
       <div className="form__grid">
         <div className="field field--wide">
@@ -486,14 +502,18 @@ function SetupForm({
             type="url"
             value={effectiveBaseUrl}
             onChange={(event) => setBaseUrl(event.currentTarget.value)}
-            readOnly={!isCustom}
-            placeholder={copy.form.baseUrlPlaceholder}
+            readOnly={!isCustom && !profile?.customBaseUrl}
+            placeholder={profile?.customBaseUrl ? copy.form.gatewayBaseUrl : copy.form.baseUrlPlaceholder}
             autoComplete="off"
             spellCheck={false}
             required
           />
           <span className="field__help">
-            {isCustom ? copy.form.baseUrlHelp : copy.form.builtinNote}
+            {isCustom
+              ? copy.form.baseUrlHelp
+              : profile?.customBaseUrl
+                ? copy.form.gatewayBaseUrlHelp
+                : copy.form.builtinNote}
           </span>
         </div>
         {isCustom && (
@@ -572,13 +592,14 @@ function SetupForm({
             {copy.form.apiKey}
           </label>
           <input
-            className="field__input"
+            className="field__input secret-input"
             id="api-key"
             ref={apiKeyRef}
-            type="password"
-            autoComplete="new-password"
+            type="text"
+            autoComplete="off"
             aria-describedby="api-key-help"
             placeholder={copy.form.apiKeyPlaceholder}
+            spellCheck={false}
             required
           />
           <span className="field__help" id="api-key-help">

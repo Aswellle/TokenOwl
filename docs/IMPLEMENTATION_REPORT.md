@@ -614,3 +614,27 @@ better-typography / better-colors / better-layout / better-ui / better-accessibi
 - 验证：`cargo test` 166（159 单元 + 7 fixture）、fmt/clippy 全绿；vitest 34、typecheck、
   build 全绿；浏览器审计（暗色）：选择器六品牌渲染、DeepSeek 选中后 baseUrl 只读预填 +
   端点输入隐藏 + 内置端点徽章、自定义模式保持原有三端点表单。
+
+## Round 12 — 供应商生态扩容（21 个内置）+ 协议分类 + 密钥输入加固
+
+日期：2026-10-12 | 基线：Round 11 工作区 | 平台：Windows 11 x64
+
+### 需求完成矩阵
+
+| 要求 | 结果 |
+|---|---|
+| 新增更多供应商配置 | ✅ 内置清单 8→21：新增 Groq/Mistral/xAI/SiliconFlow/StepFun/Zhipu/Doubao/Baichuan/01.AI/360（均为 OpenAI 兼容协议，L2；SiliconFlow L3 含余额端点）+ 网关 New API/One API/LiteLLM（`customBaseUrl: true`，baseUrl 由用户填入）。目录仍 28 行，规划行只剩 7 个非 OpenAI 协议/未定协议供应商 |
+| API 协议顶层分类 | ✅ manifest 新增 `apiFormat`（默认 openai-compatible）；Anthropic 标 `anthropic`、Gemini 标 `google-ai`；选择器分组显示——OpenAI 兼容协议可选，其他协议按钮禁用并提示"适配规划中"（避免用 OpenAI 解析去打原生协议）；矩阵行携带协议字段 |
+| Kimi 图标修复 | ✅ 根因：lobe 的 provider 枚举无 `kimi` id（仅 `moonshot`/`kimicodingplan`），generic ProviderIcon 解析不到即渲染空。`kimi` 前缀改映射 `moonshot`，Moonshot 标志正常显示 |
+| API 密钥框防自动填充 | ✅ 密钥输入改为 `type="text"` + `-webkit-text-security: disc` 圆点遮蔽 + `autocomplete="off"`——浏览器不再视为密码字段，密码生成/自动填充提示不再出现（Tauri 的 Chromium/WebKit 均支持该属性） |
+
+### 代码变更与验证
+
+- manifest schema（apiFormat/customBaseUrl）、13 个新 YAML、anthropic/gemini 协议标注、
+  `providers/builtin/mod.rs`（BUILTIN_MANIFESTS 21 项、注册表改 manifest 驱动并移除硬编码
+  BUILTIN_PROVIDERS/builtin_adapter、registry 新增 all()、profiles/matrix 携带协议与网关标记、
+  计划表剪枝至 7 行）、前端 ProviderIcon 映射扩展与 kimi 修复、SetupForm 协议分组选择器 +
+  网关可编辑地址 + secret-input 加固、types/bridge/mock/copy、registry all()。
+- 验证：`cargo test` 166、fmt/clippy 全绿（含"registry 含 21 适配器"新断言）；vitest 34、
+  typecheck、build 全绿；浏览器审计（暗色）：选择器九个品牌按钮 + Kimi/Moonshot 图标正常、
+  New API 网关 baseUrl 占位"网关地址"且可编辑、内置端点徽章仅"模型"、密钥框 type=text。

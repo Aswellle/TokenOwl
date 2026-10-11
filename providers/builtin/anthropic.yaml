@@ -13,6 +13,7 @@ endpoints:
 network:
   timeoutMs: 15000
   followRedirects: false
+apiFormat: anthropic
 capability:
   level: L4
   accountTypes: [subscription, api]

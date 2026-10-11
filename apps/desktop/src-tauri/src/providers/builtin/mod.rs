@@ -1,24 +1,9 @@
 // Built-in provider registration
 
 pub mod openai;
-use crate::domain::provider::{
-    AuthMethod, OpenAiCompatibleConfig, ProviderCapabilities, ProviderDescriptor, ProviderRegion,
-};
+use crate::domain::provider::ProviderDescriptor;
 use crate::providers::builtin::openai::OpenAiCompatibleAdapter;
 use crate::providers::registry::AdapterRegistry;
-use std::sync::Arc;
-
-/// All built-in provider descriptors.
-pub const BUILTIN_PROVIDERS: &[(&str, &str)] = &[
-    ("openai", "OpenAI"),
-    ("anthropic", "Anthropic"),
-    ("gemini", "Google Gemini"),
-    ("openrouter", "OpenRouter"),
-    ("deepseek", "DeepSeek"),
-    ("qwen", "Qwen / Alibaba"),
-    ("kimi", "Kimi / Moonshot"),
-    ("minimax", "MiniMax"),
-];
 
 /// Built-in manifests embedded from the repo-level `providers/builtin` directory.
 pub const BUILTIN_MANIFESTS: &[(&str, &str)] = &[
@@ -54,6 +39,58 @@ pub const BUILTIN_MANIFESTS: &[(&str, &str)] = &[
         "minimax",
         include_str!("../../../../../../providers/builtin/minimax.yaml"),
     ),
+    (
+        "zhipu",
+        include_str!("../../../../../../providers/builtin/zhipu.yaml"),
+    ),
+    (
+        "doubao",
+        include_str!("../../../../../../providers/builtin/doubao.yaml"),
+    ),
+    (
+        "mistral",
+        include_str!("../../../../../../providers/builtin/mistral.yaml"),
+    ),
+    (
+        "groq",
+        include_str!("../../../../../../providers/builtin/groq.yaml"),
+    ),
+    (
+        "xai",
+        include_str!("../../../../../../providers/builtin/xai.yaml"),
+    ),
+    (
+        "siliconflow",
+        include_str!("../../../../../../providers/builtin/siliconflow.yaml"),
+    ),
+    (
+        "stepfun",
+        include_str!("../../../../../../providers/builtin/stepfun.yaml"),
+    ),
+    (
+        "baichuan",
+        include_str!("../../../../../../providers/builtin/baichuan.yaml"),
+    ),
+    (
+        "01ai",
+        include_str!("../../../../../../providers/builtin/01ai.yaml"),
+    ),
+    (
+        "360",
+        include_str!("../../../../../../providers/builtin/360.yaml"),
+    ),
+    (
+        "new-api",
+        include_str!("../../../../../../providers/builtin/new-api.yaml"),
+    ),
+    (
+        "one-api",
+        include_str!("../../../../../../providers/builtin/one-api.yaml"),
+    ),
+    (
+        "litellm",
+        include_str!("../../../../../../providers/builtin/litellm.yaml"),
+    ),
 ];
 
 /// One row of the `docs/09` provider capability matrix catalog.
@@ -62,6 +99,7 @@ pub const BUILTIN_MANIFESTS: &[(&str, &str)] = &[
 pub struct ProviderMatrixRow {
     pub id: String,
     pub name: String,
+    pub api_format: String,
     /// Capability level of an implemented provider; `None` means planned.
     pub level: Option<String>,
     pub account_types: Vec<String>,
@@ -85,30 +123,6 @@ type PlannedRow = (
 
 const PLANNED_PROVIDERS: &[PlannedRow] = &[
     (
-        "new-api",
-        "New API",
-        "P0",
-        &["gateway"],
-        &["custom"],
-        &["custom"],
-    ),
-    (
-        "one-api",
-        "One API",
-        "P0",
-        &["gateway"],
-        &["custom"],
-        &["custom"],
-    ),
-    (
-        "litellm",
-        "LiteLLM",
-        "P0",
-        &["gateway"],
-        &["custom"],
-        &["custom"],
-    ),
-    (
         "custom-openai",
         "Custom OpenAI",
         "P0",
@@ -116,63 +130,7 @@ const PLANNED_PROVIDERS: &[PlannedRow] = &[
         &["custom"],
         &["custom"],
     ),
-    (
-        "zhipu",
-        "Zhipu / GLM",
-        "P1",
-        &["subscription", "api"],
-        &["quota", "token"],
-        &["provider-defined"],
-    ),
-    (
-        "doubao",
-        "Doubao / Volcengine",
-        "P1",
-        &["api", "coding"],
-        &["request", "token"],
-        &["provider-defined"],
-    ),
-    (
-        "mistral",
-        "Mistral",
-        "P1",
-        &["api", "subscription"],
-        &["credit", "currency"],
-        &["monthly", "balance"],
-    ),
-    (
-        "groq",
-        "Groq",
-        "P1",
-        &["api"],
-        &["request", "token", "rate"],
-        &["hourly", "provider-defined"],
-    ),
-    (
-        "xai",
-        "xAI",
-        "P1",
-        &["api"],
-        &["currency", "token"],
-        &["billing"],
-    ),
     ("cohere", "Cohere", "P1", &["api"], &["usage"], &["billing"]),
-    (
-        "siliconflow",
-        "SiliconFlow",
-        "P1",
-        &["api"],
-        &["currency", "token"],
-        &["balance", "usage"],
-    ),
-    (
-        "stepfun",
-        "StepFun",
-        "P1",
-        &["api", "subscription"],
-        &["credit", "token"],
-        &["provider-defined"],
-    ),
     (
         "baidu-qianfan",
         "Baidu Qianfan",
@@ -198,35 +156,11 @@ const PLANNED_PROVIDERS: &[PlannedRow] = &[
         &["provider-defined"],
     ),
     (
-        "baichuan",
-        "Baichuan",
-        "P2",
-        &["api"],
-        &["token", "balance"],
-        &["billing"],
-    ),
-    (
-        "01ai",
-        "01.AI",
-        "P2",
-        &["api"],
-        &["token", "balance"],
-        &["billing"],
-    ),
-    (
         "xiaomi-mimo",
         "Xiaomi MiMo",
         "P2",
         &["subscription", "api"],
         &["usage", "credits"],
-        &["provider-defined"],
-    ),
-    (
-        "360",
-        "360",
-        "P2",
-        &["api"],
-        &["credit"],
         &["provider-defined"],
     ),
     (
@@ -260,6 +194,10 @@ pub fn provider_matrix() -> Vec<ProviderMatrixRow> {
             Some(ProviderMatrixRow {
                 id: manifest.id.clone(),
                 name: manifest.name.clone(),
+                api_format: manifest
+                    .api_format
+                    .clone()
+                    .unwrap_or_else(|| "openai-compatible".to_owned()),
                 level: Some(capability.level_id().to_owned()),
                 account_types: split_list(&capability.account_types),
                 quota_units: split_list(&capability.quota_units),
@@ -286,6 +224,7 @@ pub fn provider_matrix() -> Vec<ProviderMatrixRow> {
         rows.push(ProviderMatrixRow {
             id: (*id).to_owned(),
             name: (*name).to_owned(),
+            api_format: "openai-compatible".to_owned(),
             level: None,
             account_types: types.iter().map(|value| (*value).to_owned()).collect(),
             quota_units: units.iter().map(|value| (*value).to_owned()).collect(),
@@ -305,6 +244,8 @@ pub struct ManifestProfile {
     pub id: String,
     pub name: String,
     pub base_url: String,
+    pub api_format: String,
+    pub custom_base_url: bool,
     pub level: String,
     pub account_types: Vec<String>,
     pub quota_units: Vec<String>,
@@ -328,6 +269,11 @@ pub fn manifest_profiles() -> Vec<ManifestProfile> {
                 id: manifest.id,
                 name: manifest.name,
                 base_url: manifest.base_url,
+                api_format: manifest
+                    .api_format
+                    .clone()
+                    .unwrap_or_else(|| "openai-compatible".to_owned()),
+                custom_base_url: manifest.custom_base_url.unwrap_or(false),
                 level: capability.level_id().to_owned(),
                 account_types: capability.account_types,
                 quota_units: capability.quota_units,
@@ -338,112 +284,45 @@ pub fn manifest_profiles() -> Vec<ManifestProfile> {
         .collect()
 }
 
-/// Creates a registry with all built-in provider adapters.
-pub fn builtin_registry() -> AdapterRegistry {
-    let mut registry = AdapterRegistry::new();
-
-    for (id, name) in BUILTIN_PROVIDERS {
-        let adapter = builtin_adapter(id, name);
-        registry.register(adapter);
-    }
-
-    registry
-}
-
-/// Creates a built-in adapter by provider ID.
+/// Creates a registry with one adapter per embedded manifest. Adapter
+/// configs (base URL, endpoints, capabilities) come from the manifests, so
+/// adding a provider YAML is all it takes to extend the registry.
 ///
 /// # Panics
-/// Panics if the adapter limits are invalid (zero timeout or zero max response bytes).
-pub fn builtin_adapter(id: &str, name: &str) -> Arc<OpenAiCompatibleAdapter> {
-    let (base_url, capabilities) = match id {
-        "openai" => (
-            "https://api.openai.com/v1",
-            ProviderCapabilities {
-                api_key: true,
-                open_ai_compatible: true,
-                quota: true,
-                usage: true,
-                model_catalog: true,
-                ..ProviderCapabilities::none()
-            },
-        ),
-        "anthropic" => (
-            "https://api.anthropic.com/v1",
-            ProviderCapabilities {
-                api_key: true,
-                model_catalog: true,
-                ..ProviderCapabilities::none()
-            },
-        ),
-        "gemini" => (
-            "https://generativelanguage.googleapis.com/v1beta",
-            ProviderCapabilities {
-                api_key: true,
-                model_catalog: true,
-                ..ProviderCapabilities::none()
-            },
-        ),
-        _ => (
-            "https://api.openai.com/v1",
-            ProviderCapabilities {
-                api_key: true,
-                open_ai_compatible: true,
-                ..ProviderCapabilities::none()
-            },
-        ),
-    };
-
-    let config = OpenAiCompatibleConfig {
-        id: id.to_owned(),
-        display_name: name.to_owned(),
-        region: ProviderRegion::Global,
-        base_url: base_url.to_owned(),
-        credential_ref: None,
-        auth_method: AuthMethod::ApiKey,
-        api_key_header: "Authorization".to_owned(),
-        models_endpoint: Some("/models".to_owned()),
-        balance_endpoint: if id == "deepseek" {
-            Some("/user/balance".to_owned())
-        } else {
-            None
-        },
-        usage_endpoint: if id == "openai" || id == "qwen" || id == "kimi" {
-            Some("/usage".to_owned())
-        } else {
-            None
-        },
-        quota_endpoint: if id == "openai" {
-            Some("/quota".to_owned())
-        } else {
-            None
-        },
-        reset_endpoint: None,
-        docs_url: None,
-        default_refresh: std::time::Duration::from_secs(300),
-        capabilities,
-    };
-
-    Arc::new(OpenAiCompatibleAdapter::with_default_limits(config).expect("valid adapter"))
+///
+/// Panics when an embedded manifest fails to parse or validate — both are
+/// build-time bugs also covered by tests.
+pub fn builtin_registry() -> AdapterRegistry {
+    use crate::providers::manifest::ProviderManifest;
+    let mut registry = AdapterRegistry::new();
+    for (_id, yaml) in BUILTIN_MANIFESTS {
+        let manifest = ProviderManifest::from_yaml(yaml).expect("embedded manifest parses");
+        let config = manifest.to_config();
+        let adapter = OpenAiCompatibleAdapter::with_default_limits(config)
+            .expect("embedded manifest yields a valid adapter config");
+        registry.register(std::sync::Arc::new(adapter));
+    }
+    registry
 }
 
 /// Returns all built-in provider descriptors.
 pub fn builtin_descriptors() -> Vec<ProviderDescriptor> {
-    use crate::domain::provider::ProviderAdapter;
-    BUILTIN_PROVIDERS
+    builtin_registry()
+        .all()
         .iter()
-        .map(|(id, name)| (*builtin_adapter(id, name)).descriptor().clone())
+        .map(|adapter| adapter.descriptor().clone())
         .collect()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::provider::ProviderAdapter;
 
     #[test]
     fn builtin_registry_contains_all_providers() {
         let registry = builtin_registry();
-        assert_eq!(registry.len(), BUILTIN_PROVIDERS.len());
+        assert_eq!(registry.len(), BUILTIN_MANIFESTS.len());
+        assert_eq!(registry.len(), 21, "eight P0 + thirteen P1 manifests");
     }
 
     #[test]
@@ -459,8 +338,8 @@ mod tests {
         let implemented: Vec<_> = rows.iter().filter(|row| row.implemented).collect();
         assert_eq!(
             implemented.len(),
-            8,
-            "the eight P0 manifests are implemented"
+            21,
+            "eight P0 + thirteen P1 manifests are implemented"
         );
         let level_of = |id: &str| {
             rows.iter()
@@ -476,7 +355,7 @@ mod tests {
         assert_eq!(level_of("minimax"), "L2");
         let planned = rows
             .iter()
-            .find(|row| row.id == "litellm")
+            .find(|row| row.id == "cohere")
             .expect("planned row");
         assert!(!planned.implemented);
         assert!(
@@ -504,14 +383,23 @@ mod tests {
     #[test]
     fn builtin_descriptors_match_registry() {
         let descriptors = builtin_descriptors();
-        assert_eq!(descriptors.len(), BUILTIN_PROVIDERS.len());
-        assert_eq!(descriptors[0].id, "openai");
-        assert_eq!(descriptors[1].id, "anthropic");
+        assert_eq!(descriptors.len(), BUILTIN_MANIFESTS.len());
+        assert!(
+            descriptors
+                .iter()
+                .any(|descriptor| descriptor.id == "openai")
+        );
+        assert!(
+            descriptors
+                .iter()
+                .any(|descriptor| descriptor.id == "deepseek")
+        );
     }
 
     #[test]
     fn openai_adapter_has_quota_capability() {
-        let adapter = builtin_adapter("openai", "OpenAI");
+        let registry = builtin_registry();
+        let adapter = registry.get("openai").expect("openai adapter");
         let descriptor = adapter.descriptor();
         assert!(descriptor.capabilities.api_key);
         assert!(descriptor.capabilities.open_ai_compatible);

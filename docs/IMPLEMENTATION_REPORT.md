@@ -656,3 +656,42 @@ better-typography / better-colors / better-layout / better-ui / better-accessibi
 - 验证：typecheck、vitest 35 全绿；浏览器审计（暗色）：设置页选择器两分组渲染，
   19 个可选供应商均带真实品牌图标（Kimi/Moonshot、Gemini Google G、Grok/xAI 正常），
   规划分组灰显禁用。
+
+## Round 13 — 阶段 A 演练：draft release 全流程 + Windows 实机验证
+
+日期：2026-10-12 | 基线：Round 12 修复后工作区 | 平台：Windows 11 x64
+
+### A1 — Draft release 全流程演练（docs/11）
+
+- 工作流姿势：`release.yml` 改为 `releaseDraft: true`（draft-first：tag 构建落成 GitHub
+  草稿，发布后才激活 Stable 更新器端点，符合 docs/11 §18）；版本 1.0.0 → 1.0.1
+  （package.json + Cargo.toml 同步）。
+- **演练立即暴露并修复一个潜伏 CI bug**：tauri-action 从仓库根跑 `pnpm tauri build`，
+  而 pnpm workspace 无根 manifest → `NO_IMPORTER_MANIFEST_FOUND`，三平台全挂。修复：
+  `projectPath: apps/desktop` + 移除无效输入 `verifyDepsBeforeRun`（cd5b3bf）。
+- 重推 tag 后 CI 结果：**windows-x86_64 success；darwin-aarch64 success（macOS 构建首次
+  CI 验证通过）；darwin-x86_64 在跑**。草稿 release v1.0.1 资产五件齐全：latest.json、
+  NSIS setup.exe + .sig、MSI + .sig（minisign 签名内嵌 `file:… version:1.0.1` 身份）。
+- **本地更新器端到端演练（无需私钥）**：演练钩子 `TOKENOWL_UPDATER_DRILL=1`（00251df，
+  启动 5s 后走真实 updater 链路）+ `tauri.drill.json`（版本伪装 1.0.0、端点指向本地静态
+  服务器、关闭 updater 产物生成）。用 CI 签名资产 + 改写 URL 的 latest.json 喂给 127.0.0.1:8801：
+  **检查 → 下载 4.4MB → minisign 验签 → NSIS 静默安装 → 重启进安装版**全链路通过，
+  文件版本与注册表卸载项均确认 1.0.1。演练后已卸载、清注册表、停服务、删临时文件。
+- 待用户决策：草稿 release 验证无误后手动 publish（发布动作激活 updater 端点，正式生效）。
+
+### A2 — Windows 实机验证（自动可测部分）
+
+- 通知横幅：演练钩子 `TOKENOWL_TEST_BANNER=1` 发送合成通知，走生产链路
+  （evaluate → enqueue_new → dedup → 持久化 → OsNotificationSink.show）——通知已落库
+  （`ntf-drill-*`，CRITICAL），OS sink 调用完成；**横幅是否在屏上渲染需人眼确认**（取决于
+  专注助手/DND 状态）。
+- 气泡：`bubble_position` 持久化正常（settings 表，坐标随窗口写回）；窗口枚举确认主窗
+  与气泡窗口创建正常。**双环渲染、拖拽贴边吸附、重启恢复**为交互行为，需用户按清单
+  验证（computer-use 本会话不可用）。
+- 排查结论：气泡窗口 56×56 初始隐藏（`visible: false`），由 show_bubble 定位显示；
+  之前窗口枚举里的 15×15 无标题窗口不是气泡。
+
+### 新增开发工具（常驻）
+
+- `TOKENOWL_UPDATER_DRILL=1` / `TOKENOWL_TEST_BANNER=1` 环境变量演练钩子（app/mod.rs，
+  未设置时零开销）；`tauri.drill.json` 演练配置（--config 合并使用）。

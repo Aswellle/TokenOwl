@@ -337,6 +337,47 @@ pub fn notification_preferences_set(
         .map_err(|error| error.to_string())
 }
 
+/// QA drill: sends one synthetic notification through the production enqueue
+/// and OS sink chain. Only reached via the `TOKENOWL_TEST_BANNER=1` startup
+/// hook; the timestamped dedup key keeps repeat drills outside the cooldown.
+pub(crate) fn run_test_banner_drill(state: &AppRuntime, app: &tauri::AppHandle) {
+    let prefs = match load_notification_preferences(state) {
+        Ok(prefs) => prefs,
+        Err(error) => {
+            tracing::error!(target: "drill", error = %error, "banner drill: preferences unavailable");
+            return;
+        }
+    };
+    let repository = match state.repository() {
+        Ok(repository) => repository,
+        Err(error) => {
+            tracing::error!(target: "drill", error = %error, "banner drill: repository unavailable");
+            return;
+        }
+    };
+    let now = unix_seconds();
+    let draft = notifications::Notification {
+        id: format!("ntf-drill-{now}"),
+        kind: notifications::NotificationKind::LowQuota,
+        severity: notifications::NotificationSeverity::Critical,
+        title: "TokenOwl 演练通知".to_owned(),
+        message: "本条通知通过真实派发链路发送，用于验证系统横幅。".to_owned(),
+        provider_id: None,
+        account_id: None,
+        dedup_key: format!("drill-{now}"),
+        created_at: now,
+    };
+    let sink = notifications::OsNotificationSink { app: app.clone() };
+    match notifications::enqueue_new(&repository, &sink, &prefs, vec![draft], now) {
+        Ok(delivered) => {
+            tracing::info!(target: "drill", delivered = delivered.len(), "banner drill dispatched");
+        }
+        Err(error) => {
+            tracing::error!(target: "drill", error = %error, "banner drill: enqueue failed");
+        }
+    }
+}
+
 /// Loads persisted preferences; a missing or malformed entry means defaults.
 fn load_notification_preferences(
     state: &AppRuntime,

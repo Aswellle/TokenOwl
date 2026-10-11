@@ -295,6 +295,60 @@ fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
     Ok(())
 }
 
+/// Opt-in QA drills, selected by environment variables so ordinary runs are
+/// untouched. `TOKENOWL_UPDATER_DRILL=1` exercises the real updater flow
+/// (endpoint check → download → signature verify → install → restart) a few
+/// seconds after startup; `TOKENOWL_TEST_BANNER=1` sends one synthetic
+/// notification through the production dispatch chain to verify the OS
+/// banner appears on screen.
+fn start_drill_hooks(app: &AppHandle) {
+    if std::env::var("TOKENOWL_UPDATER_DRILL").is_ok_and(|value| value == "1") {
+        let handle = app.clone();
+        tauri::async_runtime::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+            updater_drill(handle).await;
+        });
+    }
+    if std::env::var("TOKENOWL_TEST_BANNER").is_ok_and(|value| value == "1") {
+        let handle = app.clone();
+        tauri::async_runtime::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_secs(6)).await;
+            let state = handle.state::<Arc<commands::AppRuntime>>();
+            commands::run_test_banner_drill(state.inner(), &handle);
+        });
+    }
+}
+
+#[cfg(desktop)]
+async fn updater_drill(app: AppHandle) {
+    use tauri_plugin_updater::UpdaterExt;
+    tracing::info!(target: "drill", "updater drill: checking endpoint");
+    let update = match app.updater() {
+        Ok(updater) => match updater.check().await {
+            Ok(Some(update)) => update,
+            Ok(None) => {
+                tracing::info!(target: "drill", "updater drill: endpoint reported no update");
+                return;
+            }
+            Err(error) => {
+                tracing::error!(target: "drill", error = %error, "updater drill: check failed");
+                return;
+            }
+        },
+        Err(error) => {
+            tracing::error!(target: "drill", error = %error, "updater drill: updater unavailable");
+            return;
+        }
+    };
+    tracing::info!(target: "drill", version = %update.version, "updater drill: downloading and installing");
+    if let Err(error) = update.download_and_install(|_, _| {}, || {}).await {
+        tracing::error!(target: "drill", error = %error, "updater drill: install failed");
+        return;
+    }
+    tracing::info!(target: "drill", "updater drill: signature verified and installed; restarting");
+    app.restart();
+}
+
 fn start_background_tasks(app: &AppHandle) {
     let handle = app.clone();
     let (shutdown_tx, mut shutdown_rx) = tokio::sync::watch::channel(false);
@@ -392,6 +446,7 @@ pub fn run() {
             app.manage(Arc::new(Mutex::new(RuntimeState::default())));
             setup_tray(app)?;
             start_background_tasks(app.handle());
+            start_drill_hooks(app.handle());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

@@ -86,7 +86,13 @@ export function isTauri(): boolean {
  * compact BubbleView; everything else gets the full dashboard.
  */
 export function windowMode(): "main" | "bubble" | "browser" {
-  if (!isTauri()) return "browser";
+  // Browser preview override: `?window=bubble` renders the collapsed bubble
+  // inside the page so the design stays reviewable outside the desktop shell.
+  if (!isTauri()) {
+    return new URLSearchParams(window.location.search).get("window") === "bubble"
+      ? "bubble"
+      : "browser";
+  }
   try {
     return getCurrentWindow().label === "bubble" ? "bubble" : "main";
   } catch {

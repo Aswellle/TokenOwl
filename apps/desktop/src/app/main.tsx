@@ -59,25 +59,37 @@ function PreviewShell() {
   }, [view]);
 
   return (
-    <AnimatePresence mode="wait">
+    <AnimatePresence>
       {view === "dashboard" ? (
         <motion.div
           key="dashboard"
-          style={{ height: "100%" }}
-          initial={{ clipPath: "circle(26px at 50% 50%)", opacity: 0.3 }}
-          animate={{ clipPath: "circle(141% at 50% 50%)", opacity: 1 }}
-          exit={{ clipPath: "circle(26px at 50% 50%)", opacity: 0.3 }}
-          transition={reduce ? { duration: 0 } : { duration: 0.38, ease: PATH_EASE }}
+          style={{
+            position: "fixed",
+            inset: 0,
+            overflowY: "auto",
+            padding: 26,
+            zIndex: 2,
+          }}
+          initial={{ clipPath: "circle(0% at 50% 50%)", opacity: 0.6 }}
+          animate={{ clipPath: "circle(120% at 50% 50%)", opacity: 1 }}
+          exit={{ clipPath: "circle(0% at 50% 50%)", opacity: 0.6 }}
+          transition={reduce ? { duration: 0 } : { duration: 0.42, ease: PATH_EASE }}
         >
           <App bridge={bridge} />
         </motion.div>
       ) : (
         <motion.div
           key="bubble"
-          style={{ height: "100%" }}
-          initial={{ scale: 0.5, opacity: 0 }}
+          style={{
+            position: "fixed",
+            inset: 0,
+            display: "grid",
+            placeItems: "center",
+            zIndex: 1,
+          }}
+          initial={{ scale: 0.4, opacity: 0 }}
           animate={{ scale: 1, opacity: 1 }}
-          exit={{ scale: 0.5, opacity: 0 }}
+          exit={{ scale: 0.4, opacity: 0 }}
           transition={reduce ? { duration: 0 } : { type: "spring", stiffness: 210, damping: 24 }}
         >
           <BubbleView bridge={bridge} />

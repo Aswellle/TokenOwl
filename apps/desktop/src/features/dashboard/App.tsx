@@ -45,6 +45,7 @@ import type {
   AccountViewModel,
   DashboardBridge,
   GenericOpenAiAccountInput,
+  ManifestProfileViewModel,
   UpdateInfo,
 } from "../../types";
 
@@ -355,16 +356,20 @@ function AccountRow({
 }
 
 function SetupForm({
+  bridge,
   submitting,
   error,
   onCancel,
   onSubmit,
 }: {
+  bridge: DashboardBridge;
   submitting: boolean;
   error: string | null;
   onCancel: () => void;
   onSubmit: (input: Omit<GenericOpenAiAccountInput, "apiKey"> & { apiKeyInput: HTMLInputElement }) => Promise<void>;
 }) {
+  const [profiles, setProfiles] = useState<ManifestProfileViewModel[]>([]);
+  const [profileId, setProfileId] = useState("custom");
   const [label, setLabel] = useState("");
   const [baseUrl, setBaseUrl] = useState("https://api.openai.com/v1");
   const [quotaEndpoint, setQuotaEndpoint] = useState("");
@@ -372,17 +377,39 @@ function SetupForm({
   const [balanceEndpoint, setBalanceEndpoint] = useState("");
   const apiKeyRef = useRef<HTMLInputElement>(null);
 
+  useEffect(() => {
+    let active = true;
+    bridge
+      .manifestProfiles()
+      .then((list) => {
+        if (active) setProfiles(list);
+      })
+      .catch(() => null);
+    return () => {
+      active = false;
+    };
+  }, [bridge]);
+
+  const profile = profiles.find((item) => item.id === profileId) ?? null;
+  const isCustom = profile === null;
+  const effectiveBaseUrl = profile ? profile.baseUrl : baseUrl;
+  const endpointChips = profile
+    ? Object.entries(profile.endpoints)
+        .filter(([, path]) => path !== null && path !== undefined)
+        .map(([kind]) => copy.form.endpointLabels[kind] ?? kind)
+    : [];
+
   const submit = async (event: { preventDefault(): void }) => {
     event.preventDefault();
     const apiKeyInput = apiKeyRef.current;
     if (!apiKeyInput || !apiKeyInput.value.trim()) return;
     await onSubmit({
-      providerId: "generic.openai_compatible",
+      providerId: profile ? profile.id : "generic.openai_compatible",
       label: label.trim(),
-      baseUrl: baseUrl.trim(),
-      quotaEndpoint: quotaEndpoint.trim() || undefined,
-      usageEndpoint: usageEndpoint.trim() || undefined,
-      balanceEndpoint: balanceEndpoint.trim() || undefined,
+      baseUrl: effectiveBaseUrl.trim(),
+      quotaEndpoint: profile ? undefined : quotaEndpoint.trim() || undefined,
+      usageEndpoint: profile ? undefined : usageEndpoint.trim() || undefined,
+      balanceEndpoint: profile ? undefined : balanceEndpoint.trim() || undefined,
       apiKeyInput,
     });
   };
@@ -411,6 +438,29 @@ function SetupForm({
           {error}
         </p>
       )}
+      <div className="picker" role="group" aria-label={copy.a11y.profilePicker}>
+        {profiles.map((item) => (
+          <button
+            key={item.id}
+            type="button"
+            className={`picker__btn${profileId === item.id ? " is-active" : ""}`}
+            aria-pressed={profileId === item.id}
+            onClick={() => setProfileId(item.id)}
+          >
+            <ProviderIcon providerId={item.id} size={18} />
+            <span>{item.name}</span>
+          </button>
+        ))}
+        <button
+          type="button"
+          className={`picker__btn${isCustom ? " is-active" : ""}`}
+          aria-pressed={isCustom}
+          onClick={() => setProfileId("custom")}
+        >
+          <ProviderIcon providerId="generic.openai_compatible" size={18} />
+          <span>{copy.form.customOption}</span>
+        </button>
+      </div>
       <div className="form__grid">
         <div className="field field--wide">
           <label className="field__label" htmlFor="account-label">
@@ -434,15 +484,89 @@ function SetupForm({
             className="field__input mono"
             id="base-url"
             type="url"
-            value={baseUrl}
+            value={effectiveBaseUrl}
             onChange={(event) => setBaseUrl(event.currentTarget.value)}
+            readOnly={!isCustom}
             placeholder={copy.form.baseUrlPlaceholder}
             autoComplete="off"
             spellCheck={false}
             required
           />
-          <span className="field__help">{copy.form.baseUrlHelp}</span>
+          <span className="field__help">
+            {isCustom ? copy.form.baseUrlHelp : copy.form.builtinNote}
+          </span>
         </div>
+        {isCustom && (
+          <>
+            <div className="field field--wide">
+              <label className="field__label" htmlFor="quota-endpoint">
+                {copy.form.quotaEndpoint}
+              </label>
+              <input
+                className="field__input mono"
+                id="quota-endpoint"
+                type="text"
+                value={quotaEndpoint}
+                onChange={(event) => setQuotaEndpoint(event.currentTarget.value)}
+                placeholder={copy.form.quotaEndpointPlaceholder}
+                pattern="/.*"
+                title={copy.form.quotaEndpointHelp}
+                spellCheck={false}
+              />
+              <span className="field__help">{copy.form.quotaEndpointHelp}</span>
+            </div>
+            <div className="field field--wide">
+              <label className="field__label" htmlFor="usage-endpoint">
+                {copy.form.usageEndpoint}
+              </label>
+              <input
+                className="field__input mono"
+                id="usage-endpoint"
+                type="text"
+                value={usageEndpoint}
+                onChange={(event) => setUsageEndpoint(event.currentTarget.value)}
+                placeholder={copy.form.usageEndpointPlaceholder}
+                pattern="/.*"
+                title={copy.form.usageEndpointHelp}
+                spellCheck={false}
+              />
+              <span className="field__help">{copy.form.usageEndpointHelp}</span>
+            </div>
+            <div className="field field--wide">
+              <label className="field__label" htmlFor="balance-endpoint">
+                {copy.form.balanceEndpoint}
+              </label>
+              <input
+                className="field__input mono"
+                id="balance-endpoint"
+                type="text"
+                value={balanceEndpoint}
+                onChange={(event) => setBalanceEndpoint(event.currentTarget.value)}
+                placeholder={copy.form.balanceEndpointPlaceholder}
+                pattern="/.*"
+                title={copy.form.balanceEndpointHelp}
+                spellCheck={false}
+              />
+              <span className="field__help">{copy.form.balanceEndpointHelp}</span>
+            </div>
+          </>
+        )}
+        {!isCustom && (
+          <div className="field field--wide">
+            <span className="field__label">{copy.form.endpointsAvailable}</span>
+            <div className="picker__chips">
+              {endpointChips.length > 0 ? (
+                endpointChips.map((chip) => (
+                  <span key={chip} className="cap-chip cap-chip--l3">
+                    {chip}
+                  </span>
+                ))
+              ) : (
+                <span className="field__help">{copy.form.customNote}</span>
+              )}
+            </div>
+          </div>
+        )}
         <div className="field field--wide">
           <label className="field__label" htmlFor="api-key">
             {copy.form.apiKey}
@@ -460,57 +584,6 @@ function SetupForm({
           <span className="field__help" id="api-key-help">
             {copy.form.apiKeyHelp}
           </span>
-        </div>
-        <div className="field field--wide">
-          <label className="field__label" htmlFor="quota-endpoint">
-            {copy.form.quotaEndpoint}
-          </label>
-          <input
-            className="field__input mono"
-            id="quota-endpoint"
-            type="text"
-            value={quotaEndpoint}
-            onChange={(event) => setQuotaEndpoint(event.currentTarget.value)}
-            placeholder={copy.form.quotaEndpointPlaceholder}
-            pattern="/.*"
-            title={copy.form.quotaEndpointHelp}
-            spellCheck={false}
-          />
-          <span className="field__help">{copy.form.quotaEndpointHelp}</span>
-        </div>
-        <div className="field field--wide">
-          <label className="field__label" htmlFor="usage-endpoint">
-            {copy.form.usageEndpoint}
-          </label>
-          <input
-            className="field__input mono"
-            id="usage-endpoint"
-            type="text"
-            value={usageEndpoint}
-            onChange={(event) => setUsageEndpoint(event.currentTarget.value)}
-            placeholder={copy.form.usageEndpointPlaceholder}
-            pattern="/.*"
-            title={copy.form.usageEndpointHelp}
-            spellCheck={false}
-          />
-          <span className="field__help">{copy.form.usageEndpointHelp}</span>
-        </div>
-        <div className="field field--wide">
-          <label className="field__label" htmlFor="balance-endpoint">
-            {copy.form.balanceEndpoint}
-          </label>
-          <input
-            className="field__input mono"
-            id="balance-endpoint"
-            type="text"
-            value={balanceEndpoint}
-            onChange={(event) => setBalanceEndpoint(event.currentTarget.value)}
-            placeholder={copy.form.balanceEndpointPlaceholder}
-            pattern="/.*"
-            title={copy.form.balanceEndpointHelp}
-            spellCheck={false}
-          />
-          <span className="field__help">{copy.form.balanceEndpointHelp}</span>
         </div>
       </div>
       <div className="form__footer">
@@ -1106,6 +1179,7 @@ export function App({ bridge = tauriBridge }: AppProps = {}) {
             {view === "settings" && (
               <section className="section" aria-label={copy.views.settings}>
                 <SetupForm
+                  bridge={bridge}
                   submitting={formSubmitting}
                   error={formError}
                   onCancel={() => goView("overview")}

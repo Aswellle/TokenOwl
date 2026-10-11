@@ -61,7 +61,8 @@ export interface AccountViewModel {
 }
 
 export interface GenericOpenAiAccountInput {
-  providerId: "generic.openai_compatible";
+  /** "generic.openai_compatible" or a built-in provider id ("deepseek", …). */
+  providerId: string;
   label: string;
   baseUrl: string;
   apiKey: string;
@@ -163,6 +164,25 @@ export interface ProviderMatrixRowViewModel {
   implemented: boolean;
 }
 
+export interface ManifestEndpointsViewModel {
+  models?: string | null;
+  balance?: string | null;
+  usage?: string | null;
+  quota?: string | null;
+  reset?: string | null;
+}
+
+export interface ManifestProfileViewModel {
+  id: string;
+  name: string;
+  baseUrl: string;
+  level: string;
+  accountTypes: string[];
+  quotaUnits: string[];
+  targetWindows: string[];
+  endpoints: ManifestEndpointsViewModel;
+}
+
 export interface DashboardBridge {
   listAccounts(): Promise<AccountViewModel[]>;
   createAccount(input: GenericOpenAiAccountInput): Promise<AccountViewModel>;
@@ -179,5 +199,6 @@ export interface DashboardBridge {
   historySummary(days?: number, accountId?: string): Promise<HistorySummaryViewModel>;
   historyBreakdown(days?: number): Promise<HistoryDayBreakdownViewModel[]>;
   providerMatrix(): Promise<ProviderMatrixRowViewModel[]>;
+  manifestProfiles(): Promise<ManifestProfileViewModel[]>;
   usageWindows(accountId?: string): Promise<UsageWindowsViewModel>;
 }

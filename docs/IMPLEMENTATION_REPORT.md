@@ -591,3 +591,26 @@ better-typography / better-colors / better-layout / better-ui / better-accessibi
 - 验证：`cargo test` 163（156 单元 + 7 fixture，新增矩阵一致性 2 个）、fmt/clippy 全绿；
   vitest 34、typecheck、build 全绿；浏览器审计（暗色）：矩阵面板 28 行分级渲染、规划行
   灰显、供应商视图 L1 徽章。
+
+## Round 11 — 能力矩阵驱动供应商配置（manifest 接入档案 + 端点门控）
+
+日期：2026-10-12 | 基线：Round 10 工作区 | 平台：Windows 11 x64
+
+### 需求完成矩阵
+
+| 要求 | 结果 |
+|---|---|
+| 矩阵驱动配置 | ✅ `manifest_profiles` 命令输出 8 个内置供应商接入档案（baseUrl/能力等级/声明端点，直出嵌入 manifest）；设置表单新增供应商选择器——选中即按清单自动填充接口地址（只读）并隐藏手填端点，改显"内置端点"徽章（如 DeepSeek：模型/余额） |
+| 端点按能力门控 | ✅ 后端 `resolve_new_account`：内置供应商的 baseUrl 与端点以 manifest 为权威，客户端路径被忽略；仅清单声明的端点可被探测（DeepSeek 只有 balance，quota/usage 为 None） |
+| 真实品牌账户 | ✅ 内置供应商账户的 provider id 为 `deepseek:account-x` 等真实前缀——导轨/卡片/气泡自动显示品牌图标与显示名，不再是通用兼容外观 |
+| **既有缺陷修复** | ⚠️ 发现并修复：通用账户创建路径把 `api_key` 当作 `base_url` 传入 `OpenAiCompatibleConfig::new`，而表单的 baseUrl 从未持久化——validate 的 http(s) 检查使**界面创建通用账户必然失败**（凭据在写入前即返回，无泄漏）。修正为传 `resolved.base_url` 并在解析层加 http(s) 前置校验 |
+
+### 代码变更与验证
+
+- `providers/builtin/mod.rs`（ManifestProfile + manifest_profiles）、`commands/mod.rs`
+  （manifest_profiles 命令 + resolve_new_account 重构 + persist 使用 ResolvedNewAccount +
+  3 个新测试：内置档案解析/未知品牌拒绝/非 http baseUrl 拒绝）、前端 SetupForm 重写
+  （供应商选择器 + 能力门控表单）、types/bridge/mock/copy/CSS（picker 体系）。
+- 验证：`cargo test` 166（159 单元 + 7 fixture）、fmt/clippy 全绿；vitest 34、typecheck、
+  build 全绿；浏览器审计（暗色）：选择器六品牌渲染、DeepSeek 选中后 baseUrl 只读预填 +
+  端点输入隐藏 + 内置端点徽章、自定义模式保持原有三端点表单。

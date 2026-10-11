@@ -7,6 +7,7 @@ import type {
   HistoryDayBreakdownViewModel,
   HistorySummaryViewModel,
   NotificationPreferencesViewModel,
+  ManifestProfileViewModel,
   NotificationViewModel,
   ProviderMatrixRowViewModel,
   UpdateInfo,
@@ -48,6 +49,8 @@ export const tauriBridge: DashboardBridge = {
       "history_breakdown",
       days ? { days } : undefined,
     ),
+  manifestProfiles: () =>
+    invoke<ManifestProfileViewModel[]>("manifest_profiles"),
   providerMatrix: () =>
     invoke<ProviderMatrixRowViewModel[]>("provider_matrix"),
   usageWindows: (accountId?: string) =>

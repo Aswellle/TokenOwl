@@ -5,6 +5,7 @@ import type {
   HistoryDayViewModel,
   HistorySummaryViewModel,
   NotificationPreferencesViewModel,
+  ManifestProfileViewModel,
   NotificationViewModel,
   ProviderMatrixRowViewModel,
   UsageWindowsViewModel,
@@ -349,6 +350,48 @@ export function createMockBridge(): DashboardBridge {
       await new Promise((resolve) => setTimeout(resolve, latency()));
       const summary = demoHistory(Date.now());
       return structuredClone({ ...summary, rangeDays: days ?? summary.rangeDays });
+    },
+    async manifestProfiles() {
+      await new Promise((resolve) => setTimeout(resolve, latency()));
+      const profile = (
+        id: string,
+        name: string,
+        baseUrl: string,
+        level: string,
+        endpoints: ManifestProfileViewModel["endpoints"],
+      ): ManifestProfileViewModel => ({
+        id,
+        name,
+        baseUrl,
+        level,
+        accountTypes: ["api"],
+        quotaUnits: ["token"],
+        targetWindows: ["provider-defined"],
+        endpoints,
+      });
+      return [
+        profile("openai", "OpenAI", "https://api.openai.com/v1", "L4", {
+          models: "/v1/models",
+          usage: "/v1/usage",
+          quota: "/v1/quota",
+        }),
+        profile("anthropic", "Anthropic", "https://api.anthropic.com/v1", "L4", {
+          models: "/v1/models",
+        }),
+        profile("deepseek", "DeepSeek", "https://api.deepseek.com/v1", "L3", {
+          models: "/models",
+          balance: "/user/balance",
+        }),
+        profile("kimi", "Kimi / Moonshot", "https://api.moonshot.cn/v1", "L3", {
+          models: "/models",
+        }),
+        profile("gemini", "Google Gemini", "https://generativelanguage.googleapis.com/v1beta", "L3", {
+          models: "/models",
+        }),
+        profile("minimax", "MiniMax", "https://api.minimax.chat/v1", "L2", {
+          models: "/models",
+        }),
+      ];
     },
     async providerMatrix() {
       await new Promise((resolve) => setTimeout(resolve, latency()));

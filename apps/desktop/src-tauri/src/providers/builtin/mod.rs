@@ -297,6 +297,47 @@ pub fn provider_matrix() -> Vec<ProviderMatrixRow> {
     rows
 }
 
+/// Setup profile for one built-in provider: everything the account form
+/// needs to prefill from the manifest instead of free-typing endpoints.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ManifestProfile {
+    pub id: String,
+    pub name: String,
+    pub base_url: String,
+    pub level: String,
+    pub account_types: Vec<String>,
+    pub quota_units: Vec<String>,
+    pub target_windows: Vec<String>,
+    pub endpoints: crate::providers::manifest::ManifestEndpoints,
+}
+
+/// Setup profiles for all embedded manifests, in manifest order.
+///
+/// # Panics
+///
+/// Panics when an embedded manifest stops parsing (build-time bug).
+pub fn manifest_profiles() -> Vec<ManifestProfile> {
+    use crate::providers::manifest::ProviderManifest;
+    BUILTIN_MANIFESTS
+        .iter()
+        .map(|(_id, yaml)| {
+            let manifest = ProviderManifest::from_yaml(yaml).expect("embedded manifest parses");
+            let capability = manifest.capability.clone().unwrap_or_default();
+            ManifestProfile {
+                id: manifest.id,
+                name: manifest.name,
+                base_url: manifest.base_url,
+                level: capability.level_id().to_owned(),
+                account_types: capability.account_types,
+                quota_units: capability.quota_units,
+                target_windows: capability.target_windows,
+                endpoints: manifest.endpoints,
+            }
+        })
+        .collect()
+}
+
 /// Creates a registry with all built-in provider adapters.
 pub fn builtin_registry() -> AdapterRegistry {
     let mut registry = AdapterRegistry::new();

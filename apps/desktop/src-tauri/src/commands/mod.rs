@@ -672,6 +672,14 @@ pub fn history_breakdown(
         .collect())
 }
 
+/// Setup profiles for the built-in providers, straight from their embedded
+/// manifests: base URL, capability level, and the endpoints each provider
+/// actually declares.
+#[tauri::command]
+pub fn manifest_profiles() -> Result<Vec<crate::providers::builtin::ManifestProfile>, String> {
+    Ok(crate::providers::builtin::manifest_profiles())
+}
+
 /// The `docs/09` provider capability catalog: every planned provider with its
 /// account types, units, and windows; implemented providers carry their
 /// capability level from the embedded manifest.
@@ -713,9 +721,20 @@ struct AccountEndpoints {
     balance: Option<String>,
 }
 
-fn validate_new_account(
+/// Everything account persistence needs, resolved from either the generic
+/// OpenAI-compatible path or a built-in provider manifest.
+#[derive(Debug)]
+struct ResolvedNewAccount {
+    /// Brand prefix for the per-account provider id (`deepseek:account-…`).
+    provider_prefix: String,
+    display_name: String,
+    base_url: String,
+    endpoints: AccountEndpoints,
+}
+
+fn resolve_new_account(
     input: &GenericOpenAiAccountInput,
-) -> Result<(String, AccountEndpoints), CommandError> {
+) -> Result<ResolvedNewAccount, CommandError> {
     let label = input.label.trim().to_owned();
     if label.is_empty() {
         return Err(CommandError::InvalidInput(
@@ -725,52 +744,82 @@ fn validate_new_account(
     if input.api_key.trim().is_empty() {
         return Err(CommandError::InvalidInput("API key is required".to_owned()));
     }
-    if input.provider_id != "generic.openai_compatible" {
-        return Err(CommandError::InvalidInput(
-            "unsupported provider id".to_owned(),
-        ));
-    }
-    let usage = input
-        .usage_endpoint
-        .as_deref()
-        .map(normalize_endpoint)
-        .transpose()?;
-    let balance = input
-        .balance_endpoint
-        .as_deref()
-        .map(normalize_endpoint)
-        .transpose()?;
-    let quota = match input.quota_endpoint.as_deref() {
-        Some(path) => Some(normalize_endpoint(path)?),
-        None if usage.is_none() && balance.is_none() => {
-            Some(normalize_endpoint(DEFAULT_QUOTA_ENDPOINT)?)
+
+    if input.provider_id == "generic.openai_compatible" {
+        let usage = input
+            .usage_endpoint
+            .as_deref()
+            .map(normalize_endpoint)
+            .transpose()?;
+        let balance = input
+            .balance_endpoint
+            .as_deref()
+            .map(normalize_endpoint)
+            .transpose()?;
+        let quota = match input.quota_endpoint.as_deref() {
+            Some(path) => Some(normalize_endpoint(path)?),
+            None if usage.is_none() && balance.is_none() => {
+                Some(normalize_endpoint(DEFAULT_QUOTA_ENDPOINT)?)
+            }
+            None => None,
+        };
+        let base_url = input.base_url.trim();
+        if !(base_url.starts_with("https://") || base_url.starts_with("http://")) {
+            return Err(CommandError::InvalidInput(
+                "base URL must use http or https".to_owned(),
+            ));
         }
-        None => None,
-    };
-    Ok((
-        label,
-        AccountEndpoints {
-            quota,
-            usage,
-            balance,
+        return Ok(ResolvedNewAccount {
+            provider_prefix: "generic.openai_compatible".to_owned(),
+            display_name: "OpenAI-compatible".to_owned(),
+            base_url: base_url.to_owned(),
+            endpoints: AccountEndpoints {
+                quota,
+                usage,
+                balance,
+            },
+        });
+    }
+
+    // A built-in provider: the embedded manifest is authoritative for the
+    // base URL and endpoints — client-supplied paths are ignored, so the
+    // capability matrix actually gates what gets probed.
+    let profile = crate::providers::builtin::manifest_profiles()
+        .into_iter()
+        .find(|profile| profile.id == input.provider_id)
+        .ok_or_else(|| CommandError::InvalidInput("unsupported provider id".to_owned()))?;
+    Ok(ResolvedNewAccount {
+        provider_prefix: profile.id,
+        display_name: profile.name,
+        base_url: profile.base_url,
+        endpoints: AccountEndpoints {
+            quota: profile.endpoints.quota,
+            usage: profile.endpoints.usage,
+            balance: profile.endpoints.balance,
         },
-    ))
+    })
 }
 
 fn persist_new_account(
     state: &AppRuntime,
     label: &str,
-    endpoints: &AccountEndpoints,
+    resolved: &ResolvedNewAccount,
     api_key: &str,
 ) -> Result<AccountMetadata, CommandError> {
     let account_id = format!("account-{}", unix_millis());
-    let provider_id = format!("generic.openai_compatible:{account_id}");
+    let provider_id = format!("{}:{account_id}", resolved.provider_prefix);
     let credential_ref = format!("account/{account_id}");
-    let mut config = OpenAiCompatibleConfig::new(provider_id, "OpenAI-compatible", api_key);
+    let mut config = OpenAiCompatibleConfig::new(
+        provider_id,
+        resolved.display_name.clone(),
+        resolved.base_url.clone(),
+    );
     config.credential_ref = Some(credential_ref.clone());
-    config.quota_endpoint.clone_from(&endpoints.quota);
-    config.usage_endpoint.clone_from(&endpoints.usage);
-    config.balance_endpoint.clone_from(&endpoints.balance);
+    config.quota_endpoint.clone_from(&resolved.endpoints.quota);
+    config.usage_endpoint.clone_from(&resolved.endpoints.usage);
+    config
+        .balance_endpoint
+        .clone_from(&resolved.endpoints.balance);
     config.auth_method = AuthMethod::ApiKey;
     config.validate()?;
     state.credentials.set(&credential_ref, api_key)?;
@@ -802,8 +851,9 @@ fn create_account(
     state: &AppRuntime,
     input: GenericOpenAiAccountInput,
 ) -> Result<AccountViewModel, CommandError> {
-    let (label, endpoints) = validate_new_account(&input)?;
-    let account = persist_new_account(state, &label, &endpoints, &input.api_key)?;
+    let resolved = resolve_new_account(&input)?;
+    let label = input.label.trim().to_owned();
+    let account = persist_new_account(state, &label, &resolved, &input.api_key)?;
     let view = state
         .repository()?
         .account_view(&account.id, unix_seconds(), state.freshness_policy)?
@@ -1175,6 +1225,59 @@ mod tests {
     }
 
     #[test]
+    fn builtin_profile_resolves_manifest_endpoints_and_base_url() {
+        let input = GenericOpenAiAccountInput {
+            provider_id: "deepseek".to_owned(),
+            label: "DeepSeek".to_owned(),
+            // Client-supplied paths are ignored for built-in providers.
+            base_url: "https://evil.test/v1".to_owned(),
+            api_key: "key".to_owned(),
+            quota_endpoint: None,
+            usage_endpoint: None,
+            balance_endpoint: Some("/should-not-be-used".to_owned()),
+        };
+        let resolved = resolve_new_account(&input).expect("builtin profile");
+        assert_eq!(resolved.provider_prefix, "deepseek");
+        assert_eq!(resolved.display_name, "DeepSeek");
+        assert_eq!(resolved.base_url, "https://api.deepseek.com/v1");
+        assert_eq!(resolved.endpoints.balance.as_deref(), Some("/user/balance"));
+        assert!(
+            resolved.endpoints.quota.is_none() && resolved.endpoints.usage.is_none(),
+            "only the endpoints the manifest declares may be probed"
+        );
+    }
+
+    #[test]
+    fn builtin_profile_rejects_unknown_brand() {
+        let input = GenericOpenAiAccountInput {
+            provider_id: "not-a-brand".to_owned(),
+            label: "X".to_owned(),
+            base_url: "https://provider.test/v1".to_owned(),
+            api_key: "key".to_owned(),
+            quota_endpoint: None,
+            usage_endpoint: None,
+            balance_endpoint: None,
+        };
+        let error = resolve_new_account(&input).expect_err("unknown brand");
+        assert!(matches!(error, CommandError::InvalidInput(_)));
+    }
+
+    #[test]
+    fn generic_profile_requires_http_base_url() {
+        let input = GenericOpenAiAccountInput {
+            provider_id: "generic.openai_compatible".to_owned(),
+            label: "X".to_owned(),
+            base_url: "sk-not-a-url".to_owned(),
+            api_key: "key".to_owned(),
+            quota_endpoint: None,
+            usage_endpoint: None,
+            balance_endpoint: None,
+        };
+        let error = resolve_new_account(&input).expect_err("non-http base url");
+        assert!(matches!(error, CommandError::InvalidInput(_)));
+    }
+
+    #[test]
     fn endpoint_defaults_apply_only_when_nothing_else_is_configured() {
         let input = |quota: Option<&str>, usage: Option<&str>, balance: Option<&str>| {
             GenericOpenAiAccountInput {
@@ -1187,21 +1290,20 @@ mod tests {
                 balance_endpoint: balance.map(ToOwned::to_owned),
             }
         };
-        let (_, endpoints) = validate_new_account(&input(None, None, None)).expect("defaults");
-        assert_eq!(endpoints.quota.as_deref(), Some("/usage"));
-        assert!(endpoints.usage.is_none() && endpoints.balance.is_none());
+        let resolved = resolve_new_account(&input(None, None, None)).expect("defaults");
+        assert_eq!(resolved.endpoints.quota.as_deref(), Some("/usage"));
+        assert!(resolved.endpoints.usage.is_none() && resolved.endpoints.balance.is_none());
 
-        let (_, endpoints) =
-            validate_new_account(&input(None, Some("/v1/usage"), Some("/v1/balance")))
-                .expect("multi-endpoint input");
+        let resolved = resolve_new_account(&input(None, Some("/v1/usage"), Some("/v1/balance")))
+            .expect("multi-endpoint input");
         assert!(
-            endpoints.quota.is_none(),
+            resolved.endpoints.quota.is_none(),
             "default quota must be suppressed when other endpoints are configured"
         );
-        assert_eq!(endpoints.usage.as_deref(), Some("/v1/usage"));
-        assert_eq!(endpoints.balance.as_deref(), Some("/v1/balance"));
+        assert_eq!(resolved.endpoints.usage.as_deref(), Some("/v1/usage"));
+        assert_eq!(resolved.endpoints.balance.as_deref(), Some("/v1/balance"));
 
-        let error = validate_new_account(&input(None, Some("https://evil.test/x"), None))
+        let error = resolve_new_account(&input(None, Some("https://evil.test/x"), None))
             .expect_err("absolute endpoint must be rejected");
         assert!(matches!(error, CommandError::InvalidInput(_)));
     }

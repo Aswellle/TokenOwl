@@ -11,7 +11,11 @@ import { isTauri, shell, tauriBridge } from "../../lib/tauri";
 import type { AccountHealth, AccountViewModel, DashboardBridge, QuotaViewModel } from "../../types";
 
 const DRAG_THRESHOLD_PX = 5;
-const RING_RADII = [21.5, 14.5];
+// Apple-Watch-style rings filling the 50×50 viewBox: the outer band runs flush
+// to the bubble edge (no rim ring), the bands sit adjacent at width 5, and the
+// hole left over (radius 13.5) is the brand icon's space.
+const RING_RADII = [21.5, 16.5];
+const RING_BAND = 5;
 
 interface Ring {
   label: string;
@@ -161,6 +165,10 @@ export function BubbleView({ bridge = tauriBridge }: { bridge?: DashboardBridge 
         ? copy.bubble.rings(`${Math.round(fallbackRatio * 100)}%`)
         : copy.bubble.noWindow;
 
+  // Hold the bubble back until the first account load settles: rendering the
+  // no-data look during the initial fetch reads as a phantom empty state.
+  if (phase === "loading") return null;
+
   return (
     <div className="bubwin">
       <motion.button
@@ -188,9 +196,17 @@ export function BubbleView({ bridge = tauriBridge }: { bridge?: DashboardBridge 
         title={`${ringSummary} · ${copy.bubble.openDashboard}`}
       >
         <svg className="bubble__rings" viewBox="0 0 50 50" aria-hidden="true">
+          {(rings.length > 0 || fallbackRatio !== null) && (
+            <circle
+              className="bubble__ring-channel"
+              cx="25"
+              cy="25"
+              r={(RING_RADII[0] + RING_RADII[1]) / 2}
+              style={{ strokeWidth: RING_RADII[0] - RING_RADII[1] + RING_BAND }}
+            />
+          )}
           {rings.length === 0 && fallbackRatio !== null && (
             <g>
-              <circle className="bubble__ring-case" cx="25" cy="25" r={RING_RADII[0]} />
               <circle className="bubble__ring-track" cx="25" cy="25" r={RING_RADII[0]} />
               <circle
                 className="bubble__ring-value bubble__ring-value--0"
@@ -207,7 +223,6 @@ export function BubbleView({ bridge = tauriBridge }: { bridge?: DashboardBridge 
             const ratio = ring.ratio ?? 0;
             return (
               <g key={ring.label}>
-                <circle className="bubble__ring-case" cx="25" cy="25" r={radius} />
                 <circle className="bubble__ring-track" cx="25" cy="25" r={radius} />
                 <circle
                   className={`bubble__ring-value bubble__ring-value--${index}`}
@@ -223,9 +238,9 @@ export function BubbleView({ bridge = tauriBridge }: { bridge?: DashboardBridge 
         </svg>
         <span className="bubble__mark">
           {primary ? (
-            <ProviderIcon providerId={primary.providerId} size={17} />
+            <ProviderIcon providerId={primary.providerId} size={19} />
           ) : (
-            <IconOwl size={15} strokeWidth={1.5} />
+            <IconOwl size={17} strokeWidth={1.6} />
           )}
         </span>
       </motion.button>

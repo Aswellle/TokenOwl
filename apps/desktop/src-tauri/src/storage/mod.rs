@@ -979,11 +979,9 @@ mod tests {
         assert_eq!(samples[0].observed_at, late);
 
         repository.delete_account("account-1").expect("delete");
-        assert!(
-            repository
-                .history_samples(0, late + 1)
-                .expect("samples")
-                .is_empty(),
+        assert_eq!(
+            repository.history_samples(0, late + 1).expect("samples"),
+            [],
             "history rows cascade with the account"
         );
     }

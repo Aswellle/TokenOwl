@@ -742,7 +742,7 @@ mod tests {
         )];
         let refresh = refresh_state();
         let drafts = evaluate_account_notifications(context(&views, &refresh, &prefs, 1_000));
-        assert!(drafts.is_empty());
+        assert_eq!(drafts, [] as [Notification; 0]);
     }
 
     #[test]
@@ -754,7 +754,7 @@ mod tests {
         ];
         let refresh = refresh_state();
         let drafts = evaluate_account_notifications(context(&views, &refresh, &prefs, 1_000));
-        assert!(drafts.is_empty());
+        assert_eq!(drafts, [] as [Notification; 0]);
     }
 
     #[test]
@@ -792,7 +792,10 @@ mod tests {
             consecutive_failures: 2,
             ..base.clone()
         };
-        assert!(evaluate_account_notifications(context(&views, &early, &prefs, 1_000)).is_empty());
+        assert_eq!(
+            evaluate_account_notifications(context(&views, &early, &prefs, 1_000)),
+            [] as [Notification; 0]
+        );
         let late = RefreshState {
             consecutive_failures: 3,
             ..base.clone()
@@ -804,8 +807,9 @@ mod tests {
             error_code: Some("Server".to_owned()),
             ..base
         };
-        assert!(
-            evaluate_account_notifications(context(&views, &server_only, &prefs, 1_000)).is_empty()
+        assert_eq!(
+            evaluate_account_notifications(context(&views, &server_only, &prefs, 1_000)),
+            [] as [Notification; 0]
         );
     }
 
@@ -834,7 +838,7 @@ mod tests {
         assert!(reset.message.contains("25 分钟"));
         // Outside the window nothing fires.
         let drafts = evaluate_account_notifications(context(&views, &refresh, &prefs, now - 600));
-        assert!(drafts.is_empty());
+        assert_eq!(drafts, [] as [Notification; 0]);
     }
 
     #[test]
@@ -862,7 +866,7 @@ mod tests {
             ..NotificationPreferences::default()
         };
         let drafts = evaluate_account_notifications(context(&views, &refresh, &prefs, 1_000));
-        assert!(drafts.is_empty());
+        assert_eq!(drafts, [] as [Notification; 0]);
     }
 
     #[test]
@@ -883,8 +887,9 @@ mod tests {
             error_code: Some("AuthExpired".to_owned()),
             ..RefreshState::default()
         };
-        assert!(
-            evaluate_account_notifications(context(&views, &refresh, &prefs, 1_000)).is_empty()
+        assert_eq!(
+            evaluate_account_notifications(context(&views, &refresh, &prefs, 1_000)),
+            [] as [Notification; 0]
         );
     }
 

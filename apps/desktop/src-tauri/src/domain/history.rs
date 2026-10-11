@@ -547,7 +547,7 @@ mod tests {
 
     #[test]
     fn empty_input_yields_no_days() {
-        assert!(aggregate(&[]).is_empty());
+        assert_eq!(aggregate(&[]), [] as [DailyUsage; 0]);
     }
 
     #[test]

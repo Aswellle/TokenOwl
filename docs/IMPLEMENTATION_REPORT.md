@@ -638,3 +638,21 @@ better-typography / better-colors / better-layout / better-ui / better-accessibi
 - 验证：`cargo test` 166、fmt/clippy 全绿（含"registry 含 21 适配器"新断言）；vitest 34、
   typecheck、build 全绿；浏览器审计（暗色）：选择器九个品牌按钮 + Kimi/Moonshot 图标正常、
   New API 网关 baseUrl 占位"网关地址"且可编辑、内置端点徽章仅"模型"、密钥框 type=text。
+
+### Round 12 修复 — 协议分类与 21 供应商目录在 UI 未呈现
+
+日期：2026-10-12
+
+- 根因（两处前端缺口，Rust 端 `manifest_profiles` 本就正确）：
+  1. `mock.ts` 浏览器预览桥的 `manifestProfiles()` 只有 9 个硬编码 profile 且全部写死
+     `openai-compatible`——纯浏览器预览（127.0.0.1:1800）里既看不到 21 供应商也看不到协议分组；
+  2. `SetupForm` 选择器只渲染平铺按钮，文案里已定义的 `protocolOpenai`/`protocolOther`
+     分组标题从未渲染（`protocolOther` 仅作禁用按钮的 title 提示）——"API 协议顶层分类"不可见。
+- 修复：mock 目录重写为与 `providers/builtin/*.yaml` 一一对应的 21 项（顺序同
+  BUILTIN_MANIFESTS，apiFormat/customBaseUrl/端点对齐清单，anthropic→`anthropic`、
+  gemini→`google-ai`）；选择器改为两个可见分组（"OpenAI 兼容协议"19+自定义可选，
+  "其他协议（适配规划中）"Anthropic/Gemini 禁用），`.picker__heading`/`.picker__row` 样式；
+  新增 `mock.test.ts` 断言 21 项、协议分类、网关 customBaseUrl 与端点路径格式。
+- 验证：typecheck、vitest 35 全绿；浏览器审计（暗色）：设置页选择器两分组渲染，
+  19 个可选供应商均带真实品牌图标（Kimi/Moonshot、Gemini Google G、Grok/xAI 正常），
+  规划分组灰显禁用。

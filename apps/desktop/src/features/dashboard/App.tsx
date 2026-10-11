@@ -439,43 +439,57 @@ function SetupForm({
         </p>
       )}
       <div className="picker" role="group" aria-label={copy.a11y.profilePicker}>
-        {profiles
-          .filter((item) => item.apiFormat === "openai-compatible")
-          .map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              className={`picker__btn${profileId === item.id ? " is-active" : ""}`}
-              aria-pressed={profileId === item.id}
-              onClick={() => setProfileId(item.id)}
-            >
-              <ProviderIcon providerId={item.id} size={18} />
-              <span>{item.name}</span>
-            </button>
-          ))}
-        <button
-          type="button"
-          className={`picker__btn${isCustom ? " is-active" : ""}`}
-          aria-pressed={isCustom}
-          onClick={() => setProfileId("custom")}
-        >
-          <ProviderIcon providerId="generic.openai_compatible" size={18} />
-          <span>{copy.form.customOption}</span>
-        </button>
-        {profiles
-          .filter((item) => item.apiFormat !== "openai-compatible")
-          .map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              className="picker__btn picker__btn--planned"
-              disabled
-              title={copy.form.protocolOther}
-            >
-              <ProviderIcon providerId={item.id} size={18} />
-              <span>{item.name}</span>
-            </button>
-          ))}
+        <span className="picker__heading" aria-hidden="true">
+          {copy.form.protocolOpenai}
+        </span>
+        <div className="picker__row">
+          {profiles
+            .filter((item) => item.apiFormat === "openai-compatible")
+            .map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                className={`picker__btn${profileId === item.id ? " is-active" : ""}`}
+                aria-pressed={profileId === item.id}
+                onClick={() => setProfileId(item.id)}
+              >
+                <ProviderIcon providerId={item.id} size={18} />
+                <span>{item.name}</span>
+              </button>
+            ))}
+          <button
+            type="button"
+            className={`picker__btn${isCustom ? " is-active" : ""}`}
+            aria-pressed={isCustom}
+            onClick={() => setProfileId("custom")}
+          >
+            <ProviderIcon providerId="generic.openai_compatible" size={18} />
+            <span>{copy.form.customOption}</span>
+          </button>
+        </div>
+        {profiles.some((item) => item.apiFormat !== "openai-compatible") && (
+          <>
+            <span className="picker__heading" aria-hidden="true">
+              {copy.form.protocolOther}
+            </span>
+            <div className="picker__row">
+              {profiles
+                .filter((item) => item.apiFormat !== "openai-compatible")
+                .map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    className="picker__btn picker__btn--planned"
+                    disabled
+                    title={copy.form.protocolOther}
+                  >
+                    <ProviderIcon providerId={item.id} size={18} />
+                    <span>{item.name}</span>
+                  </button>
+                ))}
+            </div>
+          </>
+        )}
       </div>
       <div className="form__grid">
         <div className="field field--wide">

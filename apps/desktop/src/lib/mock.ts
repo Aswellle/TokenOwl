@@ -353,24 +353,30 @@ export function createMockBridge(): DashboardBridge {
     },
     async manifestProfiles() {
       await new Promise((resolve) => setTimeout(resolve, latency()));
+      // Mirrors providers/builtin/*.yaml (same order as BUILTIN_MANIFESTS):
+      // wire protocol decides which picker group a provider lands in, and
+      // native protocols stay planned until their adapters land.
       const profile = (
         id: string,
         name: string,
         baseUrl: string,
         level: string,
         endpoints: ManifestProfileViewModel["endpoints"],
-        customBaseUrl = false,
+        options: Partial<
+          Pick<ManifestProfileViewModel, "apiFormat" | "customBaseUrl" | "accountTypes">
+        > = {},
       ): ManifestProfileViewModel => ({
         id,
         name,
         baseUrl,
         apiFormat: "openai-compatible",
-        customBaseUrl,
+        customBaseUrl: false,
         level,
         accountTypes: ["api"],
         quotaUnits: ["token"],
         targetWindows: ["provider-defined"],
         endpoints,
+        ...options,
       });
       return [
         profile("openai", "OpenAI", "https://api.openai.com/v1", "L4", {
@@ -380,29 +386,64 @@ export function createMockBridge(): DashboardBridge {
         }),
         profile("anthropic", "Anthropic", "https://api.anthropic.com/v1", "L4", {
           models: "/v1/models",
+          usage: "/v1/usage",
+        }, { apiFormat: "anthropic", accountTypes: ["subscription", "api"] }),
+        profile("gemini", "Google Gemini", "https://generativelanguage.googleapis.com/v1beta", "L3", {
+          models: "/models",
+        }, { apiFormat: "google-ai", accountTypes: ["subscription", "api"] }),
+        profile("openrouter", "OpenRouter", "https://openrouter.ai/api/v1", "L4", {
+          models: "/models",
+          usage: "/api/v1/key",
         }),
         profile("deepseek", "DeepSeek", "https://api.deepseek.com/v1", "L3", {
           models: "/models",
           balance: "/user/balance",
         }),
+        profile("qwen", "Qwen / Alibaba", "https://dashscope.aliyuncs.com/api/v1", "L3", {
+          models: "/models",
+          usage: "/usage",
+        }),
         profile("kimi", "Kimi / Moonshot", "https://api.moonshot.cn/v1", "L3", {
           models: "/models",
-        }),
-        profile("gemini", "Google Gemini", "https://generativelanguage.googleapis.com/v1beta", "L3", {
-          models: "/models",
+          usage: "/users/me/balance",
         }),
         profile("minimax", "MiniMax", "https://api.minimax.chat/v1", "L2", {
-          models: "/models",
-        }),
-        profile("groq", "Groq", "https://api.groq.com/openai/v1", "L2", {
           models: "/models",
         }),
         profile("zhipu", "Zhipu / GLM", "https://open.bigmodel.cn/api/paas/v4", "L2", {
           models: "/models",
         }),
+        profile("doubao", "Doubao / Volcengine", "https://ark.cn-beijing.volces.com/api/v3", "L2", {}),
+        profile("mistral", "Mistral", "https://api.mistral.ai/v1", "L2", {
+          models: "/v1/models",
+        }),
+        profile("groq", "Groq", "https://api.groq.com/openai/v1", "L2", {
+          models: "/models",
+        }),
+        profile("xai", "xAI", "https://api.x.ai/v1", "L2", {
+          models: "/v1/models",
+        }),
+        profile("siliconflow", "SiliconFlow", "https://api.siliconflow.cn/v1", "L3", {
+          models: "/models",
+          balance: "/v1/user/balance",
+        }),
+        profile("stepfun", "StepFun", "https://api.stepfun.com/v1", "L2", {
+          models: "/models",
+        }),
+        profile("baichuan", "Baichuan", "https://api.baichuan-ai.com/v1", "L2", {}),
+        profile("01ai", "01.AI", "https://api.lingyiwanwu.com/v1", "L2", {
+          models: "/v1/models",
+        }),
+        profile("360", "360", "https://api.360.cn/v1", "L2", {}),
         profile("new-api", "New API", "https://your-gateway.example", "L2", {
           models: "/v1/models",
-        }, true),
+        }, { customBaseUrl: true }),
+        profile("one-api", "One API", "https://your-gateway.example", "L2", {
+          models: "/v1/models",
+        }, { customBaseUrl: true }),
+        profile("litellm", "LiteLLM", "https://your-gateway.example", "L2", {
+          models: "/v1/models",
+        }, { customBaseUrl: true }),
       ];
     },
     async providerMatrix() {

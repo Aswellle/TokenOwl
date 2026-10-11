@@ -40,7 +40,7 @@ import {
   ratioTone,
   timestamp,
 } from "../../lib/format";
-import { shell, tauriBridge } from "../../lib/tauri";
+import { isTauri, shell, tauriBridge } from "../../lib/tauri";
 import type {
   AccountViewModel,
   DashboardBridge,
@@ -956,7 +956,14 @@ export function App({ bridge = tauriBridge }: AppProps = {}) {
           <button
             className="pill"
             type="button"
-            onClick={() => void shell.showBubble().catch(() => null)}
+            onClick={() => {
+              if (!isTauri()) {
+                // Plain-browser preview: morph to the bubble in this document.
+                window.dispatchEvent(new CustomEvent("tokenowl:show-bubble"));
+                return;
+              }
+              void shell.showBubble().catch(() => null);
+            }}
             title={copy.titlebar.bubbleHint}
           >
             <IconBubble size={17} />

@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { listen } from "@tauri-apps/api/event";
+import { motion, useReducedMotion } from "motion/react";
 import "../../styles/App.css";
 import { copy } from "../../styles/copy";
 import { IconOwl } from "../../components/icons";
 import { ProviderIcon } from "../../components/ProviderIcon";
 import { overallHealth, pressure, quotaRatio, quotaWindowTag } from "../../lib/format";
-import { shell, tauriBridge } from "../../lib/tauri";
+import { isTauri, shell, tauriBridge } from "../../lib/tauri";
 import type { AccountHealth, AccountViewModel, DashboardBridge, QuotaViewModel } from "../../types";
 
 const DRAG_THRESHOLD_PX = 5;
@@ -86,8 +87,10 @@ export function BubbleView({ bridge = tauriBridge }: { bridge?: DashboardBridge 
     };
   }, [bridge]);
 
-  // Persist the window position after a drag settles.
+  // Persist the window position after a drag settles. The plain-browser
+  // preview has no native window, so the move listener is desktop-only.
   useEffect(() => {
+    if (!isTauri()) return;
     let active = true;
     const unlisten = getCurrentWindow()
       .onMoved(() => {
@@ -119,9 +122,14 @@ export function BubbleView({ bridge = tauriBridge }: { bridge?: DashboardBridge 
       if (!dragging.current && distance > DRAG_THRESHOLD_PX) {
         dragging.current = true;
         target.removeEventListener("pointermove", onMove);
-        void getCurrentWindow()
-          .startDragging()
-          .catch(() => null);
+        if (!isTauri()) return; // nothing to drag in the browser preview
+        try {
+          void getCurrentWindow()
+            .startDragging()
+            .catch(() => null);
+        } catch {
+          // the window API is unavailable outside the desktop shell
+        }
       }
     };
     target.addEventListener("pointermove", onMove);
@@ -133,6 +141,7 @@ export function BubbleView({ bridge = tauriBridge }: { bridge?: DashboardBridge 
   };
 
   const status: AccountHealth = overallHealth(accounts, phase);
+  const reduce = useReducedMotion();
   const primary =
     accounts.find((account) => account.status !== "error") ?? accounts[0] ?? undefined;
   const rings = ringsFor(primary);
@@ -154,13 +163,23 @@ export function BubbleView({ bridge = tauriBridge }: { bridge?: DashboardBridge 
 
   return (
     <div className="bubwin">
-      <button
+      <motion.button
         className={`bubble bubble--${status}`}
         type="button"
+        initial={reduce ? false : { scale: 0.4, opacity: 0 }}
+        animate={{ scale: 1, opacity: 1 }}
+        transition={{ type: "spring", stiffness: 190, damping: 22 }}
+        whileHover={reduce ? undefined : { scale: 1.04 }}
+        whileTap={reduce ? undefined : { scale: 0.94 }}
         onPointerDown={scheduleDrag}
         onClick={() => {
           if (dragging.current) {
             dragging.current = false;
+            return;
+          }
+          if (!isTauri()) {
+            // Browser preview: morph back to the dashboard in this document.
+            window.dispatchEvent(new CustomEvent("tokenowl:show-dashboard"));
             return;
           }
           void shell.openDashboard().catch(() => null);
@@ -171,6 +190,7 @@ export function BubbleView({ bridge = tauriBridge }: { bridge?: DashboardBridge 
         <svg className="bubble__rings" viewBox="0 0 50 50" aria-hidden="true">
           {rings.length === 0 && fallbackRatio !== null && (
             <g>
+              <circle className="bubble__ring-case" cx="25" cy="25" r={RING_RADII[0]} />
               <circle className="bubble__ring-track" cx="25" cy="25" r={RING_RADII[0]} />
               <circle
                 className="bubble__ring-value bubble__ring-value--0"
@@ -187,6 +207,7 @@ export function BubbleView({ bridge = tauriBridge }: { bridge?: DashboardBridge 
             const ratio = ring.ratio ?? 0;
             return (
               <g key={ring.label}>
+                <circle className="bubble__ring-case" cx="25" cy="25" r={radius} />
                 <circle className="bubble__ring-track" cx="25" cy="25" r={radius} />
                 <circle
                   className={`bubble__ring-value bubble__ring-value--${index}`}
@@ -202,12 +223,12 @@ export function BubbleView({ bridge = tauriBridge }: { bridge?: DashboardBridge 
         </svg>
         <span className="bubble__mark">
           {primary ? (
-            <ProviderIcon providerId={primary.providerId} size={20} />
+            <ProviderIcon providerId={primary.providerId} size={17} />
           ) : (
-            <IconOwl size={18} strokeWidth={1.5} />
+            <IconOwl size={15} strokeWidth={1.5} />
           )}
         </span>
-      </button>
+      </motion.button>
     </div>
   );
 }

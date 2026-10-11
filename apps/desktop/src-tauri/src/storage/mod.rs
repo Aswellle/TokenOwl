@@ -14,52 +14,9 @@ use serde::{Deserialize, Serialize};
 use std::path::Path;
 use thiserror::Error;
 
-pub const SCHEMA_VERSION: i32 = 1;
+mod migrations;
 
-const SCHEMA_V1: &str = r"
-CREATE TABLE IF NOT EXISTS providers (
-    id TEXT PRIMARY KEY NOT NULL,
-    config_json TEXT NOT NULL,
-    descriptor_json TEXT NOT NULL,
-    updated_at INTEGER NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS accounts (
-    id TEXT PRIMARY KEY NOT NULL,
-    provider_id TEXT NOT NULL,
-    label TEXT NOT NULL,
-    account_type TEXT NOT NULL,
-    credential_ref TEXT,
-    metadata_json TEXT NOT NULL,
-    enabled INTEGER NOT NULL CHECK (enabled IN (0, 1)),
-    updated_at INTEGER NOT NULL,
-    FOREIGN KEY (provider_id) REFERENCES providers(id) ON DELETE CASCADE
-);
-
-CREATE INDEX IF NOT EXISTS accounts_provider_idx ON accounts(provider_id);
-
-CREATE TABLE IF NOT EXISTS snapshots (
-    account_id TEXT NOT NULL,
-    snapshot_key TEXT NOT NULL,
-    snapshot_json TEXT NOT NULL,
-    observed_at INTEGER NOT NULL CHECK (observed_at >= 0),
-    PRIMARY KEY (account_id, snapshot_key),
-    FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE
-);
-
-CREATE TABLE IF NOT EXISTS refresh_states (
-    account_id TEXT PRIMARY KEY NOT NULL,
-    state_json TEXT NOT NULL,
-    updated_at INTEGER NOT NULL,
-    FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE
-);
-
-CREATE TABLE IF NOT EXISTS settings (
-    key TEXT PRIMARY KEY NOT NULL,
-    value_json TEXT NOT NULL,
-    updated_at INTEGER NOT NULL
-);
-";
+pub use migrations::SCHEMA_VERSION;
 
 #[derive(Debug, Error)]
 pub enum StorageError {
@@ -73,6 +30,17 @@ pub enum StorageError {
     Pragma { name: &'static str, value: String },
     #[error("local storage value is invalid: {0}")]
     InvalidData(String),
+    #[error("local database failed integrity check: {messages}")]
+    Integrity { messages: String },
+    #[error("schema migration {version:04} ({name}) failed: {source}")]
+    Migration {
+        version: i32,
+        name: &'static str,
+        #[source]
+        source: rusqlite::Error,
+    },
+    #[error("local database backup could not be written: {0}")]
+    Backup(#[from] std::io::Error),
 }
 
 /// A normalized snapshot together with its local observation time and freshness.
@@ -103,17 +71,22 @@ pub struct LocalRepository {
 impl LocalRepository {
     /// Opens or creates a file-backed database and applies all migrations.
     pub fn open(path: impl AsRef<Path>) -> Result<Self, StorageError> {
+        let path = path.as_ref();
         let connection = Connection::open(path)?;
-        Self::from_connection(connection, true)
+        Self::from_connection(connection, true, Some(path))
     }
 
     /// Opens an isolated database for tests or ephemeral sessions.
     pub fn open_in_memory() -> Result<Self, StorageError> {
         let connection = Connection::open_in_memory()?;
-        Self::from_connection(connection, false)
+        Self::from_connection(connection, false, None)
     }
 
-    fn from_connection(connection: Connection, enable_wal: bool) -> Result<Self, StorageError> {
+    fn from_connection(
+        connection: Connection,
+        enable_wal: bool,
+        database_path: Option<&Path>,
+    ) -> Result<Self, StorageError> {
         connection.pragma_update(None, "foreign_keys", true)?;
         if enable_wal {
             let mode: String =
@@ -127,33 +100,8 @@ impl LocalRepository {
             }
         }
         connection.pragma_update(None, "synchronous", "NORMAL")?;
-        let repository = Self { connection };
-        repository.migrate()?;
-        Ok(repository)
-    }
-
-    fn migrate(&self) -> Result<(), StorageError> {
-        let version: i32 = self
-            .connection
-            .pragma_query_value(None, "user_version", |row| row.get(0))?;
-        if version > SCHEMA_VERSION {
-            return Err(StorageError::UnsupportedSchema {
-                found: version,
-                supported: SCHEMA_VERSION,
-            });
-        }
-        if version < 1 {
-            self.connection.execute_batch("BEGIN IMMEDIATE;")?;
-            let migration = self.connection.execute_batch(SCHEMA_V1);
-            if let Err(error) = migration {
-                let _ = self.connection.execute_batch("ROLLBACK;");
-                return Err(error.into());
-            }
-            self.connection
-                .pragma_update(None, "user_version", SCHEMA_VERSION)?;
-            self.connection.execute_batch("COMMIT;")?;
-        }
-        Ok(())
+        migrations::apply_migrations(&connection, database_path)?;
+        Ok(Self { connection })
     }
 
     pub fn schema_version(&self) -> Result<i32, StorageError> {

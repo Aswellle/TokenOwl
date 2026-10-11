@@ -1,6 +1,6 @@
 # TokenOwl 实施状态
 
-更新时间：2026-10-10
+更新时间：2026-10-11
 
 本文只描述已经在仓库中存在的实现和已经执行过的验证。未在 Windows 之外运行过的行为一律标为"未验证"。
 
@@ -16,6 +16,8 @@
 - Reset 计算引擎：`ResetCalculator` 支持 rolling、fixed、calendar、subscription、custom 窗口类型，provider-supplied reset_at 优先。
 - Balance 显示：`Balance` 和 `BalanceBuckets` 类型，支持 paid、free_grant、bonus、subscription、promo、team_pool 多桶额度。
 - History 趋势：`HistoryPoint` 和 `HistorySeries`，支持 burn rate 计算和平均使用率。
+- 健康分级（2026-10-11）：`domain/health.rs` 按 PRD §5.1 阈值实现剩余比例分级（<10% critical、<25% attention，严格边界），`commands::account_view_to_model` 将分级接入账户状态——`error`/`unavailable` 保持最高优先级，其次 `critical`/`attention`，再退回 `stale`/`healthy`；前端 `overallHealth`、`attentionCount` 筛选与 chip/bubble 样式透传显示，条形/ring 色调阈值从 15%/40% 统一为 PRD 的 10%/25%。
+- SQLite 迁移框架（2026-10-11）：`storage/migrations/` 目录按 docs/06 §18 版本化（`0001_initial_schema.sql` 经 `include_str!` 嵌入），打开数据库时先 `PRAGMA integrity_check`，对含数据的库用 `VACUUM INTO` 生成 `*.pre-migration.bak` 备份（仅保留最近一代），每个迁移独立事务并在完成后复查完整性；单个迁移失败自动回滚到原版本，损坏库拒绝打开（safe mode），`user_version` 高于支持版本仍然拒绝打开。
 - Scheduler：`Scheduler` 基于 BinaryHeap 优先级队列，支持 jitter、backoff、per-provider 配置。
 - 统一 HTTP 客户端：`networking::HttpClient` 提供 timeout、connect timeout、response size limit、sensitive header redaction。
 - Telemetry：`telemetry` 模块提供结构化日志事件和 secret redaction。
@@ -83,7 +85,6 @@ MSVC 产物写入 `src-tauri/target-msvc`（由 `CARGO_TARGET_DIR` 指定），�
 ## Not Started
 
 - 前端 Zustand 状态管理迁移。
-- SQLite migrations 目录结构（版本化 + 备份 + 完整性检查）。
 - 虚拟列表（大量 Provider 性能优化）。
 - 多显示器支持（边缘吸附 + 位置记忆）。
 - Apple 签名/公证与稳定版发布流程演练。
@@ -92,6 +93,7 @@ MSVC 产物写入 `src-tauri/target-msvc`（由 `CARGO_TARGET_DIR` 指定），�
 ## Known Limitations
 
 - `FreshnessPolicy.stale_after` 目前只作为策略字段保留，UI 的 Fresh/Stale/Expired 由 `fresh_for` 与 `hard_expire_after` 决定；后台刷新固定 600s，未按 `stale_after` 触发。
+- 健康分级只使用剩余比例（PRD §5.1 的定义）；重置临近度未参与分级，留给通知阶段的 `quota:reset-soon`。critical/attention 由最后已知数值驱动（包括 stale/expired 快照），数据年龄通过新鲜度 chip 与提示单独呈现；`error`（刷新失败）仍优先于数值分级。
 - 悬浮球位置命令（`get/save_bubble_position`）已存在，但前端拖拽尚未调用它们，位置不持久化。
 - OpenAI-compatible 解析只识别 `used/limit/remaining`、`reset_at`、`unit`、`currency` 等有限字段名；无法识别的响应会导致 `InvalidResponse`，不会伪造数值。
 - 一个账户一个 endpoint（默认 `/usage`），暂不支持 balance/usage 多端点合并。
@@ -110,16 +112,15 @@ MSVC 产物写入 `src-tauri/target-msvc`（由 `CARGO_TARGET_DIR` 指定），�
 
 ## Testing & Build
 
-- 前端：`pnpm typecheck`、`pnpm build`、`pnpm test`（vitest，12 测试通过）。
-- Rust：`cargo fmt --check` 通过；`cargo test` 117+ 测试通过；`cargo clippy --all-targets -- -D warnings` 0 错误 0 警告。
+- 前端：`pnpm typecheck`、`pnpm build`、`pnpm test`（vitest，22 测试通过，含健康分级边界测试）。
+- Rust：`cargo fmt --check` 通过；`cargo test` 131 测试通过（124 单元 + 7 fixture，含 domain/health 13 个与 storage/migrations 6 个新测试）；`cargo clippy --all-targets --all-features -- -D warnings` 0 错误 0 警告。
 - E2E：Playwright smoke test 脚本已创建，需原生 Tauri 环境执行。
 - CI：`.github/workflows/ci-release.yml` 运行 typecheck、test、build、fmt、check、clippy、cargo test 与版本一致性校验。
 - Windows 构建：MSI (5.49 MiB) + NSIS (4.04 MiB) 已验证产出。
 
 ## Next Recommended Phase
 
-1. 前端 Zustand 状态管理迁移。
-2. SQLite migrations 目录结构。
+1. Provider 多端点合并（balance+usage+quota）。
+2. 通知触发链路：低额度/重置临近/认证过期（健康分级阈值已就绪，需评估 tauri-plugin-notification 权限）。
 3. BubbleView 和 Dashboard 测试在真实 Tauri 环境中验证。
 4. 接入第一个真实 provider 的官方限额端点。
-5. Provider 多端点合并（balance+usage+quota）。

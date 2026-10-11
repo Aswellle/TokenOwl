@@ -1,0 +1,334 @@
+//! Versioned schema migrations with a pre-migration backup and integrity checks.
+//!
+//! Release process per `docs/06` §18: verify database integrity before touching
+//! an existing database, keep a restorable copy while upgrading, apply every
+//! pending migration in its own transaction, and refuse to open a database that
+//! fails the post-migration check. A failed run leaves the database at its
+//! previous version with user data intact.
+//!
+//! Adding a migration: drop a numbered `NNNN_name.sql` file next to this module
+//! and append a [`Migration`] entry with the next version. Migrations must keep
+//! user data intact; the list stays strictly ascending and starts at 1.
+
+use super::StorageError;
+use rusqlite::{Connection, params};
+use std::path::{Path, PathBuf};
+
+/// One schema version step. `version` must be `previous version + 1`.
+pub struct Migration {
+    pub version: i32,
+    pub name: &'static str,
+    pub sql: &'static str,
+}
+
+pub const MIGRATIONS: &[Migration] = &[Migration {
+    version: 1,
+    name: "initial_schema",
+    sql: include_str!("0001_initial_schema.sql"),
+}];
+
+pub const SCHEMA_VERSION: i32 = MIGRATIONS[MIGRATIONS.len() - 1].version;
+
+const BACKUP_SUFFIX: &str = ".pre-migration.bak";
+
+/// Applies every pending migration from [`MIGRATIONS`]. `database_path` enables
+/// the pre-migration backup; in-memory databases skip it.
+pub fn apply_migrations(
+    connection: &Connection,
+    database_path: Option<&Path>,
+) -> Result<(), StorageError> {
+    apply_migrations_with(connection, database_path, MIGRATIONS)
+}
+
+/// Testable core of [`apply_migrations`] that accepts an explicit migration list.
+pub fn apply_migrations_with(
+    connection: &Connection,
+    database_path: Option<&Path>,
+    migrations: &[Migration],
+) -> Result<(), StorageError> {
+    let current: i32 = connection.pragma_query_value(None, "user_version", |row| row.get(0))?;
+    let target = latest_version(migrations);
+    if current > target {
+        return Err(StorageError::UnsupportedSchema {
+            found: current,
+            supported: target,
+        });
+    }
+    if current == target {
+        return Ok(());
+    }
+    integrity_check(connection)?;
+    if let Some(path) = database_path {
+        if has_user_tables(connection)? {
+            create_backup(connection, path)?;
+        }
+    }
+    for migration in migrations
+        .iter()
+        .filter(|migration| migration.version > current)
+    {
+        apply_one(connection, migration)?;
+    }
+    integrity_check(connection)?;
+    Ok(())
+}
+
+fn latest_version(migrations: &[Migration]) -> i32 {
+    migrations.last().map_or(0, |migration| migration.version)
+}
+
+/// Runs `PRAGMA integrity_check` and requires a single `ok` verdict. A corrupt
+/// image can abort the check itself with `SQLITE_CORRUPT` instead of reporting
+/// rows, so that outcome is normalized into the same integrity failure.
+fn integrity_check(connection: &Connection) -> Result<(), StorageError> {
+    let checked = connection
+        .prepare("PRAGMA integrity_check")
+        .and_then(|mut statement| {
+            statement
+                .query_map([], |row| row.get::<_, String>(0))?
+                .collect::<Result<Vec<_>, _>>()
+        });
+    match checked {
+        Ok(messages) if messages.len() == 1 && messages[0].eq_ignore_ascii_case("ok") => Ok(()),
+        Ok(messages) => Err(StorageError::Integrity {
+            messages: messages.join("; "),
+        }),
+        Err(error) if error.sqlite_error_code() == Some(rusqlite::ErrorCode::DatabaseCorrupt) => {
+            Err(StorageError::Integrity {
+                messages: error.to_string(),
+            })
+        }
+        Err(error) => Err(error.into()),
+    }
+}
+
+/// True when the database already holds user tables, i.e. it carries data that
+/// a migration must not lose. Fresh databases skip the backup.
+fn has_user_tables(connection: &Connection) -> Result<bool, StorageError> {
+    let count: i64 = connection.query_row(
+        "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'",
+        [],
+        |row| row.get(0),
+    )?;
+    Ok(count > 0)
+}
+
+/// Writes a consistent copy of the current database next to the original. At
+/// most one generation is kept; an existing backup from a previous run is
+/// replaced because `VACUUM INTO` refuses existing targets.
+fn create_backup(connection: &Connection, database_path: &Path) -> Result<(), StorageError> {
+    let mut file_name = database_path.as_os_str().to_owned();
+    file_name.push(BACKUP_SUFFIX);
+    let backup_path = PathBuf::from(file_name);
+    if backup_path.exists() {
+        std::fs::remove_file(&backup_path)?;
+    }
+    connection.execute("VACUUM INTO ?1", params![backup_path.display().to_string()])?;
+    Ok(())
+}
+
+/// Applies a single migration atomically. Any failure rolls the transaction
+/// back, leaving `user_version` and the schema untouched at the previous level.
+fn apply_one(connection: &Connection, migration: &Migration) -> Result<(), StorageError> {
+    let transaction = connection.unchecked_transaction()?;
+    let outcome = transaction
+        .execute_batch(migration.sql)
+        .and_then(|()| transaction.pragma_update(None, "user_version", migration.version));
+    if let Err(source) = outcome {
+        return Err(StorageError::Migration {
+            version: migration.version,
+            name: migration.name,
+            source,
+        });
+    }
+    transaction
+        .commit()
+        .map_err(|source| StorageError::Migration {
+            version: migration.version,
+            name: migration.name,
+            source,
+        })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::{Seek as _, Write as _};
+
+    fn temp_db_path(tag: &str) -> PathBuf {
+        std::env::temp_dir().join(format!(
+            "tokenowl-mig-{tag}-{}-{}.db",
+            std::process::id(),
+            nanoid::nanoid!(8)
+        ))
+    }
+
+    /// Creates a legacy database at `user_version` 0 carrying one marker row.
+    fn legacy_database(path: &Path) {
+        let connection = Connection::open(path).expect("create legacy db");
+        connection
+            .execute_batch(
+                "CREATE TABLE legacy (id INTEGER PRIMARY KEY); INSERT INTO legacy VALUES (7);",
+            )
+            .expect("seed legacy data");
+    }
+
+    fn user_version(connection: &Connection) -> i32 {
+        connection
+            .pragma_query_value(None, "user_version", |row| row.get(0))
+            .expect("user_version")
+    }
+
+    fn legacy_row_survived(path: &Path) -> bool {
+        let connection = Connection::open(path).expect("reopen db");
+        let id: i64 = connection
+            .query_row("SELECT id FROM legacy LIMIT 1", [], |row| row.get(0))
+            .expect("legacy row");
+        id == 7
+    }
+
+    fn backup_path(path: &Path) -> PathBuf {
+        let mut name = path.as_os_str().to_owned();
+        name.push(BACKUP_SUFFIX);
+        PathBuf::from(name)
+    }
+
+    fn cleanup(path: &Path) {
+        for candidate in [path.to_path_buf(), backup_path(path)] {
+            let _ = std::fs::remove_file(candidate);
+        }
+    }
+
+    #[test]
+    fn fresh_database_migrates_without_backup() {
+        let path = temp_db_path("fresh");
+        let connection = Connection::open(&path).expect("open");
+        apply_migrations_with(&connection, Some(&path), MIGRATIONS).expect("migrate fresh db");
+        drop(connection);
+        let connection = Connection::open(&path).expect("reopen");
+        assert_eq!(user_version(&connection), SCHEMA_VERSION);
+        assert!(!backup_path(&path).exists(), "fresh db needs no backup");
+        cleanup(&path);
+    }
+
+    #[test]
+    fn upgrading_writes_backup_and_preserves_user_data() {
+        let path = temp_db_path("upgrade");
+        legacy_database(&path);
+        let connection = Connection::open(&path).expect("open");
+        apply_migrations_with(&connection, Some(&path), MIGRATIONS).expect("migrate legacy db");
+        drop(connection);
+        assert!(
+            backup_path(&path).exists(),
+            "backup must exist after upgrade"
+        );
+        assert!(legacy_row_survived(&path), "user data must survive");
+        let connection = Connection::open(&path).expect("reopen");
+        assert_eq!(user_version(&connection), SCHEMA_VERSION);
+        // The target schema is present next to the legacy table.
+        let accounts: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'accounts'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("accounts table");
+        assert_eq!(accounts, 1);
+        cleanup(&path);
+    }
+
+    #[test]
+    fn corrupted_database_refuses_to_migrate() {
+        let path = temp_db_path("corrupt");
+        {
+            let connection = Connection::open(&path).expect("seed db");
+            connection
+                .execute_batch(
+                    "CREATE TABLE filler (payload TEXT);
+                     INSERT INTO filler VALUES (printf('%.8000c', 'x'));
+                     INSERT INTO filler VALUES (printf('%.8000c', 'y'));",
+                )
+                .expect("seed rows");
+        }
+        // Corrupt a page behind the header so the file still opens as SQLite.
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .open(&path)
+            .expect("open for corruption");
+        file.seek(std::io::SeekFrom::Start(4096))
+            .and_then(|_| file.write_all(&[0xFF; 512]))
+            .and_then(|()| file.flush())
+            .expect("corrupt page");
+        drop(file);
+
+        let connection = Connection::open(&path).expect("corrupt db still opens");
+        let error = apply_migrations_with(&connection, Some(&path), MIGRATIONS)
+            .expect_err("corrupted database must refuse to migrate");
+        assert!(
+            matches!(error, StorageError::Integrity { .. }),
+            "expected integrity failure, got {error:?}"
+        );
+        assert!(
+            !backup_path(&path).exists(),
+            "no backup may be taken from a corrupted database"
+        );
+        cleanup(&path);
+    }
+
+    #[test]
+    fn newer_schema_version_refuses_to_open() {
+        let path = temp_db_path("newer");
+        {
+            let connection = Connection::open(&path).expect("open");
+            connection
+                .pragma_update(None, "user_version", SCHEMA_VERSION + 1)
+                .expect("set future version");
+        }
+        let connection = Connection::open(&path).expect("open");
+        let error = apply_migrations_with(&connection, Some(&path), MIGRATIONS)
+            .expect_err("newer schema must refuse");
+        assert!(
+            matches!(error, StorageError::UnsupportedSchema { .. }),
+            "expected unsupported schema, got {error:?}"
+        );
+        assert!(!backup_path(&path).exists());
+        cleanup(&path);
+    }
+
+    #[test]
+    fn failed_migration_rolls_back_and_keeps_database_usable() {
+        let path = temp_db_path("rollback");
+        legacy_database(&path);
+        let broken = [Migration {
+            version: 1,
+            name: "broken",
+            sql: "CREATE TABLE definitely_broken (",
+        }];
+        let connection = Connection::open(&path).expect("open");
+        let error = apply_migrations_with(&connection, Some(&path), &broken)
+            .expect_err("broken migration must fail");
+        assert!(
+            matches!(
+                error,
+                StorageError::Migration {
+                    version: 1,
+                    name: "broken",
+                    ..
+                }
+            ),
+            "expected migration failure, got {error:?}"
+        );
+        assert_eq!(user_version(&connection), 0, "version must roll back");
+        drop(connection);
+        assert!(legacy_row_survived(&path), "data must survive a rollback");
+        assert!(backup_path(&path).exists(), "backup stays for recovery");
+        cleanup(&path);
+    }
+
+    #[test]
+    fn empty_migration_list_is_a_noop() {
+        let connection = Connection::open_in_memory().expect("memory db");
+        apply_migrations_with(&connection, None, &[]).expect("no migrations");
+        assert_eq!(user_version(&connection), 0);
+    }
+}

@@ -57,6 +57,9 @@ export const tauriBridge: DashboardBridge = {
     invoke<UsageWindowsViewModel>("usage_windows", accountId ? { accountId } : undefined),
 };
 
+/** Project homepage; the Rust opener command opens the same URL. */
+export const PROJECT_URL = "https://github.com/Aswellle/TokenOwl";
+
 /** Window-shell actions that stay in Rust so capabilities stay narrow. */
 export const shell = {
   openDashboard: () => invoke<void>("open_dashboard"),
@@ -64,7 +67,13 @@ export const shell = {
   minimizeDashboard: () => invoke<void>("minimize_dashboard"),
   showBubble: () => invoke<void>("show_bubble"),
   persistBubblePosition: () => invoke<void>("persist_bubble_position"),
-  openProjectPage: () => invoke<void>("open_project_page"),
+  openProjectPage: () => {
+    if (isTauri()) return invoke<void>("open_project_page");
+    // Plain-browser preview has no IPC; fall back to a normal new tab so the
+    // dock link stays functional outside the desktop shell.
+    window.open(PROJECT_URL, "_blank", "noopener,noreferrer");
+    return Promise.resolve();
+  },
 };
 
 /** True when running inside the Tauri webview (as opposed to a plain browser). */

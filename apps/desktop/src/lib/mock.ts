@@ -20,7 +20,12 @@ import type {
 const minute = 60_000;
 const hour = 3_600_000;
 
+// `?empty=1` renders the first-run experience: zero accounts, no history,
+// no notifications — so the empty states stay reviewable in a plain browser.
+const emptyPreview = new URLSearchParams(window.location.search).has("empty");
+
 function demoAccounts(now: number): AccountViewModel[] {
+  if (emptyPreview) return [];
   return [
     {
       id: "demo-primary",
@@ -172,6 +177,7 @@ function demoAccounts(now: number): AccountViewModel[] {
 }
 
 function demoNotifications(now: number): NotificationViewModel[] {
+  if (emptyPreview) return [];
   return [
     {
       id: "demo-ntf-1",
@@ -229,6 +235,16 @@ function mulberry32(seed: number): () => number {
 }
 
 function demoHistory(now: number): HistorySummaryViewModel {
+  if (emptyPreview) {
+    return {
+      days: [],
+      totalTokens: 0,
+      totalCost: null,
+      currency: null,
+      activeDays: 0,
+      rangeDays: 182,
+    };
+  }
   const rand = mulberry32(20261011);
   const rangeDays = 182;
   const recordingDays = 120;
@@ -526,11 +542,17 @@ export function createMockBridge(): DashboardBridge {
         currency: hasData && cost > 0 ? "¥" : null,
         hasData,
       });
-      const usage: UsageWindowsViewModel = {
-        hours2: window(Math.round(30_000 + rand() * 90_000), Math.round(rand() * 40) / 100, true),
-        hours24: window(Math.round(600_000 + rand() * 900_000), Math.round(rand() * 500) / 100, true),
-        days30: window(Math.round(18_000_000 + rand() * 8_000_000), 380 + Math.round(rand() * 100) / 100, true),
-      };
+      const usage: UsageWindowsViewModel = emptyPreview
+        ? {
+            hours2: window(0, 0, false),
+            hours24: window(0, 0, false),
+            days30: window(0, 0, false),
+          }
+        : {
+            hours2: window(Math.round(30_000 + rand() * 90_000), Math.round(rand() * 40) / 100, true),
+            hours24: window(Math.round(600_000 + rand() * 900_000), Math.round(rand() * 500) / 100, true),
+            days30: window(Math.round(18_000_000 + rand() * 8_000_000), 380 + Math.round(rand() * 100) / 100, true),
+          };
       return usage;
     },
   };

@@ -34,8 +34,10 @@
 
   /* Apple-style label hierarchy. */
   --ink: #1d1d1f;
-  --ink-2: rgba(60, 60, 67, 0.72);
-  --ink-3: rgba(60, 60, 67, 0.44);
+  /* Measured over the composited surface: ink 15.6:1, ink-2 5.4:1,
+     ink-3 4.7:1 — all clear WCAG AA body text (0.44 alpha measured 2.3:1). */
+  --ink-2: rgba(60, 60, 67, 0.78);
+  --ink-3: #6e6e73;
 
   /* Hairlines. */
   --hairline: rgba(0, 0, 0, 0.09);
@@ -55,7 +57,7 @@
   --bubble-ring-b: #f472b6;
 
   /* Status colors: text-safe variants for light backgrounds. */
-  --ok: #1d8a43;
+  --ok: #167a3a;
   --ok-soft: rgba(52, 199, 89, 0.14);
   --warning: #a55a00;
   --warning-soft: rgba(255, 149, 0, 0.14);
@@ -105,7 +107,8 @@
 
     --ink: #f5f5f7;
     --ink-2: rgba(235, 235, 245, 0.68);
-    --ink-3: rgba(235, 235, 245, 0.4);
+    /* 5.2:1 over the dark composited surface (was 3.4:1 at 0.4 alpha). */
+    --ink-3: rgba(235, 235, 245, 0.55);
 
     --hairline: rgba(255, 255, 255, 0.1);
     --hairline-strong: rgba(255, 255, 255, 0.18);
@@ -2193,7 +2196,9 @@ button:disabled {
 
 .pview__numbers {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  /* Cards flow to as many columns as fit: the third metric (burn rate)
+     must not orphan on a second row at narrow widths. */
+  grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
   gap: 12px;
   margin: 0;
 }
@@ -2637,4 +2642,16 @@ button:disabled {
 .picker__btn--planned {
   opacity: 0.55;
   cursor: not-allowed;
+}
+
+/* ---------- forced-colors (Windows high contrast) ---------- */
+
+/* The field focus treatment removes the outline in favor of a soft ring,
+   which forced-colors mode flattens to nothing. Restore a real outline so
+   keyboard focus stays visible with system colors. */
+@media (forced-colors: active) {
+  .field__input:focus-visible {
+    outline: 2px solid CanvasText;
+    outline-offset: 1px;
+  }
 }

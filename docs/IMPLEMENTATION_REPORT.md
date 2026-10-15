@@ -900,3 +900,46 @@ cargo 201、clippy `-D warnings`、fmt；vitest 35、typecheck；Playwright 4/4�
 
 把社区 YAML 放进 `%APPDATA%/com.tokenowl.app/community-providers/`，重启或
 重开设置页即出现在选择器（OpenAI 兼容协议组）；校验失败的文件在设置页显示原因。
+
+## Round 20 — UI/UX 审查与修复（better-* 系列 skills）
+
+日期：2026-10-16 | 基线：Round 19 后工作区 | 平台：Windows 11 x64
+
+### 审查方式
+
+按 better-interface 的域顺序（accessibility → layout → typography → colors →
+ui）逐域审查现有实现，加载了 design-taste-frontend、better-colors、
+better-icons、better-ui、better-interface、better-layout、better-typography、
+better-accessibility、improve-animations 九个 skill 作为判据。对比度一律
+**实测**（better-colors 要求），合成表面后的真实渲染对：半透明表面叠加在
+`--canvas-solid` 上再与文本色计算。
+
+### 发现与修复（按严重度）
+
+| 严重度 | 位置 | 修复前 | 修复后 | 依据 |
+|---|---|---|---|---|
+| HIGH | App.css `--ink-3`（浅色） | rgba(60,60,67,0.44) 实测 **2.30:1** | `#6e6e73` 实测 **4.70:1** | WCAG AA 正文 4.5:1；35 处使用（帮助文本/时间戳/单位）全部受益 |
+| HIGH | App.css `--ink-3`（暗色） | rgba(235,235,245,0.4) 实测 **3.38:1** | rgba(235,235,245,0.55) 实测 **5.18:1** | 同上 |
+| HIGH | App.css `--ok`（浅色） | #1d8a43 实测 **4.08:1** | #167a3a 实测 **5.02:1** | 状态绿用于小字徽章，需过 AA |
+| HIGH | App.css `.pview__numbers` | 固定 2 列网格，第三张卡（消耗速率，Round 17 引入）在窄窗形成孤儿行 | `repeat(auto-fit, minmax(132px, 1fr))` | better-layout：内容自适应，行不留孤项 |
+| MEDIUM | App.css `.field__input:focus-visible` | `outline: none` 无强制色彩回退，Windows 高对比模式下焦点不可见 | 新增 `@media (forced-colors: active)` 恢复 `2px solid CanvasText` | better-accessibility：forced-colors 必须保留系统焦点指示 |
+| 附带 | `--ink-2`（浅色） | 0.72 实测 4.56:1，与新 ink-3 层级过近 | 0.78 实测 5.36:1 | 保持 ink 15.6 > ink-2 5.4 > ink-3 4.7 的递减层级带 |
+
+### 复核确认无需改动
+
+- **hover 触屏粘滞**：原文件已有 `@media (hover: none)` 清除块（bubble/btn/
+  pill/account/stat/seg 全覆盖），审查确认无需新增。
+- **焦点环**：8 条 `:focus-visible` 规则（全局 2px 实线 + 组件级），Tab 顺序
+  自然，无 `outline: none` 裸用（字段有软环 + 新的强制色彩回退）。
+- **tabular-nums**：8 处数值显示已覆盖；动效 5 处 reduced-motion 守卫齐备。
+
+### 过程说明
+
+首次尝试用脚本批量包裹 17 处 hover 规则，破坏了多选择器规则与既有的
+`@media (hover: none)` 块（lightningcss 构建报错）。已回退并以**外科式最小
+改动**重做（5 处精确替换，净增 752 字节），构建与全部测试通过。
+
+### 验证
+
+build ✓、vitest 35、typecheck、Playwright 4/4；浏览器实测计算 token 值与
+8 条焦点规则；暗色模式截图确认渲染。

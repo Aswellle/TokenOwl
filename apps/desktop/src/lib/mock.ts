@@ -460,6 +460,15 @@ export function createMockBridge(): DashboardBridge {
         profile("litellm", "LiteLLM", "https://your-gateway.example", "L2", {
           models: "/v1/models",
         }, { customBaseUrl: true }),
+        // OpenAI-compatible entries for providers whose native protocol is
+        // also offered: verified against the official docs (Gemini documents
+        // /models on the compatibility base; Anthropic documents chat only).
+        profile("gemini-openai", "Google Gemini (OpenAI 兼容)", "https://generativelanguage.googleapis.com/v1beta/openai", "L2", {
+          models: "/models",
+        }),
+        profile("anthropic-openai", "Anthropic (OpenAI 兼容)", "https://api.anthropic.com/v1", "L2", {
+          models: "/v1/models",
+        }),
       ];
       return { profiles, skipped: [] };
     },

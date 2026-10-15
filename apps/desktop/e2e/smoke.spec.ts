@@ -40,3 +40,59 @@ test.describe("TokenOwl dashboard smoke", () => {
     await expect(page.locator(".window")).toBeVisible();
   });
 });
+
+test.describe("settings view (phase-C UI)", () => {
+  test("capability matrix is collapsed by default and expands on click", async ({ page }) => {
+    await page.goto("/");
+    await page.getByRole("button", { name: "设置", exact: true }).click();
+    const disclosure = page.locator(".matrix__disclosure");
+    await expect(disclosure).toBeVisible();
+    // Collapsed by default: reference material stays out of the way.
+    await expect(disclosure).not.toHaveAttribute("open", "");
+    await disclosure.locator("summary").click();
+    await expect(disclosure).toHaveAttribute("open", "");
+    await expect(page.locator(".matrix__row").first()).toBeVisible();
+  });
+
+  test("both protocol groups list the OpenAI-compatible entries", async ({ page }) => {
+    await page.goto("/");
+    await page.getByRole("button", { name: "设置", exact: true }).click();
+    const compatGroup = page.locator(".picker__heading").first();
+    await expect(compatGroup).toHaveText("OpenAI 兼容协议");
+    // anthropic-openai and gemini-openai live in the compatible group.
+    const row = compatGroup.locator("xpath=following-sibling::div[1]");
+    await expect(row.getByRole("button", { name: /Anthropic \(OpenAI 兼容\)/ })).toBeVisible();
+    await expect(row.getByRole("button", { name: /Google Gemini \(OpenAI 兼容\)/ })).toBeVisible();
+  });
+});
+
+test.describe("viewport scrolling", () => {
+  test("only the content region scrolls — the shell is pinned", async ({ page }) => {
+    await page.goto("/");
+    const scrollers = await page.evaluate(() => {
+      const found: Array<{ cls: string; sh: number; ch: number }> = [];
+      for (const el of Array.from(document.querySelectorAll("*"))) {
+        if (el.scrollHeight > el.clientHeight + 4 && el.clientHeight > 40) {
+          const cs = getComputedStyle(el);
+          if (cs.overflowY === "auto" || cs.overflowY === "scroll") {
+            found.push({ cls: String(el.className || el.tagName), sh: el.scrollHeight, ch: el.clientHeight });
+          }
+        }
+      }
+      return found;
+    });
+    // At most one vertical scroller, and when content overflows it is the
+    // dashboard's own region — never the window frame or the document.
+    expect(scrollers.length).toBeLessThanOrEqual(1);
+    if (scrollers.length === 1) {
+      expect(scrollers[0].cls).toContain("content");
+    }
+    // The window frame itself never overflows its viewport.
+    const overflow = await page.evaluate(() => ({
+      doc: document.documentElement.scrollHeight - document.documentElement.clientHeight,
+      body: document.body.scrollHeight - document.body.clientHeight,
+    }));
+    expect(overflow.doc).toBeLessThanOrEqual(1);
+    expect(overflow.body).toBeLessThanOrEqual(1);
+  });
+});

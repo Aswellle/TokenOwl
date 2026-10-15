@@ -37,13 +37,17 @@ export function ProviderMatrix({ bridge }: { bridge: DashboardBridge }) {
 
   return (
     <section className="section matrix" aria-label={copy.a11y.matrixRegion}>
-      <div className="section__head">
-        <div className="section__titlewrap">
-          <h2 className="section__title">{copy.matrix.title}</h2>
-        </div>
-      </div>
-      <p className="matrix__intro">{copy.matrix.intro}</p>
-      {rows === null ? (
+      {/* Collapsed by default: the 30-row catalog is reference material, not
+          the page's job. <details> keeps keyboard and AT behavior native. */}
+      <details className="matrix__disclosure">
+        <summary className="matrix__summary">
+          <span className="matrix__summary-title">{copy.matrix.title}</span>
+          <span className="matrix__summary-count">
+            {rows === null ? copy.matrix.loading : copy.matrix.rowCount(rows.length)}
+          </span>
+        </summary>
+        <p className="matrix__intro">{copy.matrix.intro}</p>
+        {rows === null ? (
         <div className="skeleton" aria-hidden="true">
           <div className="skeleton__line skeleton__line--short" />
           <div className="skeleton__line" />
@@ -74,7 +78,8 @@ export function ProviderMatrix({ bridge }: { bridge: DashboardBridge }) {
             </li>
           ))}
         </ul>
-      )}
+        )}
+      </details>
     </section>
   );
 }

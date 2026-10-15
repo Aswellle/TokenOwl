@@ -259,6 +259,8 @@ export const copy = {
   },
 
   matrix: {
+    loading: "加载中",
+    rowCount: (count: number) => `${count} 个供应商`,
     title: "供应商能力矩阵",
     protocol: "协议",
     intro:

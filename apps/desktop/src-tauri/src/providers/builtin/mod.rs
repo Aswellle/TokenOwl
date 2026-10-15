@@ -108,6 +108,14 @@ pub const BUILTIN_MANIFESTS: &[(&str, &str)] = &[
         include_str!("../../../../../../providers/builtin/coze.yaml"),
     ),
     (
+        "gemini-openai",
+        include_str!("../../../../../../providers/builtin/gemini-openai.yaml"),
+    ),
+    (
+        "anthropic-openai",
+        include_str!("../../../../../../providers/builtin/anthropic-openai.yaml"),
+    ),
+    (
         "new-api",
         include_str!("../../../../../../providers/builtin/new-api.yaml"),
     ),
@@ -355,7 +363,7 @@ mod tests {
         assert_eq!(registry.len(), BUILTIN_MANIFESTS.len());
         assert_eq!(
             registry.len(),
-            27,
+            29,
             "all manifests except the custom gateway row register an adapter"
         );
     }
@@ -382,11 +390,11 @@ mod tests {
     #[test]
     fn matrix_lists_full_catalog_with_implemented_levels() {
         let rows = provider_matrix();
-        assert_eq!(rows.len(), 28);
+        assert_eq!(rows.len(), 30);
         let implemented: Vec<_> = rows.iter().filter(|row| row.implemented).collect();
         assert_eq!(
             implemented.len(),
-            27,
+            29,
             "every manifest except the custom gateway row is implemented"
         );
         let level_of = |id: &str| {

@@ -1,10 +1,16 @@
 import { useEffect, useState } from "react";
 import { motion } from "motion/react";
-import { Area, AreaChart, ResponsiveContainer, YAxis } from "recharts";
+import { Area, AreaChart, ResponsiveContainer, Tooltip, YAxis } from "recharts";
 import { copy } from "../../../styles/copy";
 import { ProviderIcon } from "../../../components/ProviderIcon";
 import { IconRefresh } from "../../../components/icons";
-import { burnExhaustionHint as burnHint, formatBurnRate, formatCompact } from "../../../lib/format";
+import {
+  burnExhaustionHint as burnHint,
+  formatBurnRate,
+  formatCompact,
+  quotaRatio,
+  quotaWindowTag,
+} from "../../../lib/format";
 import { QuotaMetric } from "./QuotaMetric";
 import { StatusChip } from "./StatusChip";
 import type {
@@ -34,6 +40,57 @@ function formatCost(range: RangeUsageViewModel | null): string {
   return `${range.currency ?? ""}${amount}`;
 }
 
+interface ProviderTrendPoint {
+  label: string;
+  tokens: number | null;
+  dayStart: number;
+}
+
+/**
+ * Hover details for the provider trend: that day's consumption plus the
+ * account's current quota windows, so one hover answers "how much and how
+ * much is left" without leaving the chart.
+ */
+function ProviderTrendTooltip({
+  active,
+  payload,
+  account,
+}: {
+  active?: boolean;
+  payload?: ReadonlyArray<{ payload: ProviderTrendPoint }>;
+  account: AccountViewModel;
+}) {
+  if (!active || !payload || payload.length === 0) return null;
+  const point = payload[0].payload;
+  const date = new Date(point.dayStart * 1000);
+  const quotas = account.snapshots
+    .map((quota) => {
+      const tag = quotaWindowTag(quota);
+      const ratio = quotaRatio(quota);
+      return tag && ratio !== null ? { tag, ratio } : null;
+    })
+    .filter((entry): entry is { tag: string; ratio: number } => entry !== null);
+  return (
+    <div className="trend-tip">
+      <p className="trend-tip__date">
+        {date.getMonth() + 1}月{date.getDate()}日 · {copy.usage.tokens}{" "}
+        {point.tokens === null ? copy.summary.unknown : formatCompact(point.tokens)}
+      </p>
+      {quotas.length > 0 && (
+        <div className="trend-tip__quotas">
+          <span>{copy.history.quotaOverview}</span>
+          {quotas.map((entry) => (
+            <div key={entry.tag} className="trend-tip__quota-row">
+              <span>{entry.tag}</span>
+              <span className="num">{Math.round(entry.ratio * 100)}%</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /**
  * One provider's dedicated view: header card, trailing-window usage stats
  * (2h / 24h / 30 days) and the provider's quota metric cards.
@@ -53,7 +110,9 @@ export function ProviderView({
 }) {
   const [windowKey, setWindowKey] = useState<WindowKey>("hours24");
   const [usage, setUsage] = useState<UsageWindowsViewModel | null>(null);
-  const [trend, setTrend] = useState<Array<{ label: string; tokens: number | null }>>([]);
+  const [trend, setTrend] = useState<
+    Array<{ label: string; tokens: number | null; dayStart: number }>
+  >([]);
 
   useEffect(() => {
     let active = true;
@@ -73,7 +132,7 @@ export function ProviderView({
         const todayStart = Math.floor(
           new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime() / 1000,
         );
-        const points: Array<{ label: string; tokens: number | null }> = [];
+        const points: Array<{ label: string; tokens: number | null; dayStart: number }> = [];
         for (let offset = 29; offset >= 0; offset--) {
           const dayStart = todayStart - offset * 86_400;
           const day = byDay.get(dayStart);
@@ -81,6 +140,7 @@ export function ProviderView({
           points.push({
             label: `${date.getMonth() + 1}/${date.getDate()}`,
             tokens: day?.hasData ? day.tokens : null,
+            dayStart,
           });
         }
         setTrend(points);
@@ -164,9 +224,19 @@ export function ProviderView({
         </dl>
         <p className="pview__hint">{burnRate ? burnHint(burnRate) : copy.usage.growing}</p>
         {trend.some((point) => (point.tokens ?? 0) > 0) && (
-          <div className="pview__trend" aria-hidden="true">
+          <div className="pview__trend">
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart data={trend} margin={{ top: 2, right: 2, bottom: 0, left: 2 }}>
+                <Tooltip
+                  cursor={{ stroke: "var(--hairline-strong)", strokeWidth: 1 }}
+                  content={(props) => (
+                    <ProviderTrendTooltip
+                      active={props.active}
+                      payload={props.payload as ReadonlyArray<{ payload: ProviderTrendPoint }> | undefined}
+                      account={account}
+                    />
+                  )}
+                />
                 <defs>
                   <linearGradient id="pview-trend-fill" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="0%" stopColor="var(--brand)" stopOpacity={0.3} />

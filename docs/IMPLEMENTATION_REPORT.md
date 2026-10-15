@@ -943,3 +943,32 @@ better-accessibility、improve-animations 九个 skill 作为判据。对比度�
 
 build ✓、vitest 35、typecheck、Playwright 4/4；浏览器实测计算 token 值与
 8 条焦点规则；暗色模式截图确认渲染。
+
+## Round 21 — 协议矩阵修正 + 交互密度与滚动修复
+
+日期：2026-10-16 | 基线：Round 20 后工作区 | 平台：Windows 11 x64
+
+### 官方文档核实（不凭印象）
+
+- **Anthropic**（platform.claude.com/docs/en/api/openai-sdk）：官方 OpenAI 兼容层
+  base 为 `https://api.anthropic.com/v1/`，**仅文档化 chat completions**，无
+  models 端点。原生 API 的 `/v1/models` 是真实端点（Round 15 已用），保留。
+- **Google Gemini**（ai.google.dev/gemini-api/docs/openai）：兼容层 base
+  `https://generativelanguage.googleapis.com/v1beta/openai/`，**支持
+  `/models`**，`Authorization: Bearer` 鉴权。
+
+### 变更
+
+| 项 | 内容 |
+|---|---|
+| 协议多入口 | 新增 `gemini-openai`、`anthropic-openai` 两个 manifest（内置 29 → 31 项含 openai-compatible 变体）；原生入口与兼容入口在选择器里各归其组，用户按需选择 |
+| 能力矩阵密度 | 30 行目录默认折叠（原生 `<details>/<summary>`，键盘与 AT 免费获得），标题行显示供应商计数，展开箭头随状态翻转 |
+| 趋势图悬浮详情 | ProviderView 面积图接入 Tooltip：悬停任一坐标点显示该日日期 + Token 消耗 + 当前额度窗口剩余百分比 |
+| **双滚动条修复** | 根因：预览壳外层 `overflowY: auto` + 26px padding 使 `.window` 的 `100dvh` 溢出 52px，形成外层滚动；预览下 `.window` 改 `height: 100%` 适配视口，外层改 `overflow: hidden`。量化验收：`docOverflow: 0`、滚动仅发生在 `.content`（1099→600），滚动后 titlebar 固定 top 26、dock 固定 714.6 |
+
+### 验证
+
+- cargo 201（29 manifest 注册 + 30 行矩阵断言更新）、clippy、fmt；
+- vitest 35（mock 23 项含两个兼容入口断言）、typecheck、build；
+- Playwright **7 项**（新增：矩阵折叠/展开、双协议组列出兼容入口、滚动条唯一性
+  + 文档零溢出断言）全绿；截图验收设置页与矩阵展开态。

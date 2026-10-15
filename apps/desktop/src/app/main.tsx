@@ -66,7 +66,11 @@ function PreviewShell() {
           style={{
             position: "fixed",
             inset: 0,
-            overflowY: "auto",
+            // No outer scroller: the window frame is pinned to the viewport
+            // and only the dashboard's own .content region scrolls, so the
+            // titlebar and dock stay visible (a second scrollbar here made
+            // the whole shell slide under the user's cursor).
+            overflow: "hidden",
             padding: 26,
             zIndex: 2,
           }}

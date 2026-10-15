@@ -369,6 +369,7 @@ function SetupForm({
   onSubmit: (input: Omit<GenericOpenAiAccountInput, "apiKey"> & { apiKeyInput: HTMLInputElement }) => Promise<void>;
 }) {
   const [profiles, setProfiles] = useState<ManifestProfileViewModel[]>([]);
+  const [packSkipped, setPackSkipped] = useState<string[]>([]);
   const [profileId, setProfileId] = useState("custom");
   const [label, setLabel] = useState("");
   const [baseUrl, setBaseUrl] = useState("https://api.openai.com/v1");
@@ -381,8 +382,10 @@ function SetupForm({
     let active = true;
     bridge
       .manifestProfiles()
-      .then((list) => {
-        if (active) setProfiles(list);
+      .then((view) => {
+        if (!active) return;
+        setProfiles(view.profiles);
+        setPackSkipped(view.skipped);
       })
       .catch(() => null);
     return () => {
@@ -436,6 +439,11 @@ function SetupForm({
       {error && (
         <p className="form__error" role="alert">
           {error}
+        </p>
+      )}
+      {packSkipped.length > 0 && (
+        <p className="form__error" role="status">
+          {copy.form.communitySkipped}: {packSkipped.join("；")}
         </p>
       )}
       <div className="picker" role="group" aria-label={copy.a11y.profilePicker}>

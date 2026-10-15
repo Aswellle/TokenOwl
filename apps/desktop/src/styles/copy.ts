@@ -235,6 +235,7 @@ export const copy = {
     endpointsAvailable: "内置端点",
     protocolOpenai: "OpenAI 兼容协议",
     protocolOther: "其他原生协议（适配逐步开放）",
+    communitySkipped: "部分社区包未能加载",
     gatewayBaseUrl: "网关地址",
     gatewayBaseUrlHelp: "填入你部署的网关地址，例如 https://your-gateway.example。",
     customNote: "自定义接入按 L1 能力处理：只有对方上报的字段才会显示。",

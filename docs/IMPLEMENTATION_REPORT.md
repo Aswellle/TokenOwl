@@ -875,3 +875,28 @@ with_mappings`（dot-path 取值，支持数组下标）。显式映射是清单
 
 cargo 201（198→201）、clippy `-D warnings`、fmt；vitest 35、typecheck；
 Playwright 4/4。
+
+## Round 19 — 社区包 UI 入口（D2 收尾）
+
+日期：2026-10-16 | 基线：Round 18 后工作区 | 平台：Windows 11 x64
+
+### 内容
+
+- **后端**：`all_manifest_profiles(data_dir)` 合并内置与社区清单；社区目录为
+  `<data dir>/community-providers`（首次扫描自动创建，路径由 AppRuntime 持有，
+  不引新依赖）。`manifest_profiles` 命令升级为 `ManifestProfilesView`
+  （profiles + skipped 校验失败清单）；`resolve_new_account` 走同一合并列表，
+  社区包 id 即刻可用于建户。刷新链路零改动——社区包强制 openai-compatible，
+  天然走现有兜底适配器。
+- **前端**：bridge/types/mock 对齐新视图；设置页表单在校验失败时显示
+  "部分社区包未能加载：file: reason（…）"状态行。
+- 原有 mock.test 断言改为解构视图。
+
+### 验证
+
+cargo 201、clippy `-D warnings`、fmt；vitest 35、typecheck；Playwright 4/4。
+
+### 用法
+
+把社区 YAML 放进 `%APPDATA%/com.tokenowl.app/community-providers/`，重启或
+重开设置页即出现在选择器（OpenAI 兼容协议组）；校验失败的文件在设置页显示原因。

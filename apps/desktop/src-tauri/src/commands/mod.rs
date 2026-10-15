@@ -33,11 +33,16 @@ pub struct AppRuntime {
     pub anthropic: AnthropicAdapter,
     pub google: GoogleAiAdapter,
     pub freshness_policy: FreshnessPolicy,
+    /// Application data directory; hosts the community-provider pack folder.
+    pub data_dir: PathBuf,
 }
 
 impl AppRuntime {
     pub fn new(database_path: impl Into<PathBuf>) -> Result<Self, String> {
         let database_path = database_path.into();
+        let data_dir = database_path
+            .parent()
+            .map_or_else(|| PathBuf::from("."), ToOwned::to_owned);
         if let Some(parent) = database_path.parent() {
             std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
         }
@@ -55,6 +60,7 @@ impl AppRuntime {
             adapter,
             anthropic,
             google,
+            data_dir,
             freshness_policy: FreshnessPolicy {
                 fresh_for: std::time::Duration::from_secs(600),
                 stale_after: std::time::Duration::from_secs(1800),
@@ -746,10 +752,22 @@ pub fn history_breakdown(
 
 /// Setup profiles for the built-in providers, straight from their embedded
 /// manifests: base URL, capability level, and the endpoints each provider
-/// actually declares.
+/// actually declares. Community packs from the data directory are appended.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ManifestProfilesView {
+    pub profiles: Vec<crate::providers::builtin::ManifestProfile>,
+    /// Community packs that failed validation, as "file: reason" strings.
+    pub skipped: Vec<String>,
+}
+
 #[tauri::command]
-pub fn manifest_profiles() -> Result<Vec<crate::providers::builtin::ManifestProfile>, String> {
-    Ok(crate::providers::builtin::manifest_profiles())
+pub fn manifest_profiles(
+    state: State<'_, Arc<AppRuntime>>,
+) -> Result<ManifestProfilesView, String> {
+    let (profiles, skipped) =
+        crate::providers::builtin::all_manifest_profiles(Some(&state.data_dir));
+    Ok(ManifestProfilesView { profiles, skipped })
 }
 
 /// The `docs/09` provider capability catalog: every planned provider with its
@@ -806,6 +824,7 @@ struct ResolvedNewAccount {
 
 fn resolve_new_account(
     input: &GenericOpenAiAccountInput,
+    data_dir: Option<&std::path::Path>,
 ) -> Result<ResolvedNewAccount, CommandError> {
     let label = input.label.trim().to_owned();
     if label.is_empty() {
@@ -856,7 +875,8 @@ fn resolve_new_account(
     // A built-in provider: the embedded manifest is authoritative for the
     // base URL and endpoints — client-supplied paths are ignored, so the
     // capability matrix actually gates what gets probed.
-    let profile = crate::providers::builtin::manifest_profiles()
+    let (profiles, _) = crate::providers::builtin::all_manifest_profiles(data_dir);
+    let profile = profiles
         .into_iter()
         .find(|profile| profile.id == input.provider_id)
         .ok_or_else(|| CommandError::InvalidInput("unsupported provider id".to_owned()))?;
@@ -923,7 +943,7 @@ fn create_account(
     state: &AppRuntime,
     input: GenericOpenAiAccountInput,
 ) -> Result<AccountViewModel, CommandError> {
-    let resolved = resolve_new_account(&input)?;
+    let resolved = resolve_new_account(&input, Some(&state.data_dir))?;
     let label = input.label.trim().to_owned();
     let account = persist_new_account(state, &label, &resolved, &input.api_key)?;
     let view = state
@@ -1308,7 +1328,7 @@ mod tests {
             usage_endpoint: None,
             balance_endpoint: Some("/should-not-be-used".to_owned()),
         };
-        let resolved = resolve_new_account(&input).expect("builtin profile");
+        let resolved = resolve_new_account(&input, None).expect("builtin profile");
         assert_eq!(resolved.provider_prefix, "deepseek");
         assert_eq!(resolved.display_name, "DeepSeek");
         assert_eq!(resolved.base_url, "https://api.deepseek.com/v1");
@@ -1330,7 +1350,7 @@ mod tests {
             usage_endpoint: None,
             balance_endpoint: None,
         };
-        let error = resolve_new_account(&input).expect_err("unknown brand");
+        let error = resolve_new_account(&input, None).expect_err("unknown brand");
         assert!(matches!(error, CommandError::InvalidInput(_)));
     }
 
@@ -1345,7 +1365,7 @@ mod tests {
             usage_endpoint: None,
             balance_endpoint: None,
         };
-        let error = resolve_new_account(&input).expect_err("non-http base url");
+        let error = resolve_new_account(&input, None).expect_err("non-http base url");
         assert!(matches!(error, CommandError::InvalidInput(_)));
     }
 
@@ -1362,12 +1382,13 @@ mod tests {
                 balance_endpoint: balance.map(ToOwned::to_owned),
             }
         };
-        let resolved = resolve_new_account(&input(None, None, None)).expect("defaults");
+        let resolved = resolve_new_account(&input(None, None, None), None).expect("defaults");
         assert_eq!(resolved.endpoints.quota.as_deref(), Some("/usage"));
         assert!(resolved.endpoints.usage.is_none() && resolved.endpoints.balance.is_none());
 
-        let resolved = resolve_new_account(&input(None, Some("/v1/usage"), Some("/v1/balance")))
-            .expect("multi-endpoint input");
+        let resolved =
+            resolve_new_account(&input(None, Some("/v1/usage"), Some("/v1/balance")), None)
+                .expect("multi-endpoint input");
         assert!(
             resolved.endpoints.quota.is_none(),
             "default quota must be suppressed when other endpoints are configured"
@@ -1375,7 +1396,7 @@ mod tests {
         assert_eq!(resolved.endpoints.usage.as_deref(), Some("/v1/usage"));
         assert_eq!(resolved.endpoints.balance.as_deref(), Some("/v1/balance"));
 
-        let error = resolve_new_account(&input(None, Some("https://evil.test/x"), None))
+        let error = resolve_new_account(&input(None, Some("https://evil.test/x"), None), None)
             .expect_err("absolute endpoint must be rejected");
         assert!(matches!(error, CommandError::InvalidInput(_)));
     }

@@ -162,6 +162,13 @@ export interface HistoryDayBreakdownViewModel {
   accounts: HistoryDayAccountViewModel[];
 }
 
+/** Setup profiles plus the community packs that failed validation. */
+export interface ManifestProfilesViewModel {
+  profiles: ManifestProfileViewModel[];
+  /** "file: reason" entries for skipped community packs. */
+  skipped: string[];
+}
+
 export interface ProviderMatrixRowViewModel {
   id: string;
   name: string;
@@ -212,6 +219,6 @@ export interface DashboardBridge {
   historySummary(days?: number, accountId?: string): Promise<HistorySummaryViewModel>;
   historyBreakdown(days?: number): Promise<HistoryDayBreakdownViewModel[]>;
   providerMatrix(): Promise<ProviderMatrixRowViewModel[]>;
-  manifestProfiles(): Promise<ManifestProfileViewModel[]>;
+  manifestProfiles(): Promise<ManifestProfilesViewModel>;
   usageWindows(accountId?: string): Promise<UsageWindowsViewModel>;
 }

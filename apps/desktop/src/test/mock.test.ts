@@ -3,7 +3,7 @@ import { createMockBridge } from "../lib/mock";
 
 describe("mock manifestProfiles", () => {
   it("mirrors the full built-in catalog with wire-protocol classification", async () => {
-    const profiles = await createMockBridge().manifestProfiles();
+    const { profiles } = await createMockBridge().manifestProfiles();
 
     expect(profiles).toHaveLength(21);
     expect(new Set(profiles.map((item) => item.id)).size).toBe(21);

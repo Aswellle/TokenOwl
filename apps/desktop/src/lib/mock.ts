@@ -394,7 +394,7 @@ export function createMockBridge(): DashboardBridge {
         endpoints,
         ...options,
       });
-      return [
+      const profiles: ManifestProfileViewModel[] = [
         profile("openai", "OpenAI", "https://api.openai.com/v1", "L4", {
           models: "/v1/models",
           usage: "/v1/usage",
@@ -461,6 +461,7 @@ export function createMockBridge(): DashboardBridge {
           models: "/v1/models",
         }, { customBaseUrl: true }),
       ];
+      return { profiles, skipped: [] };
     },
     async providerMatrix() {
       await new Promise((resolve) => setTimeout(resolve, latency()));

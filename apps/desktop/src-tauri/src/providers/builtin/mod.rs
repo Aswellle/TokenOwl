@@ -249,24 +249,55 @@ pub fn manifest_profiles() -> Vec<ManifestProfile> {
         .iter()
         .map(|(_id, yaml)| {
             let manifest = ProviderManifest::from_yaml(yaml).expect("embedded manifest parses");
-            let capability = manifest.capability.clone().unwrap_or_default();
-            ManifestProfile {
-                id: manifest.id,
-                name: manifest.name,
-                base_url: manifest.base_url,
-                api_format: manifest
-                    .api_format
-                    .clone()
-                    .unwrap_or_else(|| "openai-compatible".to_owned()),
-                custom_base_url: manifest.custom_base_url.unwrap_or(false),
-                level: capability.level_id().to_owned(),
-                account_types: capability.account_types,
-                quota_units: capability.quota_units,
-                target_windows: capability.target_windows,
-                endpoints: manifest.endpoints,
-            }
+            profile_from_manifest(manifest)
         })
         .collect()
+}
+
+fn profile_from_manifest(
+    manifest: crate::providers::manifest::ProviderManifest,
+) -> ManifestProfile {
+    let capability = manifest.capability.clone().unwrap_or_default();
+    ManifestProfile {
+        id: manifest.id,
+        name: manifest.name,
+        base_url: manifest.base_url,
+        api_format: manifest
+            .api_format
+            .clone()
+            .unwrap_or_else(|| "openai-compatible".to_owned()),
+        custom_base_url: manifest.custom_base_url.unwrap_or(false),
+        level: capability.level_id().to_owned(),
+        account_types: capability.account_types,
+        quota_units: capability.quota_units,
+        target_windows: capability.target_windows,
+        endpoints: manifest.endpoints,
+    }
+}
+
+/// The directory community packs load from: `<data dir>/community-providers`.
+/// The directory is created on first scan; users and pack authors drop YAML
+/// files here.
+pub fn community_manifest_dir(data_dir: &std::path::Path) -> std::path::PathBuf {
+    data_dir.join("community-providers")
+}
+
+/// Built-in profiles plus validated community packs. Community ids that
+/// collide with a built-in are already rejected by the scan.
+pub fn all_manifest_profiles(
+    data_dir: Option<&std::path::Path>,
+) -> (Vec<ManifestProfile>, Vec<String>) {
+    let mut profiles = manifest_profiles();
+    let mut skipped = Vec::new();
+    if let Some(data_dir) = data_dir {
+        let directory = community_manifest_dir(data_dir);
+        let scan = crate::providers::community::scan_community_manifests(&directory);
+        skipped = scan.skipped;
+        for pack in crate::providers::community::dedupe_community(scan.loaded) {
+            profiles.push(profile_from_manifest(pack.manifest));
+        }
+    }
+    (profiles, skipped)
 }
 
 /// Creates a registry with one adapter per embedded manifest. Adapter

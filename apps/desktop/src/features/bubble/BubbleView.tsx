@@ -236,11 +236,11 @@ export function BubbleView({ bridge = tauriBridge }: { bridge?: DashboardBridge 
             );
           })}
         </svg>
-        <span className="bubble__mark">
+        <span className={`bubble__mark${primary ? "" : " bubble__mark--solo"}`}>
           {primary ? (
             <ProviderIcon providerId={primary.providerId} size={19} />
           ) : (
-            <IconOwl size={17} strokeWidth={1.6} />
+            <IconOwl size={48} strokeWidth={1.6} />
           )}
         </span>
       </motion.button>

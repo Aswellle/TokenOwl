@@ -498,12 +498,12 @@ mod tests {
     #[test]
     fn missing_headers_yield_no_invented_zeroes() {
         let headers = BTreeMap::from([("request-id".to_owned(), "req_01".to_owned())]);
-        assert!(ratelimit_snapshots(&headers, 1).is_empty());
+        assert_eq!(ratelimit_snapshots(&headers, 1), [] as [QuotaSnapshot; 0]);
         let partial = BTreeMap::from([(
             "anthropic-ratelimit-unified-5h-limit".to_owned(),
             "800".to_owned(),
         )]);
-        assert!(ratelimit_snapshots(&partial, 1).is_empty());
+        assert_eq!(ratelimit_snapshots(&partial, 1), [] as [QuotaSnapshot; 0]);
     }
 
     #[test]
@@ -518,7 +518,7 @@ mod tests {
                 "10".to_owned(),
             ),
         ]);
-        assert!(ratelimit_snapshots(&headers, 1).is_empty());
+        assert_eq!(ratelimit_snapshots(&headers, 1), [] as [QuotaSnapshot; 0]);
     }
 
     #[test]

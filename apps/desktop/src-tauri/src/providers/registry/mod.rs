@@ -144,6 +144,7 @@ mod tests {
         let adapter: Arc<dyn ProviderAdapter> = Arc::new(MockAdapter);
         registry.register(adapter);
         assert!(registry.remove("mock").is_some());
+        assert_eq!(registry.len(), 0);
         assert!(registry.is_empty());
     }
 

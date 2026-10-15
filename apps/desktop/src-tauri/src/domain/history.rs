@@ -411,8 +411,8 @@ mod tests {
     #[test]
     fn history_series_len_and_is_empty() {
         let mut series = HistorySeries::new();
-        assert!(series.is_empty());
         assert_eq!(series.len(), 0);
+        assert!(series.is_empty());
         series.push(history_point(100.0, 1000.0, "2026-10-10T00:00:00Z"));
         assert!(!series.is_empty());
         assert_eq!(series.len(), 1);

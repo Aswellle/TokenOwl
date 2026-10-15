@@ -972,3 +972,24 @@ build ✓、vitest 35、typecheck、Playwright 4/4；浏览器实测计算 token
 - vitest 35（mock 23 项含两个兼容入口断言）、typecheck、build；
 - Playwright **7 项**（新增：矩阵折叠/展开、双协议组列出兼容入口、滚动条唯一性
   + 文档零溢出断言）全绿；截图验收设置页与矩阵展开态。
+
+## Round 22 — 应用图标替换为彩色猫头鹰（圆角处理）
+
+日期：2026-10-16
+
+### 内容
+
+- 新图标：彩色猫头鹰（蓝色底 + 橙色眼环 + 白色仪表盘），替换上一版单色线稿。
+- **圆角处理**：源图满幅无圆角，用 `scripts/round-icon.py` 施加 Apple 规范
+  squircle（超椭圆 n=5 连续曲率，非普通圆角矩形）——9% 边距、1024 画布、
+  4x 超采样抗锯齿，四角与边距透明。
+- `tauri icon` 重新生成 50 个平台文件（Windows ico/Store logos、macOS icns、
+  Android mipmaps、iOS appicons），全部保留 RGBA 透明。
+- README 头部图片同步为同一圆角版本（256×256，56KB）。
+- 桌面 exe 已重建，内嵌图标验证：眼环 (255,194,50)、蓝底 (55,142,252)、
+  四角 alpha=0。
+
+### 工具
+
+`scripts/round-icon.py` 保留在仓库：源图换新时可复用它重新生成圆角母版
+（改 `SOURCE` 常量即可）。

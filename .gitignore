@@ -29,3 +29,4 @@ target-msvc
 
 # Tauri gen
 apps/desktop/src-tauri/gen/schemas
+test-results/

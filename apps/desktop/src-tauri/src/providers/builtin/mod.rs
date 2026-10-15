@@ -84,6 +84,30 @@ pub const BUILTIN_MANIFESTS: &[(&str, &str)] = &[
         include_str!("../../../../../../providers/builtin/360.yaml"),
     ),
     (
+        "cohere",
+        include_str!("../../../../../../providers/builtin/cohere.yaml"),
+    ),
+    (
+        "baidu-qianfan",
+        include_str!("../../../../../../providers/builtin/baidu-qianfan.yaml"),
+    ),
+    (
+        "iflytek",
+        include_str!("../../../../../../providers/builtin/iflytek.yaml"),
+    ),
+    (
+        "tencent-hunyuan",
+        include_str!("../../../../../../providers/builtin/tencent-hunyuan.yaml"),
+    ),
+    (
+        "xiaomi-mimo",
+        include_str!("../../../../../../providers/builtin/xiaomi-mimo.yaml"),
+    ),
+    (
+        "coze",
+        include_str!("../../../../../../providers/builtin/coze.yaml"),
+    ),
+    (
         "new-api",
         include_str!("../../../../../../providers/builtin/new-api.yaml"),
     ),
@@ -125,57 +149,14 @@ type PlannedRow = (
     &'static [&'static str],
 );
 
-const PLANNED_PROVIDERS: &[PlannedRow] = &[
-    (
-        "custom-openai",
-        "Custom OpenAI",
-        "P0",
-        &["custom"],
-        &["custom"],
-        &["custom"],
-    ),
-    ("cohere", "Cohere", "P1", &["api"], &["usage"], &["billing"]),
-    (
-        "baidu-qianfan",
-        "Baidu Qianfan",
-        "P1",
-        &["api"],
-        &["currency", "token"],
-        &["billing"],
-    ),
-    (
-        "iflytek",
-        "iFlytek",
-        "P2",
-        &["api"],
-        &["quota", "points"],
-        &["provider-defined"],
-    ),
-    (
-        "tencent-hunyuan",
-        "Tencent Hunyuan",
-        "P2",
-        &["api"],
-        &["token", "credit"],
-        &["provider-defined"],
-    ),
-    (
-        "xiaomi-mimo",
-        "Xiaomi MiMo",
-        "P2",
-        &["subscription", "api"],
-        &["usage", "credits"],
-        &["provider-defined"],
-    ),
-    (
-        "coze",
-        "Coze",
-        "P2",
-        &["api", "platform"],
-        &["credits", "usage"],
-        &["provider-defined"],
-    ),
-];
+const PLANNED_PROVIDERS: &[PlannedRow] = &[(
+    "custom-openai",
+    "Custom OpenAI",
+    "P0",
+    &["custom"],
+    &["custom"],
+    &["custom"],
+)];
 
 fn split_list(value: &[String]) -> Vec<String> {
     value.to_vec()
@@ -341,7 +322,11 @@ mod tests {
     fn builtin_registry_contains_all_providers() {
         let registry = builtin_registry();
         assert_eq!(registry.len(), BUILTIN_MANIFESTS.len());
-        assert_eq!(registry.len(), 21, "eight P0 + thirteen P1 manifests");
+        assert_eq!(
+            registry.len(),
+            27,
+            "all manifests except the custom gateway row register an adapter"
+        );
     }
 
     #[test]
@@ -370,8 +355,8 @@ mod tests {
         let implemented: Vec<_> = rows.iter().filter(|row| row.implemented).collect();
         assert_eq!(
             implemented.len(),
-            21,
-            "eight P0 + thirteen P1 manifests are implemented"
+            27,
+            "every manifest except the custom gateway row is implemented"
         );
         let level_of = |id: &str| {
             rows.iter()
@@ -388,7 +373,7 @@ mod tests {
         assert_eq!(level_of("minimax"), "L2");
         let planned = rows
             .iter()
-            .find(|row| row.id == "cohere")
+            .find(|row| row.id == "custom-openai")
             .expect("planned row");
         assert!(!planned.implemented);
         assert!(

@@ -1,0 +1,21 @@
+id: cohere
+version: 1
+name: Cohere
+category: official
+region: global
+auth:
+  - api_key
+baseUrl: https://api.cohere.com/compatibility/v1
+apiKeyHeader: Authorization
+endpoints:
+  models: /models
+apiFormat: openai-compatible
+network:
+  timeoutMs: 15000
+  followRedirects: false
+capability:
+  level: L2
+  accountTypes: [api]
+  quotaUnits: [usage]
+  targetWindows: [billing]
+  priority: P1

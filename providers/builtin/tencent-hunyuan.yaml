@@ -1,0 +1,21 @@
+id: tencent-hunyuan
+version: 1
+name: Tencent Hunyuan
+category: official
+region: china
+auth:
+  - api_key
+baseUrl: https://api.hunyuan.cloud.tencent.com/v1
+apiKeyHeader: Authorization
+endpoints:
+  models: /models
+apiFormat: openai-compatible
+network:
+  timeoutMs: 15000
+  followRedirects: false
+capability:
+  level: L2
+  accountTypes: [api]
+  quotaUnits: [token, credit]
+  targetWindows: [provider-defined]
+  priority: P2

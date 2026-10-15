@@ -114,6 +114,75 @@ fn map_keyring_error(error: KeyringError) -> CredentialError {
     }
 }
 
+/// Non-secret metadata attached to an OAuth-style credential.
+///
+/// Expiry is Unix seconds; `None` means the provider did not report one and
+/// the token is treated as non-expiring by the transport (never as valid
+/// forever by the UI).
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CredentialSession {
+    pub expires_at: Option<u64>,
+    pub account_label: Option<String>,
+    pub scope: Option<String>,
+}
+
+impl CredentialSession {
+    /// True when the session has a known expiry in the past. A session
+    /// without expiry never reports expired here — absence of knowledge is
+    /// not an assertion of validity.
+    pub fn expired_at(&self, now: u64) -> bool {
+        self.expires_at.is_some_and(|expires_at| expires_at <= now)
+    }
+}
+
+impl CredentialStore {
+    /// Resolves a credential together with its session metadata, when one
+    /// was stored. The metadata entry is optional even for existing secrets
+    /// so plain API keys keep working through the same path.
+    pub fn resolve_session(
+        &self,
+        credential_ref: &str,
+    ) -> Result<(CredentialValue, Option<CredentialSession>), CredentialError> {
+        let secret = self.resolve(credential_ref)?;
+        let metadata_ref = format!("{credential_ref}/meta");
+        let session = match self.entry(&metadata_ref)?.get_password() {
+            Ok(json) => serde_json::from_str::<CredentialSession>(&json).ok(),
+            Err(_) => None,
+        };
+        Ok((secret, session))
+    }
+
+    /// Stores a session credential and its metadata atomically enough for a
+    /// desktop client: the secret first, metadata second — a failure after
+    /// the secret is stored leaves a working credential without metadata
+    /// rather than metadata without a credential.
+    pub fn set_session(
+        &self,
+        credential_ref: &str,
+        secret: &str,
+        session: &CredentialSession,
+    ) -> Result<(), CredentialError> {
+        self.set(credential_ref, secret)?;
+        let metadata_ref = format!("{credential_ref}/meta");
+        let json = serde_json::to_string(session)
+            .map_err(|error| CredentialError::Store(error.to_string()))?;
+        if let Err(error) = self.entry(&metadata_ref)?.set_password(&json) {
+            let _ = self.delete(credential_ref);
+            return Err(map_keyring_error(error));
+        }
+        Ok(())
+    }
+
+    /// Removes a credential and its session metadata; both deletions are
+    /// idempotent so cleanup paths can call this unconditionally.
+    pub fn delete_session(&self, credential_ref: &str) -> Result<(), CredentialError> {
+        let metadata_ref = format!("{credential_ref}/meta");
+        let _ = self.delete(&metadata_ref);
+        self.delete(credential_ref)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -244,5 +313,54 @@ mod secret_leak {
             let rendered = error.to_string();
             assert!(!rendered.contains(secret_ish));
         }
+    }
+}
+
+#[cfg(test)]
+mod session_leak {
+    use super::*;
+
+    #[test]
+    fn session_serializes_without_the_secret() {
+        let session = CredentialSession {
+            expires_at: Some(1_800_000_000),
+            account_label: Some("work@example.com".to_owned()),
+            scope: Some("usage:read".to_owned()),
+        };
+        let json = serde_json::to_string(&session).expect("serialize");
+        // Only metadata fields exist; a secret could never ride this struct.
+        assert!(json.contains("expiresAt"));
+        assert!(json.contains("accountLabel"));
+        assert!(!json.to_lowercase().contains("secret"));
+        assert!(!json.to_lowercase().contains("token"));
+    }
+
+    #[test]
+    fn expired_checks_are_exact_and_absence_is_not_expiry() {
+        let session = CredentialSession {
+            expires_at: Some(1_000),
+            account_label: None,
+            scope: None,
+        };
+        assert!(session.expired_at(1_000));
+        assert!(session.expired_at(1_001));
+        assert!(!session.expired_at(999));
+        let open_ended = CredentialSession {
+            expires_at: None,
+            account_label: None,
+            scope: None,
+        };
+        assert!(!open_ended.expired_at(9_999_999));
+    }
+
+    #[test]
+    fn debug_of_session_does_not_include_label_when_absent() {
+        let session = CredentialSession {
+            expires_at: None,
+            account_label: None,
+            scope: None,
+        };
+        let rendered = format!("{session:?}");
+        assert!(rendered.contains("None"));
     }
 }

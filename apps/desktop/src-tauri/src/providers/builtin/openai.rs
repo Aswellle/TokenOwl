@@ -151,7 +151,15 @@ impl OpenAiCompatibleAdapter {
         let outcome = self.read_response(request).await;
         match outcome {
             Ok(response) => {
-                match crate::domain::provider::parse_openai_compatible_lenient(&response) {
+                let parsed = match config.field_mappings.as_ref() {
+                    Some(mappings) => {
+                        crate::domain::provider::parse_openai_compatible_with_mappings(
+                            &response, mappings,
+                        )
+                    }
+                    None => crate::domain::provider::parse_openai_compatible_lenient(&response),
+                };
+                match parsed {
                     Ok(Some(set)) => EndpointOutcome::Snapshots(set),
                     Ok(None) => EndpointOutcome::Unrecognized,
                     Err(error) => EndpointOutcome::Failed(error),
@@ -346,9 +354,27 @@ fn request_headers(
         }
         return Ok(headers);
     };
-    let secret = credentials
-        .resolve(reference)
-        .map_err(map_credential_error)?;
+    // OAuth-style credentials carry expiry metadata; an expired session is
+    // rejected before a request is spent on it.
+    let secret = if matches!(config.auth_method, AuthMethod::OAuth) {
+        let (secret, session) = credentials
+            .resolve_session(reference)
+            .map_err(map_credential_error)?;
+        if session
+            .as_ref()
+            .is_some_and(|session| session.expired_at(unix_seconds()))
+        {
+            return Err(ProviderError::new(
+                ProviderErrorKind::AuthExpired,
+                "OAuth session has expired; re-authentication is required",
+            ));
+        }
+        secret
+    } else {
+        credentials
+            .resolve(reference)
+            .map_err(map_credential_error)?
+    };
     if matches!(config.auth_method, AuthMethod::None) {
         return Ok(headers);
     }

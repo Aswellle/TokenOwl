@@ -1,0 +1,21 @@
+id: iflytek
+version: 1
+name: iFlytek Spark
+category: official
+region: china
+auth:
+  - api_key
+baseUrl: https://spark-api-open.xf-yun.com/v1
+apiKeyHeader: Authorization
+endpoints:
+  models: /models
+apiFormat: openai-compatible
+network:
+  timeoutMs: 15000
+  followRedirects: false
+capability:
+  level: L2
+  accountTypes: [api]
+  quotaUnits: [quota, points]
+  targetWindows: [provider-defined]
+  priority: P2

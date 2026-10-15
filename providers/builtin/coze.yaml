@@ -1,0 +1,21 @@
+id: coze
+version: 1
+name: Coze
+category: official
+region: global
+auth:
+  - api_key
+baseUrl: https://api.coze.cn/v1
+apiKeyHeader: Authorization
+endpoints:
+  models: /models
+apiFormat: openai-compatible
+network:
+  timeoutMs: 15000
+  followRedirects: false
+capability:
+  level: L1
+  accountTypes: [api, platform]
+  quotaUnits: [credit, usage]
+  targetWindows: [provider-defined]
+  priority: P2

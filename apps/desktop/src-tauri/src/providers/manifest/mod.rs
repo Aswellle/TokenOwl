@@ -130,6 +130,25 @@ impl ProviderManifest {
             .and_then(|n| n.timeout_ms)
             .map_or_else(|| Duration::from_secs(300), Duration::from_millis);
 
+        let field_mappings =
+            self.mapping
+                .as_ref()
+                .map(|mapping| crate::domain::provider::FieldMappings {
+                    balance: mapping.balance.as_ref().map(|field| {
+                        crate::domain::provider::FieldMapping {
+                            value: field.value.clone(),
+                            unit: field.unit.clone(),
+                            currency: field.currency.clone(),
+                        }
+                    }),
+                    usage: mapping.usage.as_ref().map(|field| {
+                        crate::domain::provider::FieldMapping {
+                            value: field.value.clone(),
+                            unit: field.unit.clone(),
+                            currency: field.currency.clone(),
+                        }
+                    }),
+                });
         OpenAiCompatibleConfig {
             id: self.id.clone(),
             display_name: self.name.clone(),
@@ -149,6 +168,7 @@ impl ProviderManifest {
             docs_url: None,
             default_refresh,
             capabilities,
+            field_mappings,
         }
     }
 }

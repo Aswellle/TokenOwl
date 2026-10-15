@@ -830,3 +830,48 @@ Messages API / Google AI），前置事实核查已完成——将按 docs/09 �
 - cargo 190（185→190）、clippy `-D warnings`、fmt；
 - vitest 35、typecheck；
 - Playwright 4/4（系统 Chrome）。
+
+## Round 18 — 阶段 D + B3：生态扩展与 OAuth 会话凭据
+
+日期：2026-10-12 | 基线：Round 17 后工作区 | 平台：Windows 11 x64
+
+### D1 — 内置目录扩至 27 个（+6）
+
+新增 manifest：Cohere（compatibility/v1）、Baidu Qianfan（v2 OpenAI 兼容）、
+iFlytek Spark OpenAI 网关、Tencent Hunyuan OpenAI 兼容、Xiaomi MiMo、Coze（L1）。
+全部为官方公开的 OpenAI 兼容入口、L2（models 健康）或 L1（Coze，端点契约未定）；
+计划表剪枝至只剩 custom-openai 一行。矩阵测试断言同步（27 实现行）。
+
+### D2 — Community provider 加载器
+
+`providers/community.rs`：运行时目录扫描（`*.yaml`/`*.yml`，排序确定性），
+严格校验——完整 schema 解析、仅允许 `openai-compatible` 线协议（数据文件不能
+自选原生传输）、与内置 id 冲突拒绝；坏文件跳过并记录原因，绝不半注册。
+**无签名校验**（docs/08：许可证/来源审查属发布渠道工作，伪签名比声明局限
+更危险）。5 项单测：缺失目录、有效加载+来源路径、坏 YAML/错协议跳过、
+内置冲突拒绝、同 id 去重。
+
+### D3 — Manifest 字段映射全链路
+
+`ManifestFieldMapping`（此前声明未消费）正式接线：manifest `mapping.balance/
+usage` → config `field_mappings` → adapter 分流 → `parse_openai_compatible_
+with_mappings`（dot-path 取值，支持数组下标）。显式映射是清单作者的语义
+声明，故接受数值字符串（"42.5"）；未知单位字符串跳过（不静默重标注）；
+未解析路径跳过不补零；映射快照带 PARTIAL + CustomEndpoint。3 项单测。
+
+### B3 — OAuth 会话凭据层（设备流 UI 留独立轮）
+
+- `CredentialSession`：过期时间/账户标签/scope 的**非秘密**元数据，keyring
+  存储（`<ref>/meta` 第二条目），DB 侧仍只有 `credential_ref`。
+- `set_session`/`resolve_session`/`delete_session`：secret 先行、元数据后写
+  （失败留工作凭据无元数据，不留无凭据的元数据）；删除幂等。
+- **适配器接线**：`AuthMethod::OAuth` 的请求头构建改走 `resolve_session`，
+  过期会话在发起请求前直接报 AuthExpired（省一次注定失败的请求）。
+- 3 项单测（序列化无秘密、过期判定精确边界、无过期 ≠ 永远有效）。
+- 设备流浏览器交互（回调页、授权跳转）需要窗口层工作，明确留待独立轮次；
+  本轮交付的是凭据存储与传输层地基。
+
+### 验证
+
+cargo 201（198→201）、clippy `-D warnings`、fmt；vitest 35、typecheck；
+Playwright 4/4。

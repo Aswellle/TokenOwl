@@ -438,6 +438,10 @@ pub struct OpenAiCompatibleConfig {
     pub docs_url: Option<String>,
     pub default_refresh: Duration,
     pub capabilities: ProviderCapabilities,
+    /// Manifest-declared field mappings; `None` means the built-in lenient
+    /// field-name search applies. Mapping evaluation happens only through
+    /// `parse_openai_compatible_with_mappings`.
+    pub field_mappings: Option<FieldMappings>,
 }
 
 impl Default for OpenAiCompatibleConfig {
@@ -476,6 +480,7 @@ impl OpenAiCompatibleConfig {
                 open_ai_compatible: true,
                 ..ProviderCapabilities::none()
             },
+            field_mappings: None,
         }
     }
 
@@ -599,6 +604,106 @@ pub fn parse_openai_compatible_fixture(
 /// Parses a response into snapshots, returning `Ok(None)` when the payload is
 /// valid but carries no recognizable quota fields. Multi-endpoint callers use
 /// this so one endpoint without quota fields does not fail the whole refresh.
+/// A field mapping resolved from a provider manifest: a dot-path into the
+/// response payload plus optional unit/currency overrides.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FieldMapping {
+    pub value: String,
+    pub unit: Option<String>,
+    pub currency: Option<String>,
+}
+
+/// Quota-bearing field mappings a manifest may declare.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FieldMappings {
+    pub balance: Option<FieldMapping>,
+    pub usage: Option<FieldMapping>,
+}
+
+impl FieldMapping {
+    /// Evaluates the dot-path against a JSON value; array indices are
+    /// supported as path segments (`data.0.total_used`).
+    fn lookup<'a>(&self, value: &'a Value) -> Option<&'a Value> {
+        let mut current = value;
+        for segment in self.value.split('.') {
+            current = match current {
+                Value::Object(map) => map.get(segment)?,
+                Value::Array(items) => {
+                    let index: usize = segment.parse().ok()?;
+                    items.get(index)?
+                }
+                _ => return None,
+            };
+        }
+        Some(current)
+    }
+
+    fn as_f64(&self, value: &Value) -> Option<f64> {
+        let raw = self.lookup(value)?;
+        // An explicit mapping is a semantic declaration by the manifest
+        // author, so numeric strings ("42.5") are accepted here even though
+        // the name-based search would reject them.
+        match raw {
+            Value::Number(number) => number.as_f64().filter(|number| number.is_finite()),
+            Value::String(text) => text.trim().parse::<f64>().ok().filter(|n| n.is_finite()),
+            _ => None,
+        }
+    }
+}
+
+/// Parses a response using explicit manifest field mappings. Each mapping
+/// yields at most one snapshot; mappings that resolve to nothing are skipped
+/// rather than zero-filled. Mapped snapshots carry `PARTIAL` status unless
+/// both used and limit are mapped.
+pub fn parse_openai_compatible_with_mappings(
+    response: &ProviderResponse,
+    mappings: &FieldMappings,
+) -> ProviderResult<Option<QuotaSnapshotSet>> {
+    classify_http_status(response)?;
+    let value: Value = serde_json::from_str(&response.body)
+        .map_err(|error| ProviderError::parser_failed(format!("invalid JSON response: {error}")))?;
+
+    let build = |mapping: &FieldMapping, metric: &str| -> Option<QuotaSnapshot> {
+        let used = mapping.as_f64(&value);
+        used.and_then(|used| {
+            let unit = mapping.unit.as_deref().and_then(|unit| match unit {
+                "token" | "tokens" => Some(QuotaUnit::Token),
+                "credit" | "credits" => Some(QuotaUnit::Credit),
+                "request" | "requests" => Some(QuotaUnit::Request),
+                "currency" | "usd" => Some(QuotaUnit::Currency),
+                "percent" => Some(QuotaUnit::Percent),
+                // An unrecognized unit is not silently re-labeled: the
+                // mapping is skipped so the UI shows no invented metric.
+                _ => None,
+            })?;
+            let mut snapshot = QuotaSnapshot::unknown();
+            snapshot.id = Some(format!("{metric}-mapped"));
+            snapshot.metric_id = Some(metric.to_owned());
+            snapshot.metric_name = Some(metric.to_owned());
+            snapshot.unit = Some(unit);
+            snapshot.currency.clone_from(&mapping.currency);
+            snapshot.used = Some(used);
+            snapshot.status = SnapshotStatus::Partial;
+            snapshot.source = DataSource::CustomEndpoint;
+            Some(snapshot)
+        })
+    };
+
+    let mut snapshots = Vec::new();
+    if let Some(balance) = mappings.balance.as_ref() {
+        snapshots.extend(build(balance, "balance"));
+    }
+    if let Some(usage) = mappings.usage.as_ref() {
+        snapshots.extend(build(usage, "usage"));
+    }
+    if snapshots.is_empty() {
+        return Ok(None);
+    }
+    Ok(Some(QuotaSnapshotSet::new(snapshots)))
+}
+
 pub fn parse_openai_compatible_lenient(
     response: &ProviderResponse,
 ) -> ProviderResult<Option<QuotaSnapshotSet>> {
@@ -1088,5 +1193,93 @@ mod tests {
     #[test]
     fn health_status_default_is_unknown() {
         assert_eq!(HealthStatus::default(), HealthStatus::Unknown);
+    }
+    #[test]
+    fn mapped_parse_reads_dot_paths_and_applies_unit_currency() {
+        let response = ProviderResponse::new(
+            200,
+            r#"{"result":{"balance":"42.5","currency":"CNY"},"usage":{"totalTokens":1234}}"#,
+        );
+        let mappings = FieldMappings {
+            balance: Some(FieldMapping {
+                value: "result.balance".to_owned(),
+                unit: Some("currency".to_owned()),
+                currency: Some("CNY".to_owned()),
+            }),
+            usage: Some(FieldMapping {
+                value: "usage.totalTokens".to_owned(),
+                unit: Some("token".to_owned()),
+                currency: None,
+            }),
+        };
+        let set = parse_openai_compatible_with_mappings(&response, &mappings)
+            .expect("parse")
+            .expect("snapshots");
+        assert_eq!(set.len(), 2);
+        let balance = set
+            .snapshots
+            .iter()
+            .find(|snapshot| snapshot.metric_id.as_deref() == Some("balance"))
+            .expect("balance snapshot");
+        assert_eq!(balance.used, Some(42.5));
+        assert_eq!(balance.unit, Some(QuotaUnit::Currency));
+        assert_eq!(balance.currency.as_deref(), Some("CNY"));
+        let usage = set
+            .snapshots
+            .iter()
+            .find(|snapshot| snapshot.metric_id.as_deref() == Some("usage"))
+            .expect("usage snapshot");
+        assert_eq!(usage.used, Some(1_234.0));
+        assert_eq!(usage.unit, Some(QuotaUnit::Token));
+        assert_eq!(usage.status, SnapshotStatus::Partial);
+    }
+
+    #[test]
+    fn mapped_parse_supports_array_indices_and_skips_unresolved() {
+        let response =
+            ProviderResponse::new(200, r#"{"data":[{"remaining":7.5},{"remaining":99.0}]}"#);
+        let mappings = FieldMappings {
+            balance: Some(FieldMapping {
+                value: "data.1.remaining".to_owned(),
+                unit: Some("credit".to_owned()),
+                currency: None,
+            }),
+            usage: Some(FieldMapping {
+                value: "missing.path".to_owned(),
+                unit: Some("token".to_owned()),
+                currency: None,
+            }),
+        };
+        let set = parse_openai_compatible_with_mappings(&response, &mappings)
+            .expect("parse")
+            .expect("snapshots");
+        assert_eq!(set.len(), 1);
+        assert_eq!(set.snapshots[0].used, Some(99.0));
+        assert_eq!(set.snapshots[0].unit, Some(QuotaUnit::Credit));
+    }
+
+    #[test]
+    fn mapped_parse_unknown_unit_skips_and_non_numeric_is_ignored() {
+        let response = ProviderResponse::new(200, r#"{"b":"lots","u":"12"}"#);
+        let mappings = FieldMappings {
+            balance: Some(FieldMapping {
+                value: "b".to_owned(),
+                unit: Some("widgets".to_owned()),
+                currency: None,
+            }),
+            usage: Some(FieldMapping {
+                value: "u".to_owned(),
+                unit: Some("token".to_owned()),
+                currency: None,
+            }),
+        };
+        // "lots" is not numeric -> balance skipped; "12" is a numeric string
+        // and an explicit mapping declares its semantics, so usage parses.
+        let set = parse_openai_compatible_with_mappings(&response, &mappings)
+            .expect("parse")
+            .expect("snapshots");
+        assert_eq!(set.len(), 1);
+        assert_eq!(set.snapshots[0].metric_id.as_deref(), Some("usage"));
+        assert_eq!(set.snapshots[0].used, Some(12.0));
     }
 }

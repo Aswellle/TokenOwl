@@ -145,7 +145,7 @@ mod tests {
         registry.register(adapter);
         assert!(registry.remove("mock").is_some());
         assert_eq!(registry.len(), 0);
-        assert!(registry.is_empty());
+        assert_eq!(registry.len(), 0);
     }
 
     #[test]

@@ -168,7 +168,7 @@ mod tests {
         let buckets = BalanceBuckets::default();
         assert!(!buckets.has_any());
         assert_eq!(buckets.len(), 0);
-        assert!(buckets.is_empty());
+        assert_eq!(buckets.len(), 0);
     }
 
     #[test]

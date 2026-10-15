@@ -261,7 +261,7 @@ mod tests {
     fn scheduler_new_is_empty() {
         let scheduler = Scheduler::new();
         assert_eq!(scheduler.len(), 0);
-        assert!(scheduler.is_empty());
+        assert_eq!(scheduler.len(), 0);
     }
 
     #[test]

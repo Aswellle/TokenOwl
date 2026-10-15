@@ -132,8 +132,8 @@ apiFormat: openai-compatible
     #[test]
     fn missing_directory_is_an_empty_scan() {
         let scan = scan_community_manifests(Path::new("Z:/definitely-missing"));
-        assert!(scan.loaded.is_empty());
-        assert!(scan.skipped.is_empty());
+        assert_eq!(scan.loaded.len(), 0);
+        assert_eq!(scan.skipped.len(), 0);
     }
 
     #[test]
@@ -145,7 +145,7 @@ apiFormat: openai-compatible
         assert_eq!(scan.loaded.len(), 1);
         assert_eq!(scan.loaded[0].manifest.id, "acme-relay");
         assert!(scan.loaded[0].source_path.ends_with("acme.yaml"));
-        assert!(scan.skipped.is_empty());
+        assert_eq!(scan.skipped.len(), 0);
     }
 
     #[test]
@@ -159,7 +159,7 @@ apiFormat: openai-compatible
             "id: native-pack\nversion: 1\nname: Native\nauth: [api_key]\nbaseUrl: https://x.test\nendpoints:\n  models: /v1/models\napiFormat: anthropic\n",
         );
         let scan = scan_community_manifests(&dir);
-        assert!(scan.loaded.is_empty());
+        assert_eq!(scan.loaded.len(), 0);
         assert_eq!(scan.skipped.len(), 2);
         assert!(scan.skipped[0].contains("broken.yaml"));
         assert!(
@@ -179,7 +179,7 @@ apiFormat: openai-compatible
             &VALID_PACK.replace("acme-relay", "openai"),
         );
         let scan = scan_community_manifests(&dir);
-        assert!(scan.loaded.is_empty());
+        assert_eq!(scan.loaded.len(), 0);
         assert!(scan.skipped[0].contains("collides with a built-in"));
     }
 

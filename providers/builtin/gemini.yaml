@@ -6,15 +6,16 @@ region: global
 auth:
   - api_key
 baseUrl: https://generativelanguage.googleapis.com/v1beta
+apiKeyHeader: x-goog-api-key
 endpoints:
-  models: /models
+  models: /v1beta/models
 network:
   timeoutMs: 15000
   followRedirects: false
 apiFormat: google-ai
 capability:
-  level: L3
-  accountTypes: [subscription, api]
-  quotaUnits: [quota, token]
+  level: L2
+  accountTypes: [api]
+  quotaUnits: [token]
   targetWindows: [provider-defined]
   priority: P0

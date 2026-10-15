@@ -11,6 +11,7 @@ use crate::notifications::{
     self, Notification, NotificationPreferences, OsNotificationSink, PREFERENCES_KEY,
 };
 use crate::providers::builtin::anthropic::AnthropicAdapter;
+use crate::providers::builtin::google::GoogleAiAdapter;
 use crate::providers::builtin::openai::OpenAiCompatibleAdapter;
 use crate::scheduler::refresh_account;
 use crate::storage::{AccountViewDto, LocalRepository, SnapshotViewDto, StorageError};
@@ -30,6 +31,7 @@ pub struct AppRuntime {
     pub credentials: CredentialStore,
     pub adapter: OpenAiCompatibleAdapter,
     pub anthropic: AnthropicAdapter,
+    pub google: GoogleAiAdapter,
     pub freshness_policy: FreshnessPolicy,
 }
 
@@ -45,11 +47,14 @@ impl AppRuntime {
                 .map_err(|error| error.to_string())?;
         let anthropic = AnthropicAdapter::with_default_limits(OpenAiCompatibleConfig::default())
             .map_err(|error| error.to_string())?;
+        let google = GoogleAiAdapter::with_default_limits(OpenAiCompatibleConfig::default())
+            .map_err(|error| error.to_string())?;
         Ok(Self {
             database_path,
             credentials: CredentialStore::default(),
             adapter,
             anthropic,
+            google,
             freshness_policy: FreshnessPolicy {
                 fresh_for: std::time::Duration::from_secs(600),
                 stale_after: std::time::Duration::from_secs(1800),
@@ -272,6 +277,7 @@ pub(crate) async fn refresh_accounts(
             repository,
             &state.adapter,
             &state.anthropic,
+            &state.google,
             &state.credentials,
             &account_id,
             started_at,

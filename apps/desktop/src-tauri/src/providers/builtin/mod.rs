@@ -1,9 +1,11 @@
 // Built-in provider registration
 
 pub mod anthropic;
+pub mod google;
 pub mod openai;
 use crate::domain::provider::ProviderDescriptor;
 use crate::providers::builtin::anthropic::AnthropicAdapter;
+use crate::providers::builtin::google::GoogleAiAdapter;
 use crate::providers::builtin::openai::OpenAiCompatibleAdapter;
 use crate::providers::registry::AdapterRegistry;
 
@@ -308,6 +310,10 @@ pub fn builtin_registry() -> AdapterRegistry {
                     AnthropicAdapter::with_default_limits(config)
                         .expect("anthropic manifest yields a valid adapter config"),
                 ),
+                Some("google-ai") => std::sync::Arc::new(
+                    GoogleAiAdapter::with_default_limits(config)
+                        .expect("gemini manifest yields a valid adapter config"),
+                ),
                 _ => std::sync::Arc::new(
                     OpenAiCompatibleAdapter::with_default_limits(config)
                         .expect("embedded manifest yields a valid adapter config"),
@@ -377,6 +383,7 @@ mod tests {
         };
         assert_eq!(level_of("openai"), "L4");
         assert_eq!(level_of("anthropic"), "L2");
+        assert_eq!(level_of("gemini"), "L2");
         assert_eq!(level_of("deepseek"), "L3");
         assert_eq!(level_of("minimax"), "L2");
         let planned = rows

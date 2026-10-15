@@ -404,9 +404,9 @@ export function createMockBridge(): DashboardBridge {
           models: "/v1/models",
           usage: "/v1/usage",
         }, { apiFormat: "anthropic", accountTypes: ["subscription", "api"] }),
-        profile("gemini", "Google Gemini", "https://generativelanguage.googleapis.com/v1beta", "L3", {
-          models: "/models",
-        }, { apiFormat: "google-ai", accountTypes: ["subscription", "api"] }),
+        profile("gemini", "Google Gemini", "https://generativelanguage.googleapis.com/v1beta", "L2", {
+          models: "/v1beta/models",
+        }, { apiFormat: "google-ai", accountTypes: ["api"] }),
         profile("openrouter", "OpenRouter", "https://openrouter.ai/api/v1", "L4", {
           models: "/models",
           usage: "/api/v1/key",

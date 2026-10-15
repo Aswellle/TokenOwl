@@ -1,7 +1,7 @@
 //! Provider refresh scheduler with priority queue, jitter, and backoff.
 
 use crate::credentials::CredentialStore;
-use crate::domain::provider::{ProviderAdapter, ProviderError, ProviderErrorKind};
+use crate::domain::provider::{ProviderError, ProviderErrorKind};
 use crate::domain::state::{BackoffPolicy, RefreshState};
 use crate::providers::builtin::openai::OpenAiCompatibleAdapter;
 use crate::storage::{LocalRepository, StorageError};
@@ -34,6 +34,7 @@ pub async fn refresh_account(
     repository: LocalRepository,
     adapter: &OpenAiCompatibleAdapter,
     anthropic: &crate::providers::builtin::anthropic::AnthropicAdapter,
+    google: &crate::providers::builtin::google::GoogleAiAdapter,
     credentials: &CredentialStore,
     account_id: &str,
     started_at: u64,
@@ -46,24 +47,9 @@ pub async fn refresh_account(
     })?;
     repository.mark_refresh_started(account_id, started_at)?;
     let fetched = if account.provider_id.starts_with("anthropic:") {
-        anthropic
-            .fetch_quota(
-                &crate::domain::provider::AccountContext {
-                    account_id: account_id.to_owned(),
-                    provider_id: account.provider_id.clone(),
-                    credential_ref: account.credential_ref.clone(),
-                },
-                &crate::domain::provider::FetchContext {
-                    timeout: config.default_refresh,
-                    base_url: Some(config.base_url.clone()),
-                    credentials: Some(credentials.clone()),
-                },
-            )
-            .await
-            .map(|set| crate::providers::builtin::openai::FetchResult {
-                snapshots: set,
-                observed_at: unix_seconds(),
-            })
+        native_fetch(anthropic, &account, &config, account_id, credentials).await
+    } else if account.provider_id.starts_with("gemini:") {
+        native_fetch(google, &account, &config, account_id, credentials).await
     } else {
         adapter.fetch(&config, account_id, credentials).await
     };
@@ -90,6 +76,33 @@ pub async fn refresh_account(
             Err(RefreshError::Provider(error))
         }
     }
+}
+
+async fn native_fetch<A: crate::domain::provider::ProviderAdapter>(
+    adapter: &A,
+    account: &crate::domain::state::AccountMetadata,
+    config: &crate::domain::provider::OpenAiCompatibleConfig,
+    account_id: &str,
+    credentials: &CredentialStore,
+) -> Result<crate::providers::builtin::openai::FetchResult, ProviderError> {
+    adapter
+        .fetch_quota(
+            &crate::domain::provider::AccountContext {
+                account_id: account_id.to_owned(),
+                provider_id: account.provider_id.clone(),
+                credential_ref: account.credential_ref.clone(),
+            },
+            &crate::domain::provider::FetchContext {
+                timeout: config.default_refresh,
+                base_url: Some(config.base_url.clone()),
+                credentials: Some(credentials.clone()),
+            },
+        )
+        .await
+        .map(|set| crate::providers::builtin::openai::FetchResult {
+            snapshots: set,
+            observed_at: unix_seconds(),
+        })
 }
 
 fn unix_seconds() -> u64 {

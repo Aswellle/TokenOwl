@@ -478,7 +478,7 @@ function SetupForm({
                 .map((item) => {
                   // Native protocols whose adapter has landed are selectable;
                   // the rest stay visible but disabled until theirs exists.
-                  const native = item.apiFormat === "anthropic";
+                  const native = item.apiFormat === "anthropic" || item.apiFormat === "google-ai";
                   return (
                     <button
                       key={item.id}

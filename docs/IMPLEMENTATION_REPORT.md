@@ -753,3 +753,36 @@ Messages API / Google AI），前置事实核查已完成——将按 docs/09 �
 - `anthropic-ratelimit-unified-*` 头仅在部分部署返回——快照缺省时 UI 显示"数据不完整"，
   这是设计行为而非缺陷（未知不是零）。
 - Google AI（google-ai 协议）路由分支已预留，适配器本体待下一轮（B2）。
+
+## Round 16 — 阶段 B2：Google AI 原生协议适配器（纯 L2：健康/模型）
+
+日期：2026-10-12 | 基线：Round 15 后工作区 | 平台：Windows 11 x64
+
+### 需求完成矩阵
+
+| 要求 | 结果 |
+|---|---|
+| Google AI 原生适配器 | ✅ `GoogleAiAdapter`：`GET {base}/v1beta/models` 单请求健康探测（200→Healthy、401/403→AuthExpired、429→Degraded、5xx→Unhealthy）；密钥走 `x-goog-api-key` 头而非官方示例的 `?key=` 查询参数——secret 不落 URL/日志（安全增强，行为等价） |
+| 诚实定级 | ✅ gemini manifest 降级 L3→L2：官方**无**账户额度端点、**无文档化速率响应头**（限额按项目计、查看导向 AI Studio 网页，已核查 ai.google.dev 的 models/rate-limits/generate-content 三页）；descriptor capabilities 仅 model_catalog，quota/usage/balance/reset 显式关闭 |
+| 协议路由 | ✅ registry `apiFormat: google-ai` 分支接通；刷新管线按 `gemini:` 前缀路由（与 anthropic 共用泛型 native_fetch 辅助函数） |
+| 前端接入 | ✅ 选择器 google-ai 组启用（与 anthropic 同组"其他原生协议"）；mock 数据对齐 L2 与 /v1beta/models 路径 |
+
+### 设计取舍
+
+- **probe 结果不产出任何快照**：健康时返回一个显式 Unavailable 的未知快照占位
+  （"Google AI API"指标名），额度值仍为 None——这是"纯 L2、无任何可观测额度面"
+  的诚实呈现；429 在 health_check 报 Degraded 而在 fetch_quota 报错（语义分层）。
+- models 计数身份曾实现后移除：ProbeOutcome 不再携带 payload，避免死代码；
+  payload 处理完即弃（不保留原始响应）。
+
+### 测试
+
+- `providers::builtin::google` 2 项单测：endpoint URL 拼接（base+v1beta/models）、
+  descriptor 纯健康能力集。
+- 全套：cargo 185、clippy `-D warnings`（1.94）、fmt；vitest 35。
+
+### 阶段 B 剩余
+
+- B3（OAuth 订阅账户：Claude Pro/Max、Gemini 订阅态）需要 OAuth 设备流/会话
+  凭据支持，涉及凭据存储扩展，独立排期。
+- 建议 A3 真实抽查时一并验证 anthropic 速率头与 google 探测的实际返回。

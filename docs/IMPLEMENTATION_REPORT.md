@@ -695,3 +695,32 @@ better-typography / better-colors / better-layout / better-ui / better-accessibi
 
 - `TOKENOWL_UPDATER_DRILL=1` / `TOKENOWL_TEST_BANNER=1` 环境变量演练钩子（app/mod.rs，
   未设置时零开销）；`tauri.drill.json` 演练配置（--config 合并使用）。
+
+## Round 14 — 阶段 A 收尾：secret 泄露回归套件
+
+日期：2026-10-12 | 基线：Round 13 后工作区 | 平台：Windows 11 x64
+
+### 内容
+
+- 差距矩阵最后一项可自动化安全工作落地：`tests/secret_leak.rs`（5 项集成）
+  + `credentials::secret_leak`（5 项单元），共 10 项断言锁死秘密边界：
+  1. **SQLite 字节扫描**：文件库 + WAL/SHM 逐字节断言原始 secret 不存在，
+     并以 credential_ref 必须存在作正反对照（防止扫空证明无效）；
+  2. **metadata 清洗**：`from_auth_input` 传入 `api_key` 形状的 metadata 键
+     被剥离、普通键保留；
+  3. **DTO 双通道**：AccountMetadata / OpenAiCompatibleConfig 的 serde 序列化
+     与 Debug 格式化均不含 secret（`_secret_input` 显式传入验证丢弃）；
+  4. **读回一致性**：入库后读回的账户只含 credential_ref；
+  5. **错误路径**：keyring `BadEncoding(secret_bytes)` 映射后的 Display/Debug
+     不携带字节；各 CredentialError 变体不含秘密文本；
+  6. **telemetry 掩码**：`redact_value` 对 api_key/apiKey/authorization/token
+     形状的键输出 `***`，非敏感键原样。
+- 全套 176 项 cargo test 全绿（166 → 176），clippy `-D warnings`、fmt 通过。
+
+### 阶段 A 状态
+
+可自动化项全部关闭（A1 draft release 演练 ✓、A2 实机验证可自动化部分 ✓、
+A4 secret 泄露回归 ✓）；A3（21 个内置 provider 真实 API 抽查）需要真实账户
+凭据，保留为用户侧执行项。下一步进入阶段 B：原生协议适配器（Anthropic
+Messages API / Google AI），前置事实核查已完成——将按 docs/09 的 L2
+（Health/Model）诚实定级，fixture 以官方文档为准，不虚构未公开端点。

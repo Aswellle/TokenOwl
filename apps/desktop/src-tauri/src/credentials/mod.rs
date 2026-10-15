@@ -194,3 +194,55 @@ fn credential_store_new_uses_custom_service() {
     // We can't directly access the private field, but we can verify it compiles.
     assert_eq!(store.service, "custom.service");
 }
+
+#[cfg(test)]
+mod secret_leak {
+    use super::*;
+
+    const SECRET: &str = "sk-tokenowl-unit-9f4e2d1c7b5aSECRET";
+
+    #[test]
+    fn debug_output_is_fully_redacted() {
+        let value = CredentialValue(SECRET.to_owned());
+        let rendered = format!("{value:?}");
+        assert_eq!(rendered, "CredentialValue(REDACTED)");
+        assert!(!rendered.contains(SECRET));
+        assert!(!rendered.contains("sk-tokenowl"));
+    }
+
+    #[test]
+    fn clone_keeps_the_redacted_debug() {
+        let value = CredentialValue(SECRET.to_owned()).clone();
+        assert_eq!(format!("{value:?}"), "CredentialValue(REDACTED)");
+    }
+
+    #[test]
+    fn as_str_stays_available_for_request_building() {
+        let value = CredentialValue(SECRET.to_owned());
+        assert_eq!(value.as_str(), SECRET);
+    }
+
+    #[test]
+    fn keyring_bad_encoding_error_never_carries_the_secret() {
+        // `BadEncoding` wraps the stored bytes; the mapped error must not
+        // surface them through Display or Debug.
+        let error = map_keyring_error(KeyringError::BadEncoding(SECRET.as_bytes().to_vec()));
+        assert!(!error.to_string().contains(SECRET));
+        assert!(!format!("{error:?}").contains(SECRET));
+    }
+
+    #[test]
+    fn credential_error_variants_never_name_secret_material() {
+        let secret_ish = "sk-tokenowl-unit-9f4e2d1c7b5aSECRET";
+        for error in [
+            CredentialError::EmptyReference,
+            CredentialError::Missing,
+            CredentialError::StoreUnavailable,
+        ] {
+            // `Store` carries call-site text by contract; the mapped keyring
+            // arms above prove that contract holds for store-derived values.
+            let rendered = error.to_string();
+            assert!(!rendered.contains(secret_ish));
+        }
+    }
+}

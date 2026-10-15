@@ -10,7 +10,7 @@
 | 位置记忆 | 01 / 05 | 拖拽后持久化、多屏迁移 | SQLite settings 表持久化，重启恢复 | Done | 无 | P1 | 无 |
 | Domain quota model | 02 / 03 / 04 | 多单位、多窗口、可信 reset、unknown | 归一化模型 + 16 reset 边界测试 | Done | 无 | P1 | 无 |
 | SQLite migrations | 02 / 04 / 06 | WAL、foreign key、升级备份 | `storage/migrations/` 版本化迁移（编号 SQL 嵌入）+ 迁移前后 integrity 检查 + `VACUUM INTO` 备份 + 逐版本事务回滚 | Done | 备份仅保留最近一代；不自动还原，损坏库拒绝打开（safe mode） | P1 | 无 |
-| OS credential store | 02 / 06 | keyring/credential manager，只保存 ref | `credentials.rs` 只存 ref，secret 不入库 | Done | 无 | P1 | 增加 secret 泄露回归测试 |
+| OS credential store | 02 / 06 | keyring/credential manager，只保存 ref | `credentials.rs` 只存 ref，secret 不入库；secret 泄露回归套件就位（SQLite 字节扫描+正反对照、DTO/Debug 序列化、metadata 清洗、keyring BadEncoding 字节、telemetry 掩码，共 10 项） | Done | 无 | P1 | 无 |
 | Provider protocol | 03 | descriptor、capability、adapter、registry | ProviderAdapter trait + AdapterRegistry + Manifest 解析 | Done | 无 | P1 | 无 |
 | Generic OpenAI-compatible | 01 / 03 / 10 | base URL、API key、headers、usage/quota/balance 可选 | quota/usage/balance 多端点合并：按路径去重、部分失败生成错误指标快照、全部失败走 stale fallback；表单支持三端点配置 | Done | JSONPath/JMESPath 映射、LAN 授权提示仍属 manifest 增强（docs/03 §12） | P1 | 无 |
 | Stale fallback / error isolation | 总规范 / 02 / 06 | 旧快照继续显示，错误分层 | 失败保留快照、动态 stale_after 刷新间隔 | Done | 无 | P1 | 无 |

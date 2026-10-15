@@ -1,7 +1,9 @@
 // Built-in provider registration
 
+pub mod anthropic;
 pub mod openai;
 use crate::domain::provider::ProviderDescriptor;
+use crate::providers::builtin::anthropic::AnthropicAdapter;
 use crate::providers::builtin::openai::OpenAiCompatibleAdapter;
 use crate::providers::registry::AdapterRegistry;
 
@@ -298,9 +300,20 @@ pub fn builtin_registry() -> AdapterRegistry {
     for (_id, yaml) in BUILTIN_MANIFESTS {
         let manifest = ProviderManifest::from_yaml(yaml).expect("embedded manifest parses");
         let config = manifest.to_config();
-        let adapter = OpenAiCompatibleAdapter::with_default_limits(config)
-            .expect("embedded manifest yields a valid adapter config");
-        registry.register(std::sync::Arc::new(adapter));
+        // Native wire protocols route to their own adapters; everything else
+        // rides the OpenAI-compatible transport.
+        let adapter: std::sync::Arc<dyn crate::domain::provider::ProviderAdapter> =
+            match manifest.api_format.as_deref() {
+                Some("anthropic") => std::sync::Arc::new(
+                    AnthropicAdapter::with_default_limits(config)
+                        .expect("anthropic manifest yields a valid adapter config"),
+                ),
+                _ => std::sync::Arc::new(
+                    OpenAiCompatibleAdapter::with_default_limits(config)
+                        .expect("embedded manifest yields a valid adapter config"),
+                ),
+            };
+        registry.register(adapter);
     }
     registry
 }
@@ -323,6 +336,19 @@ mod tests {
         let registry = builtin_registry();
         assert_eq!(registry.len(), BUILTIN_MANIFESTS.len());
         assert_eq!(registry.len(), 21, "eight P0 + thirteen P1 manifests");
+    }
+
+    #[test]
+    fn builtin_registry_routes_anthropic_to_native_adapter() {
+        let registry = builtin_registry();
+        let adapter = registry.get("anthropic").expect("anthropic adapter");
+        let caps = adapter.descriptor().capabilities;
+        // The native adapter exposes the L2 surface only: models catalog,
+        // no invented quota/usage/balance endpoints.
+        assert!(caps.model_catalog);
+        assert!(!caps.quota);
+        assert!(!caps.usage);
+        assert!(!caps.balance);
     }
 
     #[test]
@@ -350,7 +376,7 @@ mod tests {
                 .expect("implemented rows carry a level")
         };
         assert_eq!(level_of("openai"), "L4");
-        assert_eq!(level_of("anthropic"), "L4");
+        assert_eq!(level_of("anthropic"), "L2");
         assert_eq!(level_of("deepseek"), "L3");
         assert_eq!(level_of("minimax"), "L2");
         let planned = rows

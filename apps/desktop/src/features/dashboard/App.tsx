@@ -475,18 +475,25 @@ function SetupForm({
             <div className="picker__row">
               {profiles
                 .filter((item) => item.apiFormat !== "openai-compatible")
-                .map((item) => (
-                  <button
-                    key={item.id}
-                    type="button"
-                    className="picker__btn picker__btn--planned"
-                    disabled
-                    title={copy.form.protocolOther}
-                  >
-                    <ProviderIcon providerId={item.id} size={18} />
-                    <span>{item.name}</span>
-                  </button>
-                ))}
+                .map((item) => {
+                  // Native protocols whose adapter has landed are selectable;
+                  // the rest stay visible but disabled until theirs exists.
+                  const native = item.apiFormat === "anthropic";
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      className={`picker__btn${profileId === item.id ? " is-active" : ""}`}
+                      aria-pressed={profileId === item.id}
+                      disabled={!native}
+                      title={native ? undefined : copy.form.protocolOther}
+                      onClick={() => setProfileId(item.id)}
+                    >
+                      <ProviderIcon providerId={item.id} size={18} />
+                      <span>{item.name}</span>
+                    </button>
+                  );
+                })}
             </div>
           </>
         )}

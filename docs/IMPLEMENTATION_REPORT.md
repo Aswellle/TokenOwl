@@ -724,3 +724,32 @@ A4 secret 泄露回归 ✓）；A3（21 个内置 provider 真实 API 抽查）�
 凭据，保留为用户侧执行项。下一步进入阶段 B：原生协议适配器（Anthropic
 Messages API / Google AI），前置事实核查已完成——将按 docs/09 的 L2
 （Health/Model）诚实定级，fixture 以官方文档为准，不虚构未公开端点。
+
+## Round 15 — 阶段 B1：Anthropic 原生协议适配器（诚实 L2）
+
+日期：2026-10-12 | 基线：Round 14 后工作区 | 平台：Windows 11 x64
+
+### 需求完成矩阵
+
+| 要求 | 结果 |
+|---|---|
+| Anthropic 原生适配器 | ✅ `AnthropicAdapter` 独立实现 ProviderAdapter：`GET /v1/models` 一次请求同时回答健康（200→Healthy、401/403→AuthExpired+status、429→Degraded、5xx→Unhealthy）与账户身份（models 计数）；`x-api-key` + `anthropic-version: 2023-06-01` 头；响应尺寸上限流式读取 |
+| 速率窗口快照 | ✅ 官方文档化的 `anthropic-ratelimit-unified-5h/-7d-{limit,remaining,reset}` 响应头 → 滚动窗口快照（WindowType::Rolling、5h/7d 时长、RFC3339 reset）；头部缺失/畸形时**跳过而非补零**（unknown ≠ 0 不变量） |
+| 协议路由 | ✅ `builtin_registry()` 按 manifest `apiFormat` 分发（anthropic→原生适配器，其余→OpenAI 兼容）；`refresh_account` 按 provider_id 前缀 `anthropic:` 路由（AppRuntime 挂载第二适配器）——原刷新管线硬绑定 OpenAI 适配器的闸口打通 |
+| 诚实定级 | ✅ manifest 降级 L4→L2（capability 与矩阵同步，测试断言更新）：官方未公开 API-key 账户额度端点，`/v1/usage` 从 manifest 删除而非虚构解析；descriptor capabilities 显式关闭 quota/usage/balance/reset |
+| 前端接入 | ✅ 选择器"其他原生协议"组启用 anthropic（google-ai 保持规划态禁用），文案改为"适配逐步开放"；35 项 vitest 全绿 |
+
+### 测试
+
+- `providers::builtin::anthropic` 6 项单测：5h/7d 头→窗口快照映射、缺失头不发明零值、
+  畸形值跳过、models 身份计数与空载荷拒绝、RFC3339 转换（含 2000-02-29 闰日）、
+  descriptor 诚实 L2 能力集。
+- registry 路由测试：anthropic 适配器能力集 = model_catalog 且无 quota/usage/balance。
+- 全套：cargo 183（176→183）、clippy `-D warnings`、fmt；vitest 35。
+
+### 边界说明（给下一位实施者）
+
+- 没有接入 OS 通知之外的新权限；webview 侧零改动（能力矩阵数据照常从 manifest 生成）。
+- `anthropic-ratelimit-unified-*` 头仅在部分部署返回——快照缺省时 UI 显示"数据不完整"，
+  这是设计行为而非缺陷（未知不是零）。
+- Google AI（google-ai 协议）路由分支已预留，适配器本体待下一轮（B2）。

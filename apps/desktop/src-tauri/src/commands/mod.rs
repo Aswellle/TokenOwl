@@ -10,6 +10,7 @@ use crate::domain::state::{AccountMetadata, Freshness, FreshnessPolicy, RefreshS
 use crate::notifications::{
     self, Notification, NotificationPreferences, OsNotificationSink, PREFERENCES_KEY,
 };
+use crate::providers::builtin::anthropic::AnthropicAdapter;
 use crate::providers::builtin::openai::OpenAiCompatibleAdapter;
 use crate::scheduler::refresh_account;
 use crate::storage::{AccountViewDto, LocalRepository, SnapshotViewDto, StorageError};
@@ -28,6 +29,7 @@ pub struct AppRuntime {
     pub database_path: PathBuf,
     pub credentials: CredentialStore,
     pub adapter: OpenAiCompatibleAdapter,
+    pub anthropic: AnthropicAdapter,
     pub freshness_policy: FreshnessPolicy,
 }
 
@@ -41,10 +43,13 @@ impl AppRuntime {
         let adapter =
             OpenAiCompatibleAdapter::with_default_limits(OpenAiCompatibleConfig::default())
                 .map_err(|error| error.to_string())?;
+        let anthropic = AnthropicAdapter::with_default_limits(OpenAiCompatibleConfig::default())
+            .map_err(|error| error.to_string())?;
         Ok(Self {
             database_path,
             credentials: CredentialStore::default(),
             adapter,
+            anthropic,
             freshness_policy: FreshnessPolicy {
                 fresh_for: std::time::Duration::from_secs(600),
                 stale_after: std::time::Duration::from_secs(1800),
@@ -266,6 +271,7 @@ pub(crate) async fn refresh_accounts(
         let result = refresh_account(
             repository,
             &state.adapter,
+            &state.anthropic,
             &state.credentials,
             &account_id,
             started_at,

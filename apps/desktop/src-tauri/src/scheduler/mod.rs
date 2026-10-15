@@ -1,7 +1,7 @@
 //! Provider refresh scheduler with priority queue, jitter, and backoff.
 
 use crate::credentials::CredentialStore;
-use crate::domain::provider::{ProviderError, ProviderErrorKind};
+use crate::domain::provider::{ProviderAdapter, ProviderError, ProviderErrorKind};
 use crate::domain::state::{BackoffPolicy, RefreshState};
 use crate::providers::builtin::openai::OpenAiCompatibleAdapter;
 use crate::storage::{LocalRepository, StorageError};
@@ -26,9 +26,14 @@ pub struct RefreshResult {
 }
 
 /// Refresh a single account and persist the normalized snapshot set.
+///
+/// Adapter dispatch follows the wire protocol the account was created under:
+/// ids prefixed `anthropic:` ride the native adapter, everything else the
+/// OpenAI-compatible transport.
 pub async fn refresh_account(
     repository: LocalRepository,
     adapter: &OpenAiCompatibleAdapter,
+    anthropic: &crate::providers::builtin::anthropic::AnthropicAdapter,
     credentials: &CredentialStore,
     account_id: &str,
     started_at: u64,
@@ -40,7 +45,29 @@ pub async fn refresh_account(
         ProviderError::new(ProviderErrorKind::ConfigInvalid, "provider not found")
     })?;
     repository.mark_refresh_started(account_id, started_at)?;
-    match adapter.fetch(&config, account_id, credentials).await {
+    let fetched = if account.provider_id.starts_with("anthropic:") {
+        anthropic
+            .fetch_quota(
+                &crate::domain::provider::AccountContext {
+                    account_id: account_id.to_owned(),
+                    provider_id: account.provider_id.clone(),
+                    credential_ref: account.credential_ref.clone(),
+                },
+                &crate::domain::provider::FetchContext {
+                    timeout: config.default_refresh,
+                    base_url: Some(config.base_url.clone()),
+                    credentials: Some(credentials.clone()),
+                },
+            )
+            .await
+            .map(|set| crate::providers::builtin::openai::FetchResult {
+                snapshots: set,
+                observed_at: unix_seconds(),
+            })
+    } else {
+        adapter.fetch(&config, account_id, credentials).await
+    };
+    match fetched {
         Ok(result) => {
             repository.upsert_snapshot_set(account_id, &result.snapshots, result.observed_at)?;
             let state = repository.mark_refresh_succeeded(account_id, result.observed_at)?;
@@ -63,6 +90,13 @@ pub async fn refresh_account(
             Err(RefreshError::Provider(error))
         }
     }
+}
+
+fn unix_seconds() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_secs())
+        .unwrap_or_default()
 }
 
 /// Scheduler configuration for a single provider.

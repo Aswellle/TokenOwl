@@ -233,7 +233,7 @@ export const copy = {
     builtinNote: "接口地址与端点来自内置清单，按能力矩阵自动填充，无需手填。",
     endpointsAvailable: "内置端点",
     protocolOpenai: "OpenAI 兼容协议",
-    protocolOther: "其他协议（适配规划中）",
+    protocolOther: "其他原生协议（适配逐步开放）",
     gatewayBaseUrl: "网关地址",
     gatewayBaseUrlHelp: "填入你部署的网关地址，例如 https://your-gateway.example。",
     customNote: "自定义接入按 L1 能力处理：只有对方上报的字段才会显示。",

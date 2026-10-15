@@ -9,14 +9,13 @@ baseUrl: https://api.anthropic.com/v1
 apiKeyHeader: x-api-key
 endpoints:
   models: /v1/models
-  usage: /v1/usage
 network:
   timeoutMs: 15000
   followRedirects: false
 apiFormat: anthropic
 capability:
-  level: L4
-  accountTypes: [subscription, api]
+  level: L2
+  accountTypes: [api]
   quotaUnits: [token]
-  targetWindows: [5h, 7d, usage]
+  targetWindows: [provider-defined]
   priority: P0

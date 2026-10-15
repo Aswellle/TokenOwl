@@ -231,6 +231,104 @@ pub fn range_usage(samples: &[DailySample], from: u64, to: u64) -> RangeUsage {
     }
 }
 
+/// Consumption velocity over a trailing window, plus how long the remaining
+/// quota lasts at that pace. Both fields stay `None` when the window has no
+/// trusted positive increment or no remaining value — unknown is not zero.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BurnRate {
+    /// Token units consumed per hour, from the positive-increment slope.
+    pub tokens_per_hour: f64,
+    /// Hours until `remaining` hits zero at that pace, when both are known.
+    pub projected_exhaustion_hours: Option<f64>,
+}
+
+/// Derives the burn rate from one metric series inside `[from, to)`.
+///
+/// The slope uses the first and last trusted observations of `used` in the
+/// window (positive-increment series only, so quota resets do not fake a
+/// negative or infinite pace). Only `token`-unit metrics participate; other
+/// units have no single meaningful pace unit.
+pub fn burn_rate_hourly(samples: &[DailySample], from: u64, to: u64) -> Option<BurnRate> {
+    let mut series: BTreeMap<(&str, &str), Vec<&DailySample>> = BTreeMap::new();
+    for sample in samples {
+        series
+            .entry((sample.account_id.as_str(), sample.metric_key.as_str()))
+            .or_default()
+            .push(sample);
+    }
+
+    // Candidates: (tokens_per_hour, remaining) per trusted rising series.
+    let mut candidates: Vec<(f64, Option<f64>)> = Vec::new();
+    for metric_samples in series.values_mut() {
+        metric_samples.sort_by_key(|sample| sample.observed_at);
+        let in_window: Vec<&DailySample> = metric_samples
+            .iter()
+            .copied()
+            .filter(|sample| {
+                sample.unit == "token"
+                    && sample.observed_at >= from
+                    && sample.observed_at < to
+                    && sample.used.is_some()
+            })
+            .collect();
+        // A rising `used` series is what a burn rate means. Non-monotonic
+        // series (resets, top-ups) are skipped: their slope would lie.
+        let monotonic_rising = in_window
+            .windows(2)
+            .all(|pair| pair[1].used.unwrap_or(0.0) >= pair[0].used.unwrap_or(0.0));
+        if in_window.len() < 2 || !monotonic_rising {
+            continue;
+        }
+        let first = in_window[0];
+        let last = in_window[in_window.len() - 1];
+        #[allow(clippy::cast_precision_loss)]
+        let hours = (last.observed_at.saturating_sub(first.observed_at)) as f64 / 3_600.0;
+        if hours <= 0.0 {
+            continue;
+        }
+        let (Some(first_used), Some(last_used)) = (first.used, last.used) else {
+            continue;
+        };
+        let delta = last_used - first_used;
+        if delta <= 0.0 {
+            continue;
+        }
+        candidates.push((delta / hours, last.remaining));
+    }
+
+    // Prefer a series that still reports `remaining` (it feeds the projection
+    //); among those take the fastest pace. Without any remaining value the
+    // rate is still meaningful on its own.
+    let with_remaining = candidates
+        .iter()
+        .filter(|(_, remaining)| remaining.is_some_and(f64::is_finite));
+    let chosen = with_remaining
+        .clone()
+        .max_by(|left, right| {
+            left.0
+                .partial_cmp(&right.0)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        })
+        .or_else(|| {
+            candidates.iter().max_by(|left, right| {
+                left.0
+                    .partial_cmp(&right.0)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
+        })?;
+    let tokens_per_hour = chosen.0;
+    let projected_exhaustion_hours = chosen
+        .1
+        .filter(|remaining| *remaining > 0.0)
+        .map(|remaining| remaining / tokens_per_hour)
+        .filter(|hours| hours.is_finite());
+    Some(BurnRate {
+        tokens_per_hour,
+        projected_exhaustion_hours,
+    })
+}
+
 /// A single historical usage data point.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -446,6 +544,112 @@ mod tests {
 
     /// With a +8h offset, local day 1 spans UTC `57_600..144_000` and local
     /// day 2 starts at UTC `144_000`.
+    #[test]
+    fn burn_rate_hourly_slopes_a_rising_series() {
+        let rate = burn_rate_hourly(
+            &[
+                sample("a", "m", 10_800, Some(100.0), Some(900.0), "token", None),
+                sample("a", "m", 14_400, Some(220.0), Some(780.0), "token", None),
+                sample("a", "m", 18_000, Some(340.0), Some(660.0), "token", None),
+            ],
+            0,
+            86_400,
+        )
+        .expect("rate");
+        // 240 tokens over 2 hours.
+        assert!((rate.tokens_per_hour - 120.0).abs() < 1e-9);
+        // 660 remaining / 120 per hour.
+        assert!((rate.projected_exhaustion_hours.unwrap() - 5.5).abs() < 1e-9);
+    }
+
+    #[test]
+    fn burn_rate_hourly_skips_non_monotonic_series() {
+        // A quota reset in the middle would fake a negative slope.
+        let rate = burn_rate_hourly(
+            &[
+                sample("a", "m", 3_600, Some(500.0), Some(500.0), "token", None),
+                sample("a", "m", 7_200, Some(10.0), Some(990.0), "token", None),
+                sample("a", "m", 10_800, Some(60.0), Some(940.0), "token", None),
+            ],
+            0,
+            86_400,
+        );
+        assert!(rate.is_none());
+    }
+
+    #[test]
+    fn burn_rate_hourly_none_without_two_trusted_points() {
+        let rate = burn_rate_hourly(
+            &[sample(
+                "a",
+                "m",
+                3_600,
+                Some(100.0),
+                Some(900.0),
+                "token",
+                None,
+            )],
+            0,
+            86_400,
+        );
+        assert!(rate.is_none());
+    }
+
+    #[test]
+    fn burn_rate_hourly_prefers_series_with_remaining() {
+        let rate = burn_rate_hourly(
+            &[
+                sample("a", "fast", 3_600, Some(0.0), None, "token", None),
+                sample("a", "fast", 7_200, Some(600.0), None, "token", None),
+                sample("a", "slow", 3_600, Some(0.0), Some(4_000.0), "token", None),
+                sample(
+                    "a",
+                    "slow",
+                    7_200,
+                    Some(200.0),
+                    Some(3_800.0),
+                    "token",
+                    None,
+                ),
+            ],
+            0,
+            86_400,
+        )
+        .expect("rate");
+        // The remaining-bearing series wins even though the other burns faster.
+        assert!((rate.tokens_per_hour - 200.0).abs() < 1e-9);
+        assert!((rate.projected_exhaustion_hours.unwrap() - 19.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn burn_rate_hourly_ignores_non_token_units() {
+        let rate = burn_rate_hourly(
+            &[
+                sample(
+                    "a",
+                    "m",
+                    3_600,
+                    Some(10.0),
+                    Some(90.0),
+                    "currency",
+                    Some("USD"),
+                ),
+                sample(
+                    "a",
+                    "m",
+                    7_200,
+                    Some(30.0),
+                    Some(70.0),
+                    "currency",
+                    Some("USD"),
+                ),
+            ],
+            0,
+            86_400,
+        );
+        assert!(rate.is_none());
+    }
+
     #[test]
     fn token_deltas_bucket_by_local_day() {
         let usage = aggregate(&[

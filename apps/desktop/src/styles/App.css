@@ -1381,15 +1381,18 @@ button:disabled {
 
 /* Light complication chip behind the brand icon: colored and monochrome
    brand marks both stay readable on every health gradient. */
-/* The brand icon sits directly on the bubble (no chip ring): flex centering
-   keeps its center exactly on the bubble's center, and a glyph-shaped shadow
-   separates it from the health gradient behind it. */
 .bubble__mark {
   display: flex;
   align-items: center;
   justify-content: center;
   color: #fff;
   filter: drop-shadow(0 1px 2px rgba(9, 32, 28, 0.45));
+}
+
+/* Empty bubble: the owl is the whole show — its svg fills the button and the
+   glyph scales up to occupy the circle (the 24-unit viewBox pads it ~30%). */
+.bubble__mark--solo svg {
+  transform: scale(1.18);
 }
 
 .bubble--syncing .bubble__mark {

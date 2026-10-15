@@ -4,11 +4,12 @@ import { Area, AreaChart, ResponsiveContainer, YAxis } from "recharts";
 import { copy } from "../../../styles/copy";
 import { ProviderIcon } from "../../../components/ProviderIcon";
 import { IconRefresh } from "../../../components/icons";
-import { formatCompact } from "../../../lib/format";
+import { burnExhaustionHint as burnHint, formatBurnRate, formatCompact } from "../../../lib/format";
 import { QuotaMetric } from "./QuotaMetric";
 import { StatusChip } from "./StatusChip";
 import type {
   AccountViewModel,
+  BurnRateViewModel,
   DashboardBridge,
   RangeUsageViewModel,
   UsageWindowsViewModel,
@@ -92,6 +93,7 @@ export function ProviderView({
 
   const range: RangeUsageViewModel | null = usage ? usage[windowKey] : null;
   const tokensText = range?.hasData ? formatCompact(range.tokens) : copy.usage.noData;
+  const burnRate: BurnRateViewModel | undefined = usage?.burnRate;
 
   return (
     <section className="pview" aria-label={account.label}>
@@ -153,8 +155,14 @@ export function ProviderView({
             <dt>{copy.usage.cost}</dt>
             <dd className="num">{formatCost(range)}</dd>
           </div>
+          {burnRate && (
+            <div className="pview__number">
+              <dt>{copy.usage.burnRate}</dt>
+              <dd className="num">{formatBurnRate(burnRate)}</dd>
+            </div>
+          )}
         </dl>
-        <p className="pview__hint">{copy.usage.growing}</p>
+        <p className="pview__hint">{burnRate ? burnHint(burnRate) : copy.usage.growing}</p>
         {trend.some((point) => (point.tokens ?? 0) > 0) && (
           <div className="pview__trend" aria-hidden="true">
             <ResponsiveContainer width="100%" height="100%">

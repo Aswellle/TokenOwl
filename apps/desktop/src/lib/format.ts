@@ -1,5 +1,5 @@
 import { copy } from "../styles/copy";
-import type { AccountHealth, AccountViewModel, QuotaViewModel } from "../types";
+import type { AccountHealth, AccountViewModel, BurnRateViewModel, QuotaViewModel } from "../types";
 
 /* ---------- time & value formatting ---------- */
 
@@ -149,4 +149,19 @@ export function quotaWindowTag(quota: QuotaViewModel): string | null {
   const daysMatch = /(\d+)\s*天/.exec(text);
   if (daysMatch) return `${daysMatch[1]}d`;
   return null;
+}
+
+/** Formats the burn-rate card: "1.2 万/h" plus nothing else — the exhaustion
+ * horizon lives in the hint line so the number stays scannable. */
+export function formatBurnRate(rate: BurnRateViewModel): string {
+  return `${formatCompact(rate.tokensPerHour)}/h`;
+}
+
+/** Human hint for the exhaustion projection; `null` when unknown. */
+export function burnExhaustionHint(rate: BurnRateViewModel): string | null {
+  if (rate.projectedExhaustionHours === undefined) return null;
+  const hours = rate.projectedExhaustionHours;
+  if (hours < 1) return `按当前速率，剩余额度约 ${Math.round(hours * 60)} 分钟后耗尽`;
+  if (hours < 48) return `按当前速率，剩余额度约 ${Math.round(hours)} 小时后耗尽`;
+  return `按当前速率，剩余额度约 ${(hours / 24).toFixed(1)} 天后耗尽`;
 }

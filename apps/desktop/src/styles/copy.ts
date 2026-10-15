@@ -44,6 +44,7 @@ export const copy = {
     days30: "30 天",
     tokens: "Tokens 消耗",
     cost: "计费金额",
+    burnRate: "消耗速率",
     noData: "该窗口暂无记录",
     growing: "用量从本机开始记录后逐步积累。",
   },

@@ -134,10 +134,19 @@ export interface RangeUsageViewModel {
   hasData: boolean;
 }
 
+/** Consumption velocity plus how long the remaining quota lasts at it. */
+export interface BurnRateViewModel {
+  /** Token units consumed per hour over the trailing window. */
+  tokensPerHour: number;
+  /** Hours until remaining hits zero at that pace, when known. */
+  projectedExhaustionHours?: number;
+}
+
 export interface UsageWindowsViewModel {
   hours2: RangeUsageViewModel;
   hours24: RangeUsageViewModel;
   days30: RangeUsageViewModel;
+  burnRate?: BurnRateViewModel;
 }
 
 export interface HistoryDayAccountViewModel {

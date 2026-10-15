@@ -586,6 +586,10 @@ pub struct UsageWindowsViewModel {
     pub hours24: RangeUsageViewModel,
     /// Usage observed in the trailing 30 days.
     pub days30: RangeUsageViewModel,
+    /// Token consumption velocity over the trailing 24 hours and how long
+    /// the remaining quota lasts at that pace. `None` when the window holds
+    /// no trusted rising token series — unknown, not zero.
+    pub burn_rate: Option<crate::domain::history::BurnRate>,
 }
 
 /// Trailing-window usage for one account (or every account when `account_id`
@@ -629,10 +633,25 @@ pub fn usage_windows(
             has_data: usage.has_data,
         }
     };
+    let daily: Vec<crate::domain::history::DailySample> = samples
+        .iter()
+        .map(|sample| crate::domain::history::DailySample {
+            account_id: sample.account_id.clone(),
+            metric_key: sample.metric_key.clone(),
+            observed_at: sample.observed_at,
+            used: sample.used,
+            remaining: sample.remaining,
+            unit: sample.unit.clone(),
+            currency: sample.currency.clone(),
+        })
+        .collect();
+    let burn_rate =
+        crate::domain::history::burn_rate_hourly(&daily, now.saturating_sub(24 * 3_600), now);
     Ok(UsageWindowsViewModel {
         hours2: view(2 * 3_600),
         hours24: view(24 * 3_600),
         days30: view(30 * 86_400),
+        burn_rate,
     })
 }
 

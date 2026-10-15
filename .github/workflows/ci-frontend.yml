@@ -83,3 +83,40 @@ jobs:
       - name: Frontend build
         working-directory: apps/desktop
         run: pnpm run build
+
+  e2e:
+    name: E2E smoke
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.2
+
+      - name: Install frontend dependencies
+        working-directory: apps/desktop
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright browser
+        working-directory: apps/desktop
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: E2E smoke tests
+        working-directory: apps/desktop
+        run: pnpm exec playwright test
+
+      - name: Upload failure traces
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-traces
+          path: apps/desktop/test-results/
+          retention-days: 7

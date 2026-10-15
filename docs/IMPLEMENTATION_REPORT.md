@@ -786,3 +786,47 @@ Messages API / Google AI），前置事实核查已完成——将按 docs/09 �
 - B3（OAuth 订阅账户：Claude Pro/Max、Gemini 订阅态）需要 OAuth 设备流/会话
   凭据支持，涉及凭据存储扩展，独立排期。
 - 建议 A3 真实抽查时一并验证 anthropic 速率头与 google 探测的实际返回。
+
+## Round 17 — 阶段 C：分析增强 + E2E 入 CI + 占位包清理
+
+日期：2026-10-12 | 基线：Round 16 后工作区 | 平台：Windows 11 x64
+
+### C1 — 分析增强（docs/10 P1 Analytics 的第一块）
+
+- **Burn-rate 纯函数**（`domain/history.rs`）：`burn_rate_hourly` 从 24h 窗口的
+  token 级正增量序列取斜率——只接受单调上升序列（配额重置/充值会伪造斜率，跳过）；
+  多指标时优先仍上报 remaining 的序列（供耗尽投影），否则取最快速率；
+  `projected_exhaustion_hours = remaining / tokens_per_hour`。未知场景一律
+  None（窗口无可信数据、非 token 单位、非单调），不补零。5 项新单测。
+- **命令接线**：`usage_windows` 响应新增 `burnRate` 字段（24h 窗口推导），
+  `BurnRate` camelCase 序列化。
+- **前端**：ProviderView 用量区新增"消耗速率"卡（`1.2 万/h`）+ 提示行升级为
+  耗尽投影（"约 N 小时/天后耗尽"，分钟级 <1h），无速率时回退原 growing 文案；
+  `formatBurnRate`/`burnExhaustionHint` 进 format.ts，copy 增补。
+- **模型维度地基**：迁移 v4 `history_points.model` 列 + (account, model,
+  observed_at) 索引。当前采集仍为账户级指标（模型分桶需要模型级 usage 数据
+  源，属适配器演进项），列先行就位，NULL 即账户级。
+
+### C2 — E2E 入 CI
+
+- `playwright.config.ts`：webServer 模式自动起 Vite（1800、strictPort），
+  CI 环境装 Playwright 管理的 Chromium，本地下载受限时回退系统 Chrome
+  （`PLAYWRIGHT_CHROME_CHANNEL` 可覆盖）；失败保留 trace。
+- `smoke.spec.ts` 重写为 4 个真实断言：概览渲染、dock 三视图导航、
+  设置页协议分组选择器（含 `?empty=1` 空态入口）、气泡预览 ↔ 面板往返；
+  不再 spawn `tauri dev`（CI 无 GUI，那部分仍归手动验证，docs/07 边界不变）。
+- `pnpm e2e` script + `ci-frontend.yml` 新 `e2e` job（install chromium →
+  run → 失败上传 trace 工件，保留 7 天）。本机 4/4 通过（22s）。
+
+### C3 — 占位包清理
+
+- 删除 `packages/design-tokens`、`provider-schema`、`shared-types`、`ui`
+  四个空目录与 `packages/` 本身；workspace 收敛为 `apps/*`、`scripts/*`、
+  `providers/community/*`（社区 manifest 落地时的宿主）。README 的
+  workspace 描述与实际对齐。
+
+### 验证
+
+- cargo 190（185→190）、clippy `-D warnings`、fmt；
+- vitest 35、typecheck；
+- Playwright 4/4（系统 Chrome）。

@@ -9,6 +9,7 @@
     "typecheck": "tsc --noEmit",
     "lint": "tsc --noEmit",
     "test": "vitest run",
+    "e2e": "playwright test",
     "preview": "vite preview",
     "tauri": "tauri"
   },

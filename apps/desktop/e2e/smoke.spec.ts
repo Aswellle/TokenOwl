@@ -1,36 +1,42 @@
-import { test, expect, type ChildProcess } from "@playwright/test";
-import { spawn } from "node:child_process";
-import { setTimeout as delay } from "node:timers/promises";
+import { expect, test } from "@playwright/test";
 
-let appProcess: ChildProcess | null = null;
-
-async function startApp(): Promise<void> {
-  appProcess = spawn("pnpm", ["tauri", "dev"], {
-    cwd: __dirname,
-    env: { ...process.env, TAURI_DEV_HOST: "127.0.0.1" },
-    stdio: "pipe",
-  });
-  await delay(5000);
-}
-
-async function stopApp(): Promise<void> {
-  if (appProcess) {
-    appProcess.kill();
-    appProcess = null;
-  }
-}
-
-test.describe("TokenOwl E2E smoke test", () => {
-  test.beforeAll(async () => {
-    await startApp();
+/**
+ * Dashboard smoke over the mock bridge (plain-browser dev preview). The mock
+ * only exists under `import.meta.env.DEV`, which is exactly what the dev
+ * server serving these tests runs.
+ */
+test.describe("TokenOwl dashboard smoke", () => {
+  test("renders the overview with demo accounts", async ({ page }) => {
+    await page.goto("/");
+    await expect(page.locator(".window")).toBeVisible();
+    await expect(page.getByRole("navigation", { name: "功能导航" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: /额度总览/ })).toBeVisible();
   });
 
-  test.afterAll(async () => {
-    await stopApp();
+  test("navigates through the dock views", async ({ page }) => {
+    await page.goto("/");
+    for (const view of ["历史", "通知", "设置"]) {
+      await page.getByRole("button", { name: view, exact: true }).click();
+      await expect(page.getByRole("button", { name: view, exact: true })).toHaveAttribute(
+        "aria-pressed",
+        "true",
+      );
+    }
   });
 
-  test("app starts and renders main window", async ({ page }) => {
-    await page.goto("http://127.0.0.1:1800");
+  test("settings shows the protocol-grouped provider picker", async ({ page }) => {
+    await page.goto("/?empty=1");
+    await page.getByRole("button", { name: "添加账户" }).click();
+    await expect(page.getByText("OpenAI 兼容协议")).toBeVisible();
+    await expect(page.getByText("其他原生协议（适配逐步开放）")).toBeVisible();
+  });
+
+  test("bubble preview renders and returns to the dashboard", async ({ page }) => {
+    await page.goto("/?window=bubble");
+    const bubble = page.locator(".bubble");
+    await expect(bubble).toBeVisible();
+    await bubble.click();
+    await expect(page).toHaveURL(/\/$/);
     await expect(page.locator(".window")).toBeVisible();
   });
 });

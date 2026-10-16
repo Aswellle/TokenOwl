@@ -53,8 +53,10 @@ export function ProviderIcon({
   providerId: string;
   size?: number;
 }) {
-  const prefix = providerId.split(":")[0].trim().toLowerCase();
-  const lobeProvider = PROVIDER_PREFIXES[prefix];
+  // Empty/undefined ids surface from freshly created accounts before the
+  // provider row exists; the neutral fallback must still render.
+  const prefix = (providerId ?? "").split(":")[0].trim().toLowerCase();
+  const lobeProvider = prefix ? PROVIDER_PREFIXES[prefix] : undefined;
 
   if (!lobeProvider) {
     return (

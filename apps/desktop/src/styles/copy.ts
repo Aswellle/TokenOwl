@@ -237,7 +237,9 @@ export const copy = {
     protocolOther: "其他原生协议（适配逐步开放）",
     communitySkipped: "部分社区包未能加载",
     gatewayBaseUrl: "网关地址",
-    gatewayBaseUrlHelp: "填入你部署的网关地址，例如 https://your-gateway.example。",
+    gatewayBaseUrlPlaceholder: "http://localhost:4000/v1",
+    gatewayBaseUrlHelp:
+      "填入你部署的网关地址，必须是完整 URL，例如 http://localhost:4000/v1；不能使用示例占位域名。",
     customNote: "自定义接入按 L1 能力处理：只有对方上报的字段才会显示。",
   },
 

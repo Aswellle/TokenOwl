@@ -4,15 +4,16 @@
 //! Community manifests are a trust boundary, so the loader is deliberately
 //! strict: every file must parse as a complete manifest, declare an
 //! `openai-compatible` wire protocol (the only transport a data file can
-//! safely request), and carry a unique id that does not collide with a
-//! built-in. Invalid files are skipped and reported, never partially
-//! registered. There is no signature verification yet — that belongs to a
-//! distribution channel that does not exist, and pretending otherwise would
-//! be worse than stating the limitation (docs/08: license and provenance
-//! review happens before anything ships as built-in).
+//! safely request), declare an `https` base URL, and carry a unique id that
+//! does not collide with a built-in. Invalid files are skipped and reported,
+//! never partially registered. There is no signature verification yet — that
+//! belongs to a distribution channel that does not exist, and pretending
+//! otherwise would be worse than stating the limitation (docs/08: license and
+//! provenance review happens before anything ships as built-in).
 
 use crate::providers::manifest::ProviderManifest;
 use std::path::{Path, PathBuf};
+use url::Url;
 
 /// One community manifest, validated and ready to register.
 #[derive(Debug, Clone)]
@@ -86,15 +87,43 @@ fn load_community_manifest(path: &Path) -> Result<CommunityManifest, String> {
             manifest.id
         ));
     }
+    validate_base_url(&manifest.base_url)?;
     Ok(CommunityManifest {
         manifest,
         source_path: path.to_path_buf(),
     })
 }
 
+/// Community packs must declare an absolute `https` base URL.
+///
+/// Unlike a hand-typed account, a pack arrives as a file from outside the
+/// application, so a plaintext or scheme-less URL would silently downgrade
+/// the credential-bearing request path. Gateways that legitimately need a
+/// user-supplied host (`customBaseUrl`) are built-ins: their URL comes from
+/// the account form, not from the data file.
+fn validate_base_url(base_url: &str) -> Result<(), String> {
+    let parsed = Url::parse(base_url.trim())
+        .map_err(|error| format!("base URL is not a valid absolute URL ({error})"))?;
+    if parsed.scheme() != "https" {
+        return Err(format!(
+            "base URL must use https (found `{}`)",
+            parsed.scheme()
+        ));
+    }
+    if parsed.host_str().is_none() {
+        return Err("base URL has no host".to_owned());
+    }
+    if !parsed.username().is_empty() || parsed.password().is_some() {
+        // The base URL is persisted to SQLite, which must never hold secrets.
+        return Err("base URL must not embed credentials".to_owned());
+    }
+    Ok(())
+}
+
 /// Deduplicates community manifests by id and against the built-in set.
-/// Later files win within the community set; collisions with built-ins have
-/// already been rejected by the scan.
+/// The first file per id wins (files are scanned in sorted order, so the
+/// outcome is stable); collisions with built-ins have already been rejected
+/// by the scan.
 pub fn dedupe_community(loaded: Vec<CommunityManifest>) -> Vec<CommunityManifest> {
     let mut seen = std::collections::BTreeSet::new();
     let mut unique = Vec::new();
@@ -194,5 +223,89 @@ apiFormat: openai-compatible
         assert_eq!(deduped.len(), 1);
         assert_eq!(deduped[0].source_path, first);
         assert_ne!(deduped[0].source_path, second);
+    }
+
+    #[test]
+    fn plaintext_base_url_is_rejected() {
+        let dir = std::env::temp_dir().join("tokenowl-community-http");
+        let _ = std::fs::remove_dir_all(&dir);
+        write_pack(
+            &dir,
+            "plain.yaml",
+            &VALID_PACK.replace("https://", "http://"),
+        );
+        let scan = scan_community_manifests(&dir);
+        assert_eq!(scan.loaded.len(), 0);
+        assert_eq!(scan.skipped.len(), 1);
+        assert!(scan.skipped[0].contains("must use https"));
+    }
+
+    #[test]
+    fn non_https_schemes_and_relative_urls_are_rejected() {
+        let dir = std::env::temp_dir().join("tokenowl-community-schemes");
+        let _ = std::fs::remove_dir_all(&dir);
+        let cases = [
+            ("file-scheme.yaml", "file:///etc/tokenowl/pack"),
+            ("ftp-scheme.yaml", "ftp://relay.acme.test/v1"),
+            ("scheme-less.yaml", "relay.acme.test/v1"),
+            ("hostless.yaml", "https://"),
+        ];
+        for (name, url) in cases {
+            write_pack(
+                &dir,
+                name,
+                &VALID_PACK.replace("https://relay.acme.test/v1", url),
+            );
+        }
+        let scan = scan_community_manifests(&dir);
+        assert_eq!(scan.loaded.len(), 0);
+        assert_eq!(scan.skipped.len(), cases.len());
+        for reason in &scan.skipped {
+            assert!(
+                reason.contains("base URL"),
+                "unexpected skip reason: {reason}"
+            );
+        }
+    }
+
+    #[test]
+    fn credentialed_base_url_is_rejected() {
+        let dir = std::env::temp_dir().join("tokenowl-community-userinfo");
+        let _ = std::fs::remove_dir_all(&dir);
+        write_pack(
+            &dir,
+            "creds.yaml",
+            &VALID_PACK.replace(
+                "https://relay.acme.test/v1",
+                "https://user:secret@relay.acme.test/v1",
+            ),
+        );
+        let scan = scan_community_manifests(&dir);
+        assert_eq!(scan.loaded.len(), 0);
+        assert!(scan.skipped[0].contains("must not embed credentials"));
+    }
+
+    /// Positive control for the tightening: an https URL with a port and a
+    /// nested path is still a valid pack, so the rule rejects only what it
+    /// claims to.
+    #[test]
+    fn https_url_with_port_and_path_still_loads() {
+        let dir = std::env::temp_dir().join("tokenowl-community-https-ok");
+        let _ = std::fs::remove_dir_all(&dir);
+        write_pack(
+            &dir,
+            "port.yaml",
+            &VALID_PACK.replace(
+                "https://relay.acme.test/v1",
+                "https://relay.acme.test:8443/api/openai",
+            ),
+        );
+        let scan = scan_community_manifests(&dir);
+        assert_eq!(scan.loaded.len(), 1);
+        assert_eq!(scan.skipped.len(), 0);
+        assert_eq!(
+            scan.loaded[0].manifest.base_url,
+            "https://relay.acme.test:8443/api/openai"
+        );
     }
 }

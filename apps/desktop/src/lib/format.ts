@@ -73,7 +73,9 @@ export function displaySource(source: string | null | undefined): string | null 
 /* ---------- derived view state ---------- */
 
 export function accountResetAt(account: AccountViewModel): string | number | null {
-  const reset = account.snapshots
+  // A freshly created account carries no snapshots yet; treat a missing array
+  // as empty instead of crashing the summary chain that reads it.
+  const reset = (account.snapshots ?? [])
     .map((quota) => quota.window?.resetAt ?? quota.window?.endsAt ?? null)
     .map((value) => ({ value, time: timestamp(value) }))
     .filter((item): item is { value: string | number; time: number } => item.time !== null)
@@ -107,7 +109,9 @@ export function quotaRatio(quota: QuotaViewModel): number | null {
 }
 
 export function pressure(snapshots: QuotaViewModel[]): number | null {
-  const ratios = snapshots.map(quotaRatio).filter((value): value is number => value !== null);
+  const ratios = (snapshots ?? [])
+    .map(quotaRatio)
+    .filter((value): value is number => value !== null);
   return ratios.length > 0 ? Math.min(...ratios) : null;
 }
 

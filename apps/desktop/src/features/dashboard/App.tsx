@@ -395,7 +395,20 @@ function SetupForm({
 
   const profile = profiles.find((item) => item.id === profileId) ?? null;
   const isCustom = profile === null;
-  const effectiveBaseUrl = profile ? profile.baseUrl : baseUrl;
+  // A gateway profile (`customBaseUrl`) carries only a placeholder host in its
+  // manifest, so the form's own state is the value in every case except a
+  // fixed-URL built-in — where the manifest is authoritative.
+  const isGateway = profile?.customBaseUrl === true;
+  const effectiveBaseUrl = profile && !isGateway ? profile.baseUrl : baseUrl;
+
+  /// Switching profiles must reset the URL field: the custom path keeps its
+  /// prefilled default, while a gateway starts empty so the placeholder — not
+  /// a real-looking host — is what the user sees.
+  const selectProfile = (nextId: string) => {
+    const next = profiles.find((item) => item.id === nextId) ?? null;
+    setProfileId(nextId);
+    if (next?.customBaseUrl) setBaseUrl("");
+  };
   const endpointChips = profile
     ? Object.entries(profile.endpoints)
         .filter(([, path]) => path !== null && path !== undefined)
@@ -409,7 +422,7 @@ function SetupForm({
     await onSubmit({
       providerId: profile ? profile.id : "generic.openai_compatible",
       label: label.trim(),
-      baseUrl: (profile?.customBaseUrl ? baseUrl : effectiveBaseUrl).trim(),
+      baseUrl: effectiveBaseUrl.trim(),
       quotaEndpoint: profile ? undefined : quotaEndpoint.trim() || undefined,
       usageEndpoint: profile ? undefined : usageEndpoint.trim() || undefined,
       balanceEndpoint: profile ? undefined : balanceEndpoint.trim() || undefined,
@@ -418,7 +431,7 @@ function SetupForm({
   };
 
   return (
-    <motion.section
+    <motion.form
       className="form"
       aria-labelledby="setup-title"
       variants={fadeVariants}
@@ -459,7 +472,7 @@ function SetupForm({
                 type="button"
                 className={`picker__btn${profileId === item.id ? " is-active" : ""}`}
                 aria-pressed={profileId === item.id}
-                onClick={() => setProfileId(item.id)}
+                onClick={() => selectProfile(item.id)}
               >
                 <ProviderIcon providerId={item.id} size={18} />
                 <span>{item.name}</span>
@@ -469,7 +482,7 @@ function SetupForm({
             type="button"
             className={`picker__btn${isCustom ? " is-active" : ""}`}
             aria-pressed={isCustom}
-            onClick={() => setProfileId("custom")}
+            onClick={() => selectProfile("custom")}
           >
             <ProviderIcon providerId="generic.openai_compatible" size={18} />
             <span>{copy.form.customOption}</span>
@@ -495,7 +508,7 @@ function SetupForm({
                       aria-pressed={profileId === item.id}
                       disabled={!native}
                       title={native ? undefined : copy.form.protocolOther}
-                      onClick={() => setProfileId(item.id)}
+                      onClick={() => selectProfile(item.id)}
                     >
                       <ProviderIcon providerId={item.id} size={18} />
                       <span>{item.name}</span>
@@ -523,7 +536,7 @@ function SetupForm({
         </div>
         <div className="field field--wide">
           <label className="field__label" htmlFor="base-url">
-            {copy.form.baseUrl}
+            {isGateway ? copy.form.gatewayBaseUrl : copy.form.baseUrl}
           </label>
           <input
             className="field__input mono"
@@ -531,8 +544,10 @@ function SetupForm({
             type="url"
             value={effectiveBaseUrl}
             onChange={(event) => setBaseUrl(event.currentTarget.value)}
-            readOnly={!isCustom && !profile?.customBaseUrl}
-            placeholder={profile?.customBaseUrl ? copy.form.gatewayBaseUrl : copy.form.baseUrlPlaceholder}
+            readOnly={!isCustom && !isGateway}
+            placeholder={
+              isGateway ? copy.form.gatewayBaseUrlPlaceholder : copy.form.baseUrlPlaceholder
+            }
             autoComplete="off"
             spellCheck={false}
             required
@@ -540,7 +555,7 @@ function SetupForm({
           <span className="field__help">
             {isCustom
               ? copy.form.baseUrlHelp
-              : profile?.customBaseUrl
+              : isGateway
                 ? copy.form.gatewayBaseUrlHelp
                 : copy.form.builtinNote}
           </span>
@@ -645,7 +660,7 @@ function SetupForm({
           {submitting ? copy.actions.submitting : copy.actions.submit}
         </button>
       </div>
-    </motion.section>
+    </motion.form>
   );
 }
 

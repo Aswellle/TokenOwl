@@ -3,6 +3,13 @@
 # know about. CI runs stable (currently 1.99); the local baseline is 1.94, so
 # a green local `cargo clippy` can still fail CI on newer lints.
 #
+# This is a best-effort early warning, NOT a substitute for CI. It only greps
+# the specific patterns listed below: a clean run here means "none of those
+# known patterns appear", not "clippy passes". Any lint the list does not
+# cover — including ones added in future stable releases — is invisible to it.
+# CI remains the authority; never treat this script's exit code as evidence
+# that a change is lint-clean.
+#
 # Usage: bash scripts/lint-guard.sh   (run from the repository root)
 set -euo pipefail
 

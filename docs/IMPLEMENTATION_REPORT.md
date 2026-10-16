@@ -1037,3 +1037,53 @@ build ✓、vitest 35、typecheck、Playwright 4/4；浏览器实测计算 token
 
 cargo **209**（201 → 209）、clippy `-D warnings`、fmt、`scripts/lint-guard.sh`；
 vitest 35、typecheck；Playwright **7/7**。
+
+## Round 24 — 审查遗留项落地 + 两个高危用户路径缺陷
+
+日期：2026-10-16 | 基线：Round 23 后工作区（cfc6875）| 平台：Windows 11 x64
+
+### 计划内（Round 23 审查报告 🟢 两项）
+
+1. **社区包 base URL 收紧为仅 https**（`providers/community.rs`）：新增
+   `validate_base_url`——绝对 URL、scheme 必须为 `https`、必须有 host、
+   **禁止内嵌 userinfo 凭据**（base URL 会持久化到 SQLite，绝不能带秘密）。
+   网关类（`customBaseUrl`）是内置清单特性，其 URL 来自账户表单而非数据文件，
+   不受影响。新增 4 项测试（http 拒绝 / file·ftp·无 scheme·无 host 拒绝 /
+   userinfo 拒绝 / 带端口路径的合法 https 正例），另修正 `dedupe_community`
+   过时注释（实为"首文件胜出"）。变异验证：注释掉校验调用 → 3 项测试立即
+   失败，恢复后全绿。
+2. **lint-guard.sh 免责说明**：脚本头部明确"best-effort 预警，不替代 CI"——
+   只 grep 已列模式，未覆盖（含未来新增）的 lint 对它不可见，CI 仍是权威。
+
+### 计划外（落地过程中顺藤摸瓜发现，均已在浏览器/失败测试中先证实）
+
+3. **🔴 网关账户 base_url 被后端静默丢弃**（`commands/resolve_new_account`）：
+   `customBaseUrl` 配置文件（LiteLLM / One API / New API）的 built-in 分支
+   无条件取 `profile.base_url`（清单占位符 `https://your-gateway.example`），
+   前端辛苦传来的用户 URL 被无视——所有网关账户刷新必然打向不存在的主机。
+   修复：`custom_base_url` 时改用经 `validate_user_base_url` 校验的用户 URL
+   （绝对 http(s)、有 host、禁 userinfo、**拒绝 `.example`/`.invalid` 保留占位
+   域**防止未编辑预填直接提交；`localhost`/`.test` 留给本地网关）。固定 URL
+   的 built-in 行为不变（客户端 URL 仍被忽略，能力矩阵继续把关）。
+4. **🔴 设置表单不是 `<form>`，提交完全失效**（`App.tsx` SetupForm）：
+   面板渲染为 `motion.section` + `onSubmit`，`type="submit"` 按钮没有 form
+   owner——**任何建户操作从 UI 上都不可能成功**，点击后无声无息。真实
+   Chrome 探针证实：点击"连接账户"后零反应、零报错。修复：改 `motion.form`
+   （空表单提交现在被原生校验正确拦截）。探针复验：建户成功、概览出现新账户。
+5. **两处缺数据崩溃**（顺带）：`format.ts accountResetAt` 与 `pressure` 对
+   `snapshots` 缺失即抛 `TypeError`（新建账户首次刷新前正是这个形态）；
+   `ProviderIcon` 对空 `providerId` 抛错。均改为防御性空值处理。
+
+### 新增回归测试（13 项）
+
+- Rust 10：`resolve_new_account` 网关 URL 保留 / 固定 URL 忽略客户端 /
+  缺失非法 URL 拒绝 / 占位域拒绝 / localhost·`.test` 放行 / 双路径 userinfo
+  拒绝（commands 6 + community 4）。
+- Vitest 6（新文件 `GatewayForm.test.tsx` 3 + `SetupSubmit.test.tsx` 3）：
+  固定 URL 只读预填 / 网关可输入不回跳占位符 / 提交携带用户 URL /
+  submit 按钮在真实 form 内 / 建户走 submit 路径 / 失败可见报警。
+
+### 验证
+
+cargo **219**（209 → 219）、clippy `-D warnings`、fmt、`scripts/lint-guard.sh`；
+vitest **41**（35 → 41）无未处理错误、typecheck；Playwright **7/7**。

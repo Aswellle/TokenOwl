@@ -855,16 +855,11 @@ fn resolve_new_account(
             }
             None => None,
         };
-        let base_url = input.base_url.trim();
-        if !(base_url.starts_with("https://") || base_url.starts_with("http://")) {
-            return Err(CommandError::InvalidInput(
-                "base URL must use http or https".to_owned(),
-            ));
-        }
+        let base_url = validate_user_base_url(&input.base_url)?;
         return Ok(ResolvedNewAccount {
             provider_prefix: "generic.openai_compatible".to_owned(),
             display_name: "OpenAI-compatible".to_owned(),
-            base_url: base_url.to_owned(),
+            base_url,
             endpoints: AccountEndpoints {
                 models: None,
                 quota,
@@ -882,10 +877,18 @@ fn resolve_new_account(
         .into_iter()
         .find(|profile| profile.id == input.provider_id)
         .ok_or_else(|| CommandError::InvalidInput("unsupported provider id".to_owned()))?;
+    // A gateway (`customBaseUrl`) has no fixed host — its manifest carries a
+    // placeholder like `https://your-gateway.example`, so the account form's
+    // URL is the only real host and must be used.
+    let base_url = if profile.custom_base_url {
+        validate_user_base_url(&input.base_url)?
+    } else {
+        profile.base_url
+    };
     Ok(ResolvedNewAccount {
         provider_prefix: profile.id,
         display_name: profile.name,
-        base_url: profile.base_url,
+        base_url,
         endpoints: AccountEndpoints {
             models: profile.endpoints.models,
             quota: profile.endpoints.quota,
@@ -893,6 +896,48 @@ fn resolve_new_account(
             balance: profile.endpoints.balance,
         },
     })
+}
+
+/// Validates a base URL the user typed (custom provider or gateway profile).
+///
+/// Absolute http(s) with a host. Credentials embedded in the URL are rejected
+/// because the base URL is persisted to `SQLite`, which must never hold secrets.
+fn validate_user_base_url(base_url: &str) -> Result<String, CommandError> {
+    let trimmed = base_url.trim();
+    let parsed = url::Url::parse(trimmed).map_err(|_| {
+        CommandError::InvalidInput("base URL must be an absolute http or https URL".to_owned())
+    })?;
+    if !matches!(parsed.scheme(), "http" | "https") {
+        return Err(CommandError::InvalidInput(
+            "base URL must use http or https".to_owned(),
+        ));
+    }
+    if parsed.host_str().is_none() {
+        return Err(CommandError::InvalidInput(
+            "base URL must include a host".to_owned(),
+        ));
+    }
+    if !parsed.username().is_empty() || parsed.password().is_some() {
+        return Err(CommandError::InvalidInput(
+            "base URL must not embed credentials".to_owned(),
+        ));
+    }
+    // The gateway form prefills the manifest placeholder, so an unedited
+    // submit would otherwise persist a host that can never resolve and fail
+    // every refresh silently. `.example`/`.invalid` are IANA-reserved
+    // (RFC 2606) and never resolve; `.test` and `localhost` are left alone
+    // because local gateways legitimately use them.
+    let host = parsed.host_str().unwrap_or_default().to_ascii_lowercase();
+    if host == "example"
+        || host.ends_with(".example")
+        || host == "invalid"
+        || host.ends_with(".invalid")
+    {
+        return Err(CommandError::InvalidInput(format!(
+            "base URL host `{host}` is a reserved placeholder that can never resolve; enter your own host"
+        )));
+    }
+    Ok(trimmed.to_owned())
 }
 
 fn persist_new_account(
@@ -1405,5 +1450,151 @@ mod tests {
         let error = resolve_new_account(&input(None, Some("https://evil.test/x"), None), None)
             .expect_err("absolute endpoint must be rejected");
         assert!(matches!(error, CommandError::InvalidInput(_)));
+    }
+
+    /// Gateway profiles declare `customBaseUrl`, so the account form's URL is
+    /// the only real host. Persisting the manifest placeholder
+    /// (`https://your-gateway.example`) would send every refresh to a host
+    /// that does not exist.
+    #[test]
+    fn gateway_profile_uses_the_user_supplied_base_url() {
+        let input = GenericOpenAiAccountInput {
+            provider_id: "litellm".to_owned(),
+            label: "My gateway".to_owned(),
+            base_url: "https://gateway.mine.test:8443/openai".to_owned(),
+            api_key: "key".to_owned(),
+            quota_endpoint: None,
+            usage_endpoint: None,
+            balance_endpoint: None,
+        };
+        let resolved = resolve_new_account(&input, None).expect("gateway resolves");
+        assert_eq!(
+            resolved.base_url, "https://gateway.mine.test:8443/openai",
+            "the user's gateway URL must survive resolution"
+        );
+        assert!(
+            !resolved.base_url.contains("your-gateway.example"),
+            "the manifest placeholder must never be persisted"
+        );
+    }
+
+    /// A fixed-URL built-in keeps the manifest's host no matter what the
+    /// client sends, so the capability matrix still gates what gets probed.
+    #[test]
+    fn fixed_url_profile_ignores_the_client_base_url() {
+        let input = GenericOpenAiAccountInput {
+            provider_id: "deepseek".to_owned(),
+            label: "DS".to_owned(),
+            base_url: "https://attacker.test/v1".to_owned(),
+            api_key: "key".to_owned(),
+            quota_endpoint: None,
+            usage_endpoint: None,
+            balance_endpoint: None,
+        };
+        let resolved = resolve_new_account(&input, None).expect("built-in resolves");
+        assert_eq!(resolved.base_url, "https://api.deepseek.com/v1");
+    }
+
+    /// A gateway profile still has to receive a usable absolute URL: the
+    /// placeholder is not a fallback.
+    #[test]
+    fn gateway_profile_rejects_a_missing_or_invalid_base_url() {
+        for base_url in ["", "   ", "your-gateway.example", "ftp://gw.test"] {
+            let input = GenericOpenAiAccountInput {
+                provider_id: "litellm".to_owned(),
+                label: "My gateway".to_owned(),
+                base_url: base_url.to_owned(),
+                api_key: "key".to_owned(),
+                quota_endpoint: None,
+                usage_endpoint: None,
+                balance_endpoint: None,
+            };
+            let error = resolve_new_account(&input, None)
+                .expect_err("a gateway profile needs a real base URL");
+            assert!(
+                matches!(error, CommandError::InvalidInput(_)),
+                "`{base_url}` should be rejected"
+            );
+        }
+    }
+
+    /// The form prefills the manifest's placeholder host. Submitting it
+    /// unchanged must fail loudly instead of creating an account whose every
+    /// refresh silently fails against a host that cannot resolve.
+    #[test]
+    fn reserved_placeholder_hosts_are_rejected() {
+        for base_url in [
+            "https://your-gateway.example",
+            "https://your-gateway.example/v1",
+            "https://example.invalid/v1",
+            "https://EXAMPLE.INVALID/v1",
+        ] {
+            let input = GenericOpenAiAccountInput {
+                provider_id: "litellm".to_owned(),
+                label: "My gateway".to_owned(),
+                base_url: base_url.to_owned(),
+                api_key: "key".to_owned(),
+                quota_endpoint: None,
+                usage_endpoint: None,
+                balance_endpoint: None,
+            };
+            let error = resolve_new_account(&input, None)
+                .expect_err("a reserved placeholder host must be rejected");
+            assert!(
+                matches!(error, CommandError::InvalidInput(_)),
+                "`{base_url}` should be rejected"
+            );
+        }
+    }
+
+    /// The placeholder rule must not swallow hosts real gateways use:
+    /// self-hosted instances commonly run on localhost or a `.test` name.
+    #[test]
+    fn local_and_test_hosts_still_resolve() {
+        for base_url in [
+            "http://localhost:4000/v1",
+            "http://127.0.0.1:4000/v1",
+            "https://gateway.internal.test/v1",
+            "https://my.example-gateway.test/v1",
+        ] {
+            let input = GenericOpenAiAccountInput {
+                provider_id: "litellm".to_owned(),
+                label: "My gateway".to_owned(),
+                base_url: base_url.to_owned(),
+                api_key: "key".to_owned(),
+                quota_endpoint: None,
+                usage_endpoint: None,
+                balance_endpoint: None,
+            };
+            let resolved = resolve_new_account(&input, None)
+                .unwrap_or_else(|error| panic!("`{base_url}` should resolve: {error:?}"));
+            assert_eq!(resolved.base_url, base_url);
+        }
+    }
+
+    /// A base URL is persisted to `SQLite`, which must never hold secrets, so
+    /// userinfo in the URL is rejected on every user-supplied path.
+    #[test]
+    fn userinfo_in_user_supplied_base_urls_is_rejected() {
+        for (provider_id, base_url) in [
+            ("litellm", "https://user:secret@gateway.test/v1"),
+            (
+                "generic.openai_compatible",
+                "https://user:secret@relay.test/v1",
+            ),
+        ] {
+            let input = GenericOpenAiAccountInput {
+                provider_id: provider_id.to_owned(),
+                label: "X".to_owned(),
+                base_url: base_url.to_owned(),
+                api_key: "key".to_owned(),
+                quota_endpoint: None,
+                usage_endpoint: None,
+                balance_endpoint: None,
+            };
+            let error = resolve_new_account(&input, None)
+                .expect_err("credentials embedded in the URL must be rejected");
+            assert!(matches!(error, CommandError::InvalidInput(_)));
+        }
     }
 }

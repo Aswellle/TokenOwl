@@ -35,7 +35,7 @@ TokenOwl is a small desktop companion that answers one question **before** it be
 It lives in a corner of your screen as a tiny always-on-top bubble, opens into a full dashboard on click, and does all of this **entirely on your machine** — your API keys go into the OS keychain, your data into a local SQLite file, and nothing ever phones home.
 
 <p align="center">
-  <img src="docs/img/dashboard.png" alt="TokenOwl dashboard: pressure summary, per-account quota cards with reset countdowns, and a provider rail" width="820" />
+  <img src="assets/dashboard.png" alt="TokenOwl dashboard: pressure summary, per-account quota cards with reset countdowns, and a provider rail" width="820" />
 </p>
 
 ## Why not just check the web dashboards?
@@ -58,9 +58,9 @@ It lives in a corner of your screen as a tiny always-on-top bubble, opens into a
 **Floating bubble** — An Apple-Watch-style double ring, always on top and draggable, with edge snapping. Outer ring maps your shortest reset window (e.g. 5-hour), inner ring the long one (e.g. weekly); the provider's brand icon sits in the center. Click it to open the dashboard.
 
 <p align="center">
-  <img src="docs/img/bubble-rings.png" alt="Bubble with dual quota rings" width="180" />
+  <img src="assets/bubble-rings.png" alt="Bubble with dual quota rings" width="180" />
   &nbsp;&nbsp;
-  <img src="docs/img/bubble-empty.png" alt="Bubble in empty state with owl mark" width="180" />
+  <img src="assets/bubble-empty.png" alt="Bubble in empty state with owl mark" width="180" />
 </p>
 
 **Notifications that respect thresholds** — Low-quota warnings (default 20%, escalating at 10%), balance floors, reset reminders, auth-expiry alerts, and repeated network-failure detection — each deduplicated so you're never spammed.
@@ -68,7 +68,7 @@ It lives in a corner of your screen as a tiny always-on-top bubble, opens into a
 **Usage analytics** — A 26-week GitHub-style heatmap of daily tokens and spend, a 30-day trend chart, per-provider breakdowns with 2h / 24h / 30d windows, and burn-rate projection that estimates when your quota runs out.
 
 <p align="center">
-  <img src="docs/img/history.png" alt="History view: 30-day stats, trend chart, and 26-week heatmap" width="820" />
+  <img src="assets/history.png" alt="History view: 30-day stats, trend chart, and 26-week heatmap" width="820" />
 </p>
 
 **Gateway-friendly** — Self-hosting New API, One API, or LiteLLM? They're first-class built-ins with editable base URLs. Custom OpenAI-compatible endpoints work too.
@@ -195,7 +195,7 @@ apps/desktop/
 │       ├── networking/  # shared HTTP client (limits, redaction)
 │       └── commands/    # Tauri IPC handlers
 ├── providers/builtin/   # 29 YAML provider manifests
-docs/                    # product spec, architecture, security design (中文)
+assets/                   # screenshots used by this README
 ```
 
 ### Testing philosophy
@@ -232,7 +232,7 @@ Found a vulnerability? Please use [private security advisories](https://github.c
 
 ## Contributing
 
-Issues and PRs are welcome — good first issues include new provider manifests (a YAML file plus fixtures) and UI polish. See [CONTRIBUTING](CONTRIBUTING.md) for the workflow and the `docs/` series for the full product/architecture spec (Chinese, with English identifiers throughout the codebase).
+Issues and PRs are welcome — good first issues include new provider manifests (a YAML file plus fixtures) and UI polish. See [CONTRIBUTING](CONTRIBUTING.md) for the workflow, the [capability matrix](providers/builtin/) for what each provider grade means, and the in-code Rustdoc for architecture details.
 
 ## License
 

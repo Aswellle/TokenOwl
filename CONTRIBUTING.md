@@ -7,7 +7,7 @@ Thank you for considering a contribution! TokenOwl is a local-first desktop app,
 - **New provider manifests** — the highest-leverage contribution. Most providers are a single YAML file plus test fixtures; no core code changes required (see below).
 - **Bug fixes** — anything from snapshot math to UI state handling. Please include a failing test first when practical.
 - **UI/UX polish** — the design system is token-based; state handling (empty/loading/stale/error) and accessibility are non-negotiable.
-- **Documentation** — the `docs/` series is the product spec (Chinese); code identifiers and the README are English.
+- **Documentation** — README and Rustdoc are the public documentation; code identifiers are English, README prose English.
 
 ## Getting started
 
@@ -33,7 +33,7 @@ CI enforces all of the above plus a version-consistency check (`package.json` is
 
 ## Adding a provider manifest
 
-1. Copy the closest existing manifest in `providers/builtin/` and adjust id, base URL, endpoints, and the honest capability level (`L1`–`L4` in `docs/09-Provider能力矩阵.md`). **Grade what the API actually exposes** — if a provider has no public quota endpoint, it is L2 health-only, never an invented limit.
+1. Copy the closest existing manifest in `providers/builtin/` and adjust id, base URL, endpoints, and the honest capability level (`L1`–`L4`, see the `capability:` block of any existing manifest). **Grade what the API actually exposes** — if a provider has no public quota endpoint, it is L2 health-only, never an invented limit.
 2. Add offline fixtures under `apps/desktop/src-tauri/tests/fixtures/` covering: success, partial/missing fields, malformed JSON, 401, 429 with `retry-after`, 5xx, and empty responses — whichever apply to the endpoints you declared.
 3. Run `cargo test`. The manifest registry validates everything else.
 
@@ -51,7 +51,7 @@ Community providers (outside the built-in set) ship as [packs](README.md#communi
 - Keep PRs focused; one logical change per PR.
 - Include screenshots or recordings for any UI-visible change (state variants, narrow windows, dark mode where relevant).
 - CI must pass: frontend typecheck/tests, Rust fmt/clippy/tests, version consistency.
-- For behavior changes, update the relevant `docs/` file in the same PR.
+- For behavior changes, document the behavior in the PR description and relevant Rustdoc comments.
 
 ## Reporting vulnerabilities
 

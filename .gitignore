@@ -30,3 +30,7 @@ target-msvc
 # Tauri gen
 apps/desktop/src-tauri/gen/schemas
 test-results/
+
+# Internal documentation and release drafts (kept local, not published)
+docs/
+RELEASE-NOTES-*.md

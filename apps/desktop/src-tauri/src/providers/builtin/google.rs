@@ -75,10 +75,23 @@ impl GoogleAiAdapter {
         Self::new(AdapterLimits::default(), config)
     }
 
+    /// Resolves the config a request must use: the account's own config when
+    /// the caller supplied one, falling back to the construction config only
+    /// for direct adapter use (tests, tools). `AppRuntime` constructs these
+    /// adapters from `OpenAiCompatibleConfig::default()`, whose base URL is a
+    /// placeholder host, so the fallback must never win on the refresh path.
+    fn effective_config<'a>(&'a self, ctx: &'a FetchContext) -> &'a OpenAiCompatibleConfig {
+        ctx.config.as_ref().unwrap_or(&self.config)
+    }
+
     /// `GET {base}/v1beta/models` — health and identity in one request.
-    async fn probe(&self, credentials: &CredentialStore) -> ProviderResult<ProbeOutcome> {
-        let url = endpoint_url(&self.config)?;
-        let headers = request_headers(&self.config, credentials)?;
+    async fn probe(
+        &self,
+        config: &OpenAiCompatibleConfig,
+        credentials: &CredentialStore,
+    ) -> ProviderResult<ProbeOutcome> {
+        let url = endpoint_url(config)?;
+        let headers = request_headers(config, credentials)?;
         let request = self
             .client
             .get(url)
@@ -181,7 +194,7 @@ impl ProviderAdapter for GoogleAiAdapter {
                 "Google AI adapter requires a credential store",
             )
         })?;
-        match self.probe(credentials).await? {
+        match self.probe(self.effective_config(ctx), credentials).await? {
             ProbeOutcome::Healthy => {
                 let mut unknown = QuotaSnapshot::unknown();
                 unknown.account_id = Some(account.account_id.clone());
@@ -229,7 +242,7 @@ impl ProviderAdapter for GoogleAiAdapter {
                 "Google AI adapter requires a credential store",
             )
         })?;
-        match self.probe(credentials).await? {
+        match self.probe(self.effective_config(ctx), credentials).await? {
             ProbeOutcome::Healthy => Ok(HealthStatus::Healthy),
             ProbeOutcome::Rejected(status) => Err(auth_error(status)),
             ProbeOutcome::RateLimited => Ok(HealthStatus::Degraded),
@@ -342,6 +355,56 @@ mod tests {
             url.as_str(),
             "https://generativelanguage.googleapis.com/v1beta/models"
         );
+    }
+
+    #[test]
+    fn effective_config_prefers_the_account_config_over_the_placeholder() {
+        // Same contract as the Anthropic adapter: AppRuntime builds this from
+        // the placeholder default, so the fetch context must win.
+        let placeholder = OpenAiCompatibleConfig::default();
+        assert!(placeholder.base_url.contains("example.invalid"));
+        let adapter = GoogleAiAdapter::with_default_limits(placeholder.clone()).expect("adapter");
+
+        let account = OpenAiCompatibleConfig::new(
+            "gemini:account-1",
+            "Google Gemini",
+            "https://generativelanguage.googleapis.com/v1beta",
+        );
+        let ctx = FetchContext {
+            config: Some(account),
+            ..FetchContext::default()
+        };
+        assert_eq!(
+            adapter.effective_config(&ctx).base_url,
+            "https://generativelanguage.googleapis.com/v1beta"
+        );
+
+        let bare = FetchContext::default();
+        assert_eq!(
+            adapter.effective_config(&bare).base_url,
+            placeholder.base_url
+        );
+    }
+
+    #[test]
+    fn probe_url_follows_the_effective_config() {
+        let adapter = GoogleAiAdapter::with_default_limits(OpenAiCompatibleConfig::default())
+            .expect("adapter");
+        let account = OpenAiCompatibleConfig::new(
+            "gemini:account-2",
+            "Google Gemini",
+            "https://generativelanguage.googleapis.com/v1beta",
+        );
+        let ctx = FetchContext {
+            config: Some(account),
+            ..FetchContext::default()
+        };
+        let url = endpoint_url(adapter.effective_config(&ctx)).expect("probe url");
+        assert_eq!(
+            url.as_str(),
+            "https://generativelanguage.googleapis.com/v1beta/models"
+        );
+        assert!(!url.as_str().contains("example.invalid"));
     }
 
     #[test]

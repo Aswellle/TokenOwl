@@ -6,7 +6,10 @@ import { defineConfig } from "@playwright/test";
  * local/manual verification step per docs/07; what CI can prove is that the
  * webview app renders, navigates, and reads its bridge in a real browser.
  */
-const PORT = 1800;
+// 1800 can fall inside a Windows reserved port range (Hyper-V/WSL keep
+// dynamic blocks such as 1732-1831), where binding fails with EACCES rather
+// than EADDRINUSE; 1877 sits outside the common reservations.
+const PORT = Number(process.env.E2E_PORT ?? 1877);
 
 export default defineConfig({
   testDir: "./e2e",
@@ -19,7 +22,7 @@ export default defineConfig({
     trace: "retain-on-failure",
   },
   webServer: {
-    command: "pnpm dev --port 1800 --host 127.0.0.1 --strictPort",
+    command: `pnpm dev --port ${PORT} --host 127.0.0.1 --strictPort`,
     url: `http://127.0.0.1:${PORT}`,
     reuseExistingServer: !process.env.CI,
     timeout: 60_000,

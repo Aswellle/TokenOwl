@@ -870,6 +870,12 @@ pub struct FetchContext {
     pub timeout: Duration,
     pub base_url: Option<String>,
     pub credentials: Option<crate::credentials::CredentialStore>,
+    /// The account's own provider config. The refresh path always supplies it,
+    /// and adapters must prefer it over the config they were constructed with:
+    /// `AppRuntime` builds the native adapters from
+    /// `OpenAiCompatibleConfig::default()`, whose base URL is a placeholder,
+    /// so reading the construction config would target the wrong host.
+    pub config: Option<OpenAiCompatibleConfig>,
 }
 
 impl Default for FetchContext {
@@ -878,6 +884,7 @@ impl Default for FetchContext {
             timeout: Duration::from_secs(20),
             base_url: None,
             credentials: None,
+            config: None,
         }
     }
 }

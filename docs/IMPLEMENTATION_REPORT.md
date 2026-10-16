@@ -993,3 +993,47 @@ build ✓、vitest 35、typecheck、Playwright 4/4；浏览器实测计算 token
 
 `scripts/round-icon.py` 保留在仓库：源图换新时可复用它重新生成圆角母版
 （改 `SOURCE` 常量即可）。
+
+## Round 23 — 代码审查修复：原生适配器请求目标（🔴 blocking）
+
+日期：2026-10-16 | 基线：Round 22 后工作区 | 平台：Windows 11 x64
+
+### 审查发现的缺陷
+
+**🔴 原生适配器读取构造时的占位配置，而非账户配置。** `AppRuntime` 用
+`OpenAiCompatibleConfig::default()`（base_url = `https://example.invalid/v1`）
+构造 `AnthropicAdapter` / `GoogleAiAdapter`，而 `probe()` 只读 `self.config`。
+账户的真实 base_url 虽经 `native_fetch` 放入 `FetchContext`，但两个原生适配器
+**只读 `ctx.credentials`、从不读 `ctx.base_url`**——结果所有 Anthropic/Gemini
+刷新都打向占位主机并失败。单元测试用自建 config 构造适配器，因此测试全绿掩盖了
+它：典型"测试通过但功能不可用"。
+
+### 修复（方案 A）
+
+| 项 | 内容 |
+|---|---|
+| `FetchContext` 扩展 | 新增 `config: Option<OpenAiCompatibleConfig>` 字段（含文档说明为何必须优先于构造配置） |
+| 适配器解析 | 两个原生适配器新增 `effective_config(ctx)`：优先 `ctx.config`，仅在直接使用（测试/工具）时回退到构造配置；`probe()` 改为接受 config 参数 |
+| 调用链接通 | `scheduler::native_fetch` 把账户 config 传入 `FetchContext.config`（此前该参数被丢弃） |
+| 附带修复 | `AccountEndpoints` 缺 `models` 字段，导致账户配置丢失 models 端点（适配器只能靠硬编码兜底）；补齐并在 `persist_new_account` 写入 |
+| 🟡 timeout 语义 | 原 `timeout: config.default_refresh` 把 300s 刷新间隔当请求超时传入（且被忽略）；改为传 `FetchContext::default().timeout`（请求超时实际来自适配器 `AdapterLimits` 的 15s），并注释说明区别 |
+
+### 回归测试（8 项）
+
+- **集成级**（`tests/refresh_target.rs`，4 项）：占位主机断言、`FetchContext` 确实
+  携带账户 config、解析优先序、models 端点随 config 传递；
+- **模块内**（anthropic/google 各 2 项）：直接调用私有的 `effective_config` 与
+  `endpoint_url`，断言 probe URL 跟随账户配置且不含 `example.invalid`。
+- **变异测试验证**：临时把 `effective_config` 改回读 `self.config`，2 项测试立即
+  失败；恢复后全绿——证明测试真能捕获该缺陷，而非"恰好通过"。
+
+### 附带修复：E2E 端口
+
+排查 e2e webServer 启动失败（`EACCES` 而非端口占用），确认 **1800 落在 Windows
+保留段 1732–1831**（Hyper-V/WSL 动态保留）。`playwright.config.ts` 端口改为 1877
+（`E2E_PORT` 可覆盖），并把 `webServer.command` 里的硬编码端口改为使用该变量。
+
+### 验证
+
+cargo **209**（201 → 209）、clippy `-D warnings`、fmt、`scripts/lint-guard.sh`；
+vitest 35、typecheck；Playwright **7/7**。

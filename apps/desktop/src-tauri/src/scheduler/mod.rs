@@ -93,9 +93,17 @@ async fn native_fetch<A: crate::domain::provider::ProviderAdapter>(
                 credential_ref: account.credential_ref.clone(),
             },
             &crate::domain::provider::FetchContext {
-                timeout: config.default_refresh,
+                // Request timeout comes from the adapter's own AdapterLimits
+                // (15s for the native adapters); `default_refresh` is the
+                // *refresh interval* (300s) and would be a 20x-too-long
+                // request timeout if passed here.
+                timeout: crate::domain::provider::FetchContext::default().timeout,
                 base_url: Some(config.base_url.clone()),
                 credentials: Some(credentials.clone()),
+                // The account's config is the only correct request target:
+                // the native adapters are constructed from a placeholder
+                // default, so they must read this rather than their own.
+                config: Some(config.clone()),
             },
         )
         .await

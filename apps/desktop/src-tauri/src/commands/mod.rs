@@ -806,6 +806,7 @@ fn list_accounts(state: &AppRuntime) -> Result<Vec<AccountViewModel>, CommandErr
 /// declare only a balance endpoint are not probed at a path that may not exist.
 #[derive(Debug)]
 struct AccountEndpoints {
+    models: Option<String>,
     quota: Option<String>,
     usage: Option<String>,
     balance: Option<String>,
@@ -865,6 +866,7 @@ fn resolve_new_account(
             display_name: "OpenAI-compatible".to_owned(),
             base_url: base_url.to_owned(),
             endpoints: AccountEndpoints {
+                models: None,
                 quota,
                 usage,
                 balance,
@@ -885,6 +887,7 @@ fn resolve_new_account(
         display_name: profile.name,
         base_url: profile.base_url,
         endpoints: AccountEndpoints {
+            models: profile.endpoints.models,
             quota: profile.endpoints.quota,
             usage: profile.endpoints.usage,
             balance: profile.endpoints.balance,
@@ -907,6 +910,9 @@ fn persist_new_account(
         resolved.base_url.clone(),
     );
     config.credential_ref = Some(credential_ref.clone());
+    config
+        .models_endpoint
+        .clone_from(&resolved.endpoints.models);
     config.quota_endpoint.clone_from(&resolved.endpoints.quota);
     config.usage_endpoint.clone_from(&resolved.endpoints.usage);
     config

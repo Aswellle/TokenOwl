@@ -86,18 +86,28 @@ impl AnthropicAdapter {
         &self.config
     }
 
+    /// Resolves the config a request must use: the account's own config when
+    /// the caller supplied one, falling back to the construction config only
+    /// for direct adapter use (tests, tools). `AppRuntime` constructs these
+    /// adapters from `OpenAiCompatibleConfig::default()`, whose base URL is a
+    /// placeholder host, so the fallback must never win on the refresh path.
+    fn effective_config<'a>(&'a self, ctx: &'a FetchContext) -> &'a OpenAiCompatibleConfig {
+        ctx.config.as_ref().unwrap_or(&self.config)
+    }
+
     /// Calls `GET {base}/v1/models` — one request that answers health and
     /// identity at once and returns the ratelimit headers from the response.
     async fn probe(
         &self,
+        config: &OpenAiCompatibleConfig,
         credentials: &CredentialStore,
     ) -> ProviderResult<(
         HealthStatus,
         Option<AccountIdentity>,
         std::collections::BTreeMap<String, String>,
     )> {
-        let url = endpoint_url(&self.config)?;
-        let headers = request_headers(&self.config, credentials)?;
+        let url = endpoint_url(config)?;
+        let headers = request_headers(config, credentials)?;
         let request = self
             .client
             .get(url)
@@ -200,7 +210,8 @@ impl ProviderAdapter for AnthropicAdapter {
                 "Anthropic adapter requires a credential store",
             )
         })?;
-        let (health, identity, headers) = self.probe(credentials).await?;
+        let (health, identity, headers) =
+            self.probe(self.effective_config(ctx), credentials).await?;
         if health == HealthStatus::Unhealthy {
             return Err(ProviderError::new(
                 ProviderErrorKind::ProviderUnavailable,
@@ -246,7 +257,7 @@ impl ProviderAdapter for AnthropicAdapter {
                 "Anthropic adapter requires a credential store",
             )
         })?;
-        let (health, _, _) = self.probe(credentials).await?;
+        let (health, _, _) = self.probe(self.effective_config(ctx), credentials).await?;
         Ok(health)
     }
 }
@@ -536,6 +547,57 @@ mod tests {
         assert_eq!(rfc3339_from_unix(0), "1970-01-01T00:00:00Z");
         assert_eq!(rfc3339_from_unix(1_760_140_800), "2025-10-11T00:00:00Z");
         assert_eq!(rfc3339_from_unix(951_782_400), "2000-02-29T00:00:00Z");
+    }
+
+    #[test]
+    fn effective_config_prefers_the_account_config_over_the_placeholder() {
+        // AppRuntime constructs this adapter from the default config, whose
+        // base URL is a placeholder; the account config supplied through the
+        // fetch context must win, or every refresh targets the wrong host.
+        let placeholder = OpenAiCompatibleConfig::default();
+        assert!(placeholder.base_url.contains("example.invalid"));
+        let adapter = AnthropicAdapter::with_default_limits(placeholder.clone()).expect("adapter");
+
+        let account = OpenAiCompatibleConfig::new(
+            "anthropic:account-1",
+            "Anthropic",
+            "https://api.anthropic.com/v1",
+        );
+        let ctx = FetchContext {
+            config: Some(account.clone()),
+            ..FetchContext::default()
+        };
+        assert_eq!(
+            adapter.effective_config(&ctx).base_url,
+            "https://api.anthropic.com/v1"
+        );
+
+        // Without an account config the construction config is the fallback
+        // (direct adapter use in tests and tools).
+        let bare = FetchContext::default();
+        assert_eq!(
+            adapter.effective_config(&bare).base_url,
+            placeholder.base_url
+        );
+    }
+
+    #[test]
+    fn probe_url_follows_the_effective_config() {
+        let adapter = AnthropicAdapter::with_default_limits(OpenAiCompatibleConfig::default())
+            .expect("adapter");
+        let mut account = OpenAiCompatibleConfig::new(
+            "anthropic:account-2",
+            "Anthropic",
+            "https://api.anthropic.com/v1",
+        );
+        account.models_endpoint = Some("/v1/models".to_owned());
+        let ctx = FetchContext {
+            config: Some(account),
+            ..FetchContext::default()
+        };
+        let url = endpoint_url(adapter.effective_config(&ctx)).expect("probe url");
+        assert_eq!(url.as_str(), "https://api.anthropic.com/v1/models");
+        assert!(!url.as_str().contains("example.invalid"));
     }
 
     #[test]

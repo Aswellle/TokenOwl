@@ -11,6 +11,7 @@ const { mockListAccounts, mockCreateAccount, mockManifestProfiles, mockListen } 
 vi.mock("@lobehub/icons", () => ({ ProviderIcon: () => null }));
 vi.mock("@tauri-apps/api/event", () => ({ listen: mockListen }));
 vi.mock("../lib/tauri", () => ({
+  isTauri: vi.fn(() => false),
   shell: {
     openDashboard: vi.fn(),
     showBubble: vi.fn(),

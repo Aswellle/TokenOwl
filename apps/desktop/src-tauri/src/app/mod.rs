@@ -21,6 +21,24 @@ struct RuntimeState {
     bubble_position: Option<WindowPosition>,
 }
 
+/// Geometry the dashboard needs to start its expansion from the bubble.
+///
+/// The two windows are separate native surfaces, so the "morph" is a handoff:
+/// Rust reports where the bubble sits (in dashboard-window coordinates, which
+/// is what the webview can draw against) and the dashboard grows out of that
+/// point while the bubble fades. Sending the rect rather than a bare point
+/// keeps the origin correct on multi-monitor setups and after a drag.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct MorphAnchor {
+    /// Bubble center X in dashboard client coordinates (CSS pixels).
+    x: f64,
+    /// Bubble center Y in dashboard client coordinates (CSS pixels).
+    y: f64,
+    /// Bubble diameter in CSS pixels.
+    diameter: f64,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct UpdateInfo {
@@ -46,17 +64,80 @@ fn save_bubble_position(
     Ok(())
 }
 
+/// Where the bubble currently sits, expressed in dashboard-window CSS pixels.
+///
+/// Both windows report *physical* positions, so the math is: bubble center in
+/// physical space → subtract the dashboard's client origin (its outer position
+/// plus decorations, which are none here) → divide by the scale factor of the
+/// dashboard's monitor. Falls back to the bubble's saved position when the
+/// window is not realized yet (e.g. the tray opened the dashboard first).
+fn morph_anchor(app: &AppHandle) -> Option<MorphAnchor> {
+    let bubble = app.get_webview_window("bubble")?;
+    let dashboard = app.get_webview_window("main")?;
+    let bubble_position = bubble.outer_position().ok()?;
+    let bubble_size = bubble.outer_size().ok()?;
+    let dashboard_position = dashboard.outer_position().ok()?;
+    let scale = dashboard.scale_factor().ok()?;
+    let scale = if scale > 0.0 { scale } else { 1.0 };
+
+    let bubble_center_x = f64::from(bubble_position.x) + f64::from(bubble_size.width) / 2.0;
+    let bubble_center_y = f64::from(bubble_position.y) + f64::from(bubble_size.height) / 2.0;
+    let dashboard_origin_x = f64::from(dashboard_position.x);
+    let dashboard_origin_y = f64::from(dashboard_position.y);
+
+    Some(MorphAnchor {
+        x: (bubble_center_x - dashboard_origin_x) / scale,
+        y: (bubble_center_y - dashboard_origin_y) / scale,
+        diameter: f64::from(bubble_size.width) / scale,
+    })
+}
+
+/// Whether the bubble window is currently visible, so the dashboard knows if
+/// it should play the expand-from-bubble morph or just open normally (tray,
+/// second launch, deep link).
+fn bubble_is_visible(app: &AppHandle) -> bool {
+    app.get_webview_window("bubble")
+        .and_then(|bubble| bubble.is_visible().ok())
+        .unwrap_or(false)
+}
+
 #[tauri::command]
 fn open_dashboard(app: AppHandle) -> Result<(), String> {
     // The dashboard replaces the bubble: expanded and collapsed are exclusive.
-    if let Some(bubble) = app.get_webview_window("bubble") {
-        let _ = bubble.hide();
-    }
+    // The bubble stays visible for one animation beat so the dashboard can
+    // grow out of it; the frontend calls `finish_bubble_handoff` when its
+    // expansion lands, which is what actually hides the bubble. Hiding here
+    // would leave a frame with neither surface on screen — the gap this
+    // transition exists to remove.
+    let anchor = morph_anchor(&app);
+    let from_bubble = bubble_is_visible(&app);
     let dashboard = app
         .get_webview_window("main")
         .ok_or_else(|| "dashboard window unavailable".to_string())?;
     dashboard.show().map_err(|error| error.to_string())?;
-    dashboard.set_focus().map_err(|error| error.to_string())
+    dashboard.set_focus().map_err(|error| error.to_string())?;
+    if from_bubble {
+        if let Some(anchor) = anchor {
+            let _ = app.emit("window:morph-from-bubble", anchor);
+        }
+    }
+    Ok(())
+}
+
+/// Hides the bubble once the dashboard has visually taken over.
+///
+/// The dashboard calls this after its expansion animation settles. It is
+/// idempotent and safe to call when no morph ran (the bubble is already
+/// hidden), so the frontend never needs to track handoff state.
+#[tauri::command]
+// Tauri commands must return a `Result` to surface IPC errors; hiding is
+// best-effort by design, so the signature stays for the command contract.
+#[allow(clippy::unnecessary_wraps)]
+fn finish_bubble_handoff(app: AppHandle) -> Result<(), String> {
+    if let Some(bubble) = app.get_webview_window("bubble") {
+        let _ = bubble.hide();
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -106,7 +187,26 @@ fn show_bubble(app: AppHandle, state: State<'_, Arc<Mutex<RuntimeState>>>) -> Re
         }
         None => place_bubble_bottom_right(&bubble),
     }
+    // The bubble is placed before it is shown so it materializes at its
+    // docked spot, not wherever it was left. It appears immediately while the
+    // dashboard runs its collapse animation; the dashboard hides itself when
+    // that animation lands (see `finish_dashboard_handoff`), so the two
+    // surfaces overlap for one beat instead of leaving a blank frame between
+    // them.
     bubble.show().map_err(|error| error.to_string())?;
+    if let Some(anchor) = morph_anchor(&app) {
+        let _ = app.emit("window:morph-to-bubble", anchor);
+    }
+    Ok(())
+}
+
+/// Hides the dashboard once its collapse animation has visually handed over
+/// to the bubble. Called by the dashboard frontend; idempotent.
+#[tauri::command]
+// Tauri commands must return a `Result` to surface IPC errors; hiding is
+// best-effort by design, so the signature stays for the command contract.
+#[allow(clippy::unnecessary_wraps)]
+fn finish_dashboard_handoff(app: AppHandle) -> Result<(), String> {
     if let Some(dashboard) = app.get_webview_window("main") {
         let _ = dashboard.hide();
     }
@@ -453,6 +553,8 @@ pub fn run() {
             get_bubble_position,
             save_bubble_position,
             open_dashboard,
+            finish_bubble_handoff,
+            finish_dashboard_handoff,
             hide_dashboard,
             minimize_dashboard,
             show_bubble,

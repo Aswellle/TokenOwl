@@ -8,13 +8,15 @@ import { IconOwl } from "../../components/icons";
 import { ProviderIcon } from "../../components/ProviderIcon";
 import { overallHealth, pressure, quotaRatio, quotaWindowTag } from "../../lib/format";
 import { isTauri, shell, tauriBridge } from "../../lib/tauri";
+import { onMorphToBubble, type MorphAnchor } from "../../lib/morph";
 import type { AccountHealth, AccountViewModel, DashboardBridge, QuotaViewModel } from "../../types";
 
 const DRAG_THRESHOLD_PX = 5;
-// Apple-Watch-style rings filling the 50×50 viewBox: the outer band runs flush
-// to the bubble edge (no rim ring), the bands sit adjacent at width 5, and the
-// hole left over (radius 13.5) is the brand icon's space.
-const RING_RADII = [21.5, 16.5];
+// Apple-Watch-style rings filling the 50×50 viewBox. The outer band runs flush
+// to the bubble edge (its stroke's outer edge lands on radius 25 — the button
+// radius — so no status-coloured rim leaks around it), the bands sit adjacent
+// at width 5, and the hole left over (radius 14.95) is the brand icon's space.
+const RING_RADII = [22.5, 17.5];
 const RING_BAND = 5;
 
 interface Ring {
@@ -67,6 +69,9 @@ function ringsFor(account: AccountViewModel | undefined): Ring[] {
 export function BubbleView({ bridge = tauriBridge }: { bridge?: DashboardBridge }) {
   const [accounts, setAccounts] = useState<AccountViewModel[]>([]);
   const [phase, setPhase] = useState<"loading" | "ready" | "offline">("loading");
+  // Set when the dashboard collapses into this bubble: the bubble then scales
+  // up from the ring it is replacing instead of popping in at full size.
+  const [collapseAnchor, setCollapseAnchor] = useState<MorphAnchor | null>(null);
   const persistTimer = useRef<number | null>(null);
   const dragging = useRef(false);
 
@@ -146,6 +151,21 @@ export function BubbleView({ bridge = tauriBridge }: { bridge?: DashboardBridge 
 
   const status: AccountHealth = overallHealth(accounts, phase);
   const reduce = useReducedMotion();
+
+  // A collapse from the dashboard arrives as an event on this window. The
+  // bubble is already visible at this point (Rust shows it before emitting),
+  // so it starts scaled up from the dashboard's outgoing circle and settles
+  // into place — the reverse of the expansion the dashboard plays.
+  useEffect(() => {
+    if (!isTauri()) return;
+    return onMorphToBubble((anchor) => {
+      setCollapseAnchor(anchor);
+      // The anchor only seeds the entrance; clearing it keeps later
+      // re-renders from replaying the scale.
+      window.setTimeout(() => setCollapseAnchor(null), 600);
+    });
+  }, []);
+
   const primary =
     accounts.find((account) => account.status !== "error") ?? accounts[0] ?? undefined;
   const rings = ringsFor(primary);
@@ -174,9 +194,24 @@ export function BubbleView({ bridge = tauriBridge }: { bridge?: DashboardBridge 
       <motion.button
         className={`bubble bubble--${status}`}
         type="button"
-        initial={reduce ? false : { scale: 0.4, opacity: 0 }}
+        initial={
+          reduce
+            ? false
+            : collapseAnchor
+              ? // Grow from the dashboard's circle: the two windows are the
+                // same visual object at this moment, so the bubble starts at
+                // the size the dashboard's collapse left behind.
+                { scale: Math.max(1, collapseAnchor.diameter / 48), opacity: 0 }
+              : { scale: 0.86, opacity: 0 }
+        }
         animate={{ scale: 1, opacity: 1 }}
-        transition={{ type: "spring", stiffness: 190, damping: 22 }}
+        transition={
+          reduce
+            ? { duration: 0 }
+            : collapseAnchor
+              ? { type: "spring", stiffness: 300, damping: 26, mass: 0.8 }
+              : { type: "spring", stiffness: 190, damping: 22 }
+        }
         whileHover={reduce ? undefined : { scale: 1.04 }}
         whileTap={reduce ? undefined : { scale: 0.94 }}
         onPointerDown={scheduleDrag}

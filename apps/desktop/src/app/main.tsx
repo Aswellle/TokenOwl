@@ -1,9 +1,10 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import ReactDOM from "react-dom/client";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import App from "../features/dashboard/App";
 import { BubbleView } from "../features/bubble/BubbleView";
 import { createMockBridge } from "../lib/mock";
+import { clipCircle, cornerRadius } from "../lib/morph";
 import { isTauri, tauriBridge, windowMode } from "../lib/tauri";
 
 const mode = windowMode();
@@ -14,18 +15,36 @@ if (!isTauri()) document.body.dataset.preview = "true";
 // states stay reviewable. Production builds never import the mock bridge.
 const bridge = !isTauri() && import.meta.env.DEV ? createMockBridge() : tauriBridge;
 
-const PATH_EASE: [number, number, number, number] = [0.32, 0.72, 0, 1];
+const REVEAL_SPRING = { type: "spring", stiffness: 240, damping: 30, mass: 0.9 } as const;
+const BUBBLE_SPRING = { type: "spring", stiffness: 300, damping: 26 } as const;
 
 /**
  * Preview-only shell: the dashboard and the bubble live in one document, so
  * their switch plays the shared clip-path circle morph. The desktop app swaps
  * real windows instead and never mounts this.
+ *
+ * The dashboard grows out of the bubble's own circle (not the viewport
+ * centre) and the bubble re-enters at that same spot on the way back, so both
+ * directions share one spatial path — the property the two-window handoff in
+ * `lib/morph.ts` reproduces with real windows.
  */
 function PreviewShell() {
   const [view, setView] = useState<"dashboard" | "bubble">(() =>
     new URLSearchParams(window.location.search).get("window") === "bubble" ? "bubble" : "dashboard",
   );
   const reduce = useReducedMotion();
+  const [origin, setOrigin] = useState(() => ({
+    x: window.innerWidth / 2,
+    y: window.innerHeight / 2,
+    diameter: 48,
+  }));
+  const revealRadius = useRef(0);
+  revealRadius.current = cornerRadius(
+    origin.x,
+    origin.y,
+    window.innerWidth || 1280,
+    window.innerHeight || 860,
+  );
 
   useEffect(() => {
     const showBubble = () => {
@@ -33,6 +52,8 @@ function PreviewShell() {
       window.history.pushState(null, "", "/?window=bubble");
     };
     const showDashboard = () => {
+      // The preview bubble is centred by the grid, so that is its anchor.
+      setOrigin({ x: window.innerWidth / 2, y: window.innerHeight / 2, diameter: 48 });
       setView("dashboard");
       window.history.pushState(null, "", "/");
     };
@@ -58,6 +79,8 @@ function PreviewShell() {
     document.body.dataset.window = view === "bubble" ? "bubble" : "browser";
   }, [view]);
 
+  const collapsed = clipCircle(origin, origin.diameter / 2);
+
   return (
     <AnimatePresence>
       {view === "dashboard" ? (
@@ -74,10 +97,14 @@ function PreviewShell() {
             padding: 26,
             zIndex: 2,
           }}
-          initial={{ clipPath: "circle(0% at 50% 50%)", opacity: 0.6 }}
-          animate={{ clipPath: "circle(120% at 50% 50%)", opacity: 1 }}
-          exit={{ clipPath: "circle(0% at 50% 50%)", opacity: 0.6 }}
-          transition={reduce ? { duration: 0 } : { duration: 0.42, ease: PATH_EASE }}
+          initial={reduce ? { opacity: 0 } : { clipPath: collapsed, opacity: 0.35 }}
+          animate={
+            reduce
+              ? { opacity: 1 }
+              : { clipPath: clipCircle(origin, revealRadius.current * 1.02), opacity: 1 }
+          }
+          exit={reduce ? { opacity: 0 } : { clipPath: collapsed, opacity: 0.35 }}
+          transition={reduce ? { duration: 0.15 } : REVEAL_SPRING}
         >
           <App bridge={bridge} />
         </motion.div>
@@ -91,10 +118,10 @@ function PreviewShell() {
             placeItems: "center",
             zIndex: 1,
           }}
-          initial={{ scale: 0.4, opacity: 0 }}
+          initial={reduce ? { opacity: 0 } : { scale: 0.86, opacity: 0 }}
           animate={{ scale: 1, opacity: 1 }}
-          exit={{ scale: 0.4, opacity: 0 }}
-          transition={reduce ? { duration: 0 } : { type: "spring", stiffness: 210, damping: 24 }}
+          exit={reduce ? { opacity: 0 } : { scale: 0.86, opacity: 0 }}
+          transition={reduce ? { duration: 0.15 } : BUBBLE_SPRING}
         >
           <BubbleView bridge={bridge} />
         </motion.div>

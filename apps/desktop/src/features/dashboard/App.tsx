@@ -41,6 +41,7 @@ import {
   timestamp,
 } from "../../lib/format";
 import { isTauri, shell, tauriBridge } from "../../lib/tauri";
+import { clipCircle, cornerRadius, useMorphFromBubble } from "../../lib/morph";
 import type {
   AccountViewModel,
   DashboardBridge,
@@ -727,6 +728,18 @@ export function App({ bridge = tauriBridge }: AppProps = {}) {
   const reduce = useReducedMotion();
   const overallStatus = overallHealth(accounts, phase);
 
+  // Expansion origin, reported by Rust when the dashboard was opened from the
+  // bubble. Null means "opened some other way" and the window just appears.
+  const anchor = useMorphFromBubble();
+  const revealRadius = useMemo(() => {
+    if (!anchor) return 0;
+    const width = window.innerWidth || 760;
+    const height = window.innerHeight || 720;
+    // +2% so the final circle clears the corners even if the window is
+    // resized between the anchor being measured and the animation running.
+    return cornerRadius(anchor.x, anchor.y, width, height) * 1.02;
+  }, [anchor]);
+
   const goView = (next: ViewId) => {
     const from = VIEW_ORDER.indexOf(viewRef.current);
     const to = VIEW_ORDER.indexOf(next);
@@ -970,7 +983,25 @@ export function App({ bridge = tauriBridge }: AppProps = {}) {
   ];
 
   return (
-    <div className="window morph-enter morph-enter-active">
+    <motion.div
+      className="window"
+      // The desktop window grows out of the bubble's circle; the bubble is
+      // still on screen underneath until `finishBubbleHandoff` lands, so the
+      // two surfaces overlap and there is never a blank frame between them.
+      // Without an anchor (tray, first launch) no clip is set at all — the
+      // window simply is, and no handoff fires.
+      initial={reduce || !anchor ? false : { clipPath: clipCircle(anchor, anchor.diameter / 2), opacity: 0.35 }}
+      animate={anchor ? { clipPath: clipCircle(anchor, revealRadius), opacity: 1 } : undefined}
+      transition={
+        reduce || !anchor
+          ? { duration: 0 }
+          : { type: "spring", stiffness: 240, damping: 30, mass: 0.9 }
+      }
+      onAnimationComplete={() => {
+        if (!isTauri() || !anchor) return;
+        void shell.finishBubbleHandoff().catch(() => null);
+      }}
+    >
       <header className="titlebar" data-tauri-drag-region>
         <TrafficLights />
         <div className="titlebar__brand">
@@ -1314,7 +1345,7 @@ export function App({ bridge = tauriBridge }: AppProps = {}) {
           <IconGitHub size={19} />
         </button>
       </nav>
-    </div>
+    </motion.div>
   );
 }
 function mergeAccounts(current: AccountViewModel[], updates: AccountViewModel[]): AccountViewModel[] {

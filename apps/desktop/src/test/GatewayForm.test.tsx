@@ -17,6 +17,7 @@ vi.mock("@tauri-apps/api/event", () => ({
 }));
 
 vi.mock("../lib/tauri", () => ({
+  isTauri: vi.fn(() => false),
   shell: {
     openDashboard: vi.fn().mockResolvedValue(undefined),
     showBubble: vi.fn().mockResolvedValue(undefined),

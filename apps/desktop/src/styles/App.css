@@ -1354,8 +1354,21 @@ button:disabled {
   border: none;
   border-radius: 50%;
   color: #fff;
-  background: linear-gradient(160deg, #17c6b1, var(--brand-ink));
-  box-shadow: 0 2px 6px rgba(10, 40, 38, 0.35), inset 0 0 0 0.5px rgba(255, 255, 255, 0.28);
+  /* Apple Watch logic: the dial is a dark jewel and the rings carry the
+     colour. A saturated status-coloured dial competed with the cyan/lilac
+     data rings for attention; health now reads as a tinted glow behind them
+     while the rings stay the brightest thing in the bubble. */
+  --bubble-accent: #17c6b1;
+  background: radial-gradient(
+    115% 115% at 50% 6%,
+    color-mix(in srgb, var(--bubble-accent) 26%, #0a1512) 0%,
+    #0a1512 58%,
+    #070f0d 100%
+  );
+  box-shadow:
+    inset 0 0 0 0.5px rgba(255, 255, 255, 0.14),
+    0 2px 8px rgba(0, 0, 0, 0.42),
+    0 0 18px -6px color-mix(in srgb, var(--bubble-accent) 80%, transparent);
   transition: transform 160ms var(--ease-out), box-shadow 160ms var(--ease-out);
   touch-action: none;
 }
@@ -1370,19 +1383,21 @@ button:disabled {
 
 .bubble--stale,
 .bubble--attention {
-  background: linear-gradient(160deg, #ffb340, #e08700);
+  --bubble-accent: #ffb340;
 }
 
 .bubble--critical,
 .bubble--error {
-  background: linear-gradient(160deg, #ff7a70, #d72635);
+  --bubble-accent: #ff5d54;
 }
 
 .bubble--offline,
 .bubble--unavailable {
+  --bubble-accent: #8a8a90;
   color: var(--ink-2);
-  background: linear-gradient(160deg, color-mix(in srgb, var(--ink-3) 55%, transparent), color-mix(in srgb, var(--ink-3) 75%, transparent));
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.22), inset 0 0 0 0.5px var(--hairline-strong);
+  box-shadow:
+    inset 0 0 0 0.5px rgba(255, 255, 255, 0.12),
+    0 2px 8px rgba(0, 0, 0, 0.34);
 }
 
 /* Light complication chip behind the brand icon: colored and monochrome
@@ -2271,13 +2286,15 @@ button:disabled {
 }
 
 /* One dark channel under the whole stack; the bands themselves sit adjacent
-   on it (Apple-Watch style) — no spacer ring between the two data colors. */
+   on it (Apple-Watch style) — no spacer ring between the two data colors.
+   It reads as the unlit part of the dial, so it stays near-black rather than
+   translucent white (white washed the jewel out). */
 .bubble__rings .bubble__ring-channel {
-  stroke: rgba(10, 26, 23, 0.4);
+  stroke: rgba(0, 0, 0, 0.34);
 }
 
 .bubble__rings .bubble__ring-track {
-  stroke: rgba(255, 255, 255, 0.15);
+  stroke: rgba(255, 255, 255, 0.1);
   stroke-width: 5;
 }
 

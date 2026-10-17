@@ -464,9 +464,24 @@ impl LocalRepository {
         state.consecutive_failures = 0;
         state.last_completed_at = Some(completed_at);
         state.next_attempt_at = None;
+        // `last_error_code` deliberately survives: the notification pipeline
+        // reads it to announce a recovery exactly once, then clears it through
+        // `clear_recovered_error`. Clearing here would make the transition
+        // indistinguishable from an account that was never broken.
         state.error_code = None;
         self.save_refresh_state(account_id, &state, completed_at)?;
         Ok(state)
+    }
+
+    /// Drops the retained error code after a recovery notice has been raised,
+    /// so the same recovery does not announce itself on every later refresh.
+    pub fn clear_recovered_error(&self, account_id: &str, now: u64) -> Result<(), StorageError> {
+        let mut state = self.refresh_state(account_id)?;
+        if state.last_error_code.is_none() {
+            return Ok(());
+        }
+        state.last_error_code = None;
+        self.save_refresh_state(account_id, &state, now)
     }
 
     pub fn mark_refresh_failed(
@@ -481,7 +496,11 @@ impl LocalRepository {
         state.consecutive_failures = state.consecutive_failures.saturating_add(1);
         state.last_completed_at = Some(failed_at);
         state.next_attempt_at = next_attempt_at;
-        state.error_code = Some(error_code.into());
+        let code = error_code.into();
+        // Retained past the next success so a recovery notice knows what it
+        // recovered from.
+        state.last_error_code = Some(code.clone());
+        state.error_code = Some(code);
         self.save_refresh_state(account_id, &state, failed_at)?;
         Ok(state)
     }

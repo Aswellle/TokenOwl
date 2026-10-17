@@ -221,7 +221,10 @@ const demoPreferences: NotificationPreferencesViewModel = {
   criticalOnly: false,
   lowQuotaThreshold: 20,
   balanceThreshold: null,
-  resetSoonWindow: 1_800,
+  resetSoonWindow: 1_800,  projectedExhaustionHorizon: 2700,
+  quietHoursStart: 1320,
+  quietHoursEnd: 480,
+
 };
 
 /** Deterministic PRNG so the demo heatmap is stable within a session. */

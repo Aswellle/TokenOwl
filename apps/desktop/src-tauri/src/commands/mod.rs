@@ -458,6 +458,28 @@ pub(crate) fn enqueue_account_notifications(
     let view = repository
         .account_view(account_id, now, state.freshness_policy)?
         .ok_or_else(|| CommandError::InvalidInput("account view unavailable".to_owned()))?;
+    // Burn rate comes from the same history the analytics view reads, so a
+    // "runs out in 40 minutes" banner agrees with the number on screen. Thin
+    // history yields `None`, which disables the predictive rule instead of
+    // guessing.
+    let pace = repository
+        .history_samples(now.saturating_sub(86_400), now)
+        .ok()
+        .and_then(|samples| {
+            let daily: Vec<crate::domain::history::DailySample> = samples
+                .iter()
+                .map(|sample| crate::domain::history::DailySample {
+                    account_id: sample.account_id.clone(),
+                    metric_key: sample.metric_key.clone(),
+                    observed_at: sample.observed_at,
+                    used: sample.used,
+                    remaining: sample.remaining,
+                    unit: sample.unit.clone(),
+                    currency: sample.currency.clone(),
+                })
+                .collect();
+            crate::domain::history::burn_rate_hourly(&daily, now.saturating_sub(86_400), now)
+        });
     let candidates = notifications::evaluate_account_notifications(notifications::TriggerContext {
         account_id: &account.id,
         account_label: &account.label,
@@ -466,9 +488,19 @@ pub(crate) fn enqueue_account_notifications(
         refresh: &view.refresh,
         prefs: &prefs,
         now,
+        pace: pace.as_ref(),
     });
-    notifications::enqueue_new(&repository, sink, &prefs, candidates, now)
-        .map_err(CommandError::from)
+    let delivered = notifications::enqueue_new(&repository, sink, &prefs, candidates, now)
+        .map_err(CommandError::from)?;
+    // A recovery notice is one-shot: drop the retained error so the next
+    // successful refresh does not announce the same recovery again.
+    if delivered
+        .iter()
+        .any(|item| item.kind == notifications::NotificationKind::Recovered)
+    {
+        let _ = repository.clear_recovered_error(account_id, now);
+    }
+    Ok(delivered)
 }
 
 #[derive(Debug, Clone, Serialize)]

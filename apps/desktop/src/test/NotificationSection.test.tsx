@@ -16,6 +16,9 @@ const prefs: NotificationPreferencesViewModel = {
   lowQuotaThreshold: 20,
   balanceThreshold: null,
   resetSoonWindow: 1_800,
+  projectedExhaustionHorizon: 2_700,
+  quietHoursStart: 1320,
+  quietHoursEnd: 480,
 };
 
 const items: NotificationViewModel[] = [
@@ -89,7 +92,7 @@ function makeBridge(overrides: Partial<DashboardBridge> = {}): DashboardBridge {
 describe("NotificationSection", () => {
   it("renders notification titles, messages, and severity labels", async () => {
     render(<NotificationSection bridge={makeBridge()} reloadSignal={0} />);
-    expect(await screen.findByText("额度紧张")).toBeInTheDocument();
+    expect(await screen.findByText("额度紧张", { selector: ".notif__title" })).toBeInTheDocument();
     expect(screen.getByText(/仅剩 5%/)).toBeInTheDocument();
     expect(screen.getByText("紧急")).toBeInTheDocument();
     expect(screen.getByText("信息")).toBeInTheDocument();
@@ -124,7 +127,7 @@ describe("NotificationSection", () => {
   it("persists preference toggles immediately", async () => {
     const bridge = makeBridge();
     render(<NotificationSection bridge={bridge} reloadSignal={0} />);
-    await screen.findByText("额度紧张");
+    await screen.findByText("额度紧张", { selector: ".notif__title" });
     fireEvent.click(screen.getByLabelText(/^启用通知/));
     await waitFor(() =>
       expect(bridge.setNotificationPreferences).toHaveBeenCalledWith(
@@ -136,7 +139,7 @@ describe("NotificationSection", () => {
   it("commits number preferences on blur", async () => {
     const bridge = makeBridge();
     render(<NotificationSection bridge={bridge} reloadSignal={0} />);
-    await screen.findByText("额度紧张");
+    await screen.findByText("额度紧张", { selector: ".notif__title" });
     const threshold = screen.getByLabelText(/低额度阈值/);
     fireEvent.change(threshold, { target: { value: "15" } });
     fireEvent.blur(threshold);
@@ -154,7 +157,7 @@ describe("NotificationSection", () => {
       }),
     });
     render(<NotificationSection bridge={bridge} reloadSignal={0} />);
-    expect(await screen.findByText("额度紧张")).toBeInTheDocument();
+    expect(await screen.findByText("额度紧张", { selector: ".notif__title" })).toBeInTheDocument();
     expect(screen.queryByText("通知设置")).not.toBeInTheDocument();
   });
 
@@ -165,7 +168,7 @@ describe("NotificationSection", () => {
       }),
     });
     render(<NotificationSection bridge={bridge} reloadSignal={0} />);
-    await screen.findByText("额度紧张");
+    await screen.findByText("额度紧张", { selector: ".notif__title" });
     fireEvent.click(screen.getByLabelText(/^启用通知/));
     expect(await screen.findByRole("alert")).toHaveTextContent("保存失败");
   });

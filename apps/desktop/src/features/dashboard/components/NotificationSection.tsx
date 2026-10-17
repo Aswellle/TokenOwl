@@ -4,6 +4,7 @@ import { copy } from "../../../styles/copy";
 import { formatRelative } from "../../../lib/format";
 import type {
   DashboardBridge,
+  NotificationKind,
   NotificationPreferencesViewModel,
   NotificationViewModel,
 } from "../../../types";
@@ -23,6 +24,28 @@ function isUnread(item: NotificationViewModel): boolean {
   return item.readAt === null || item.readAt === undefined;
 }
 
+/** Human label for a notification kind, falling back to the raw value. */
+function kindLabel(item: NotificationViewModel): string {
+  return copy.notifications.kindLabels[item.kind] ?? item.kind;
+}
+
+/** `minutes since midnight` → `HH:MM` for a time input. */
+function minuteText(minutes: number): string {
+  const clamped = Math.min(1_439, Math.max(0, Math.round(minutes)));
+  const hours = Math.floor(clamped / 60);
+  return `${String(hours).padStart(2, "0")}:${String(clamped % 60).padStart(2, "0")}`;
+}
+
+/** `HH:MM` → minutes since midnight; unparseable input keeps the old value. */
+function parseMinuteText(text: string, fallback: number): number {
+  const match = /^(\d{1,2}):(\d{2})$/.exec(text.trim());
+  if (!match) return fallback;
+  const hours = Number(match[1]);
+  const minutes = Number(match[2]);
+  if (hours > 23 || minutes > 59) return fallback;
+  return hours * 60 + minutes;
+}
+
 function NotificationItem({
   item,
   now,
@@ -39,6 +62,14 @@ function NotificationItem({
       <div className="notif__body">
         <p className="notif__head">
           <strong className="notif__title">{item.title}</strong>
+          {/* The kind chip only adds information when the title does not
+              already convey it: "额度紧张 额度紧张" is noise, and so is
+              "额度即将重置 即将重置". A window alert titled "5 小时窗口额度不足"
+              keeps its "窗口额度不足" tag because the title says something
+              narrower than the kind. */}
+          {!item.title.includes(kindLabel(item)) && (
+            <span className="notif__kind">{kindLabel(item)}</span>
+          )}
           <span className={severityClass(item.severity)}>
             {copy.notifications.severity[item.severity] ?? item.severity}
           </span>
@@ -82,6 +113,11 @@ function NotificationSettings({
   const [resetMinutes, setResetMinutes] = useState(() =>
     String(Math.round(prefs.resetSoonWindow / 60)),
   );
+  const [horizonMinutes, setHorizonMinutes] = useState(() =>
+    String(Math.round(prefs.projectedExhaustionHorizon / 60)),
+  );
+  const [quietStart, setQuietStart] = useState(() => minuteText(prefs.quietHoursStart));
+  const [quietEnd, setQuietEnd] = useState(() => minuteText(prefs.quietHoursEnd));
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -93,6 +129,9 @@ function NotificationSettings({
         : String(prefs.balanceThreshold),
     );
     setResetMinutes(String(Math.round(prefs.resetSoonWindow / 60)));
+    setHorizonMinutes(String(Math.round(prefs.projectedExhaustionHorizon / 60)));
+    setQuietStart(minuteText(prefs.quietHoursStart));
+    setQuietEnd(minuteText(prefs.quietHoursEnd));
   }, [prefs]);
 
   useEffect(() => {
@@ -115,6 +154,7 @@ function NotificationSettings({
     const threshold = Number(thresholdText);
     const balance = balanceText.trim() === "" ? null : Number(balanceText);
     const minutes = Number(resetMinutes);
+    const horizon = Number(horizonMinutes);
     void commit({
       ...prefs,
       lowQuotaThreshold: Number.isFinite(threshold) ? threshold : prefs.lowQuotaThreshold,
@@ -125,6 +165,12 @@ function NotificationSettings({
       resetSoonWindow: Number.isFinite(minutes) && minutes > 0
         ? Math.round(minutes * 60)
         : prefs.resetSoonWindow,
+      projectedExhaustionHorizon:
+        Number.isFinite(horizon) && horizon >= 0
+          ? Math.round(horizon * 60)
+          : prefs.projectedExhaustionHorizon,
+      quietHoursStart: parseMinuteText(quietStart, prefs.quietHoursStart),
+      quietHoursEnd: parseMinuteText(quietEnd, prefs.quietHoursEnd),
     });
   };
 
@@ -216,6 +262,43 @@ function NotificationSettings({
                 <em>{copy.notifications.resetSoonSuffix}</em>
               </span>
             </label>
+            <label className="notif-number">
+              <span>{copy.notifications.projectedHorizon}</span>
+              <span className="notif-number__input">
+                <input
+                  type="number"
+                  min={0}
+                  max={1440}
+                  value={horizonMinutes}
+                  onChange={(event) => setHorizonMinutes(event.currentTarget.value)}
+                  onBlur={commitNumbers}
+                  aria-label={`${copy.notifications.projectedHorizon}（${copy.notifications.projectedHorizonSuffix}）`}
+                />
+                <em>{copy.notifications.projectedHorizonSuffix}</em>
+              </span>
+              <small>{copy.notifications.projectedHorizonHelp}</small>
+            </label>
+            <label className="notif-number">
+              <span>{copy.notifications.quietHours}</span>
+              <span className="notif-number__input notif-number__input--time">
+                <input
+                  type="time"
+                  value={quietStart}
+                  onChange={(event) => setQuietStart(event.currentTarget.value)}
+                  onBlur={commitNumbers}
+                  aria-label={`${copy.notifications.quietHours} ${copy.notifications.quietStart}`}
+                />
+                <em>–</em>
+                <input
+                  type="time"
+                  value={quietEnd}
+                  onChange={(event) => setQuietEnd(event.currentTarget.value)}
+                  onBlur={commitNumbers}
+                  aria-label={`${copy.notifications.quietHours} ${copy.notifications.quietEnd}`}
+                />
+              </span>
+              <small>{copy.notifications.quietHoursHelp}</small>
+            </label>
           </div>
         </fieldset>
         {error && (
@@ -243,6 +326,9 @@ export function NotificationSection({
   const [items, setItems] = useState<NotificationViewModel[] | null>(null);
   const [prefs, setPrefs] = useState<NotificationPreferencesViewModel | null>(null);
   const [now, setNow] = useState(() => Date.now());
+  // Type filter: the log is the only place a user can audit *what kind* of
+  // alerting their setup produces, and after a few weeks it holds every kind.
+  const [kindFilter, setKindFilter] = useState<NotificationKind | "all">("all");
 
   const load = useCallback(async () => {
     // The list and the preferences degrade independently: a preferences
@@ -272,6 +358,13 @@ export function NotificationSection({
   }, []);
 
   const unread = (items ?? []).filter(isUnread).length;
+  // Only offer the kinds actually present, so the control never lists a filter
+  // that would always come back empty.
+  const presentKinds = Array.from(new Set((items ?? []).map((item) => item.kind)));
+  const visibleItems =
+    kindFilter === "all"
+      ? items
+      : (items ?? []).filter((item) => item.kind === kindFilter);
 
   const handleMarkRead = async (id: string) => {
     await bridge.markNotificationsRead([id]);
@@ -294,6 +387,25 @@ export function NotificationSection({
           {unread > 0 && <span className="notif__badge num">{copy.notifications.unreadSuffix(unread)}</span>}
         </div>
         <div className="section__actions">
+          {presentKinds.length > 1 && (
+            <label className="notif-filter">
+              <span className="sr-only">{copy.notifications.kindFilter}</span>
+              <select
+                value={kindFilter}
+                onChange={(event) =>
+                  setKindFilter(event.currentTarget.value as NotificationKind | "all")
+                }
+                aria-label={copy.notifications.kindFilter}
+              >
+                <option value="all">{copy.notifications.kindAll}</option>
+                {presentKinds.map((kind) => (
+                  <option key={kind} value={kind}>
+                    {copy.notifications.kindLabels[kind] ?? kind}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
           {unread > 0 && (
             <button
               className="btn btn--quiet"
@@ -322,9 +434,19 @@ export function NotificationSection({
         >
           {copy.notifications.empty}
         </motion.p>
+      ) : visibleItems && visibleItems.length === 0 ? (
+        <motion.p
+          key="notifications-filtered-empty"
+          className="section__empty"
+          variants={fadeVariants}
+          initial="hidden"
+          animate="show"
+        >
+          {copy.notifications.empty}
+        </motion.p>
       ) : (
         <ul className="notifs">
-          {items.map((item) => (
+          {(visibleItems ?? []).map((item) => (
             <NotificationItem
               key={item.id}
               item={item}

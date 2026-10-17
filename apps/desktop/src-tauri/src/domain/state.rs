@@ -219,6 +219,12 @@ pub struct RefreshState {
     pub last_completed_at: Option<u64>,
     pub next_attempt_at: Option<u64>,
     pub error_code: Option<String>,
+    /// Error code of the most recent *failed* attempt, retained across a later
+    /// success so the notification pipeline can tell "recovered from X" apart
+    /// from "always healthy". `error_code` clears on success; this one does
+    /// not, and a recovery notice keys on it.
+    #[serde(default)]
+    pub last_error_code: Option<String>,
 }
 
 impl Default for RefreshState {
@@ -230,6 +236,7 @@ impl Default for RefreshState {
             last_completed_at: None,
             next_attempt_at: None,
             error_code: None,
+            last_error_code: None,
         }
     }
 }

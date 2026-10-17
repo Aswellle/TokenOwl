@@ -84,7 +84,10 @@ export type NotificationKind =
   | "reset_approaching"
   | "auth_expired"
   | "provider_unreachable"
-  | "balance_below";
+  | "balance_below"
+  | "window_low"
+  | "projected_exhaustion"
+  | "recovered";
 
 export interface NotificationViewModel {
   id: string;
@@ -105,6 +108,11 @@ export interface NotificationPreferencesViewModel {
   lowQuotaThreshold: number;
   balanceThreshold?: number | null;
   resetSoonWindow: number;
+  /** Seconds before projected exhaustion still worth warning about; 0 disables. */
+  projectedExhaustionHorizon: number;
+  /** Quiet hours as minutes since midnight; equal values disable them. */
+  quietHoursStart: number;
+  quietHoursEnd: number;
 }
 
 export interface HistoryDayViewModel {

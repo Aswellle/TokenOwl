@@ -46,6 +46,7 @@ const items: NotificationViewModel[] = [
 function makeBridge(overrides: Partial<DashboardBridge> = {}): DashboardBridge {
   return {
     listAccounts: vi.fn(async () => []),
+    accountTargetIsLan: vi.fn(async () => false),
     createAccount: vi.fn(
       async (input: GenericOpenAiAccountInput): Promise<AccountViewModel> => ({
         id: "created",

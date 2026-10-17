@@ -48,6 +48,7 @@ nanoid = "0.4"
 async-trait = "0.1"
 serde_yaml = "0.9"
 chrono = "0.4"
+tauri-plugin-global-shortcut = "2"
 
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration

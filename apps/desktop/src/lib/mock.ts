@@ -298,6 +298,18 @@ export function createMockBridge(): DashboardBridge {
       await new Promise((resolve) => setTimeout(resolve, latency()));
       return structuredClone(accounts);
     },
+    async accountTargetIsLan(baseUrl: string) {
+      // Mirrors the Rust classifier closely enough for preview: loopback,
+      // private ranges and mDNS names are LAN; everything else is public.
+      const host = baseUrl.trim().toLowerCase();
+      return (
+        host.includes("localhost") ||
+        host.includes("127.0.0.1") ||
+        host.includes("192.168.") ||
+        host.includes("10.") ||
+        /\.local(\/|:|$)/.test(host)
+      );
+    },
     async createAccount(input: GenericOpenAiAccountInput) {
       await new Promise((resolve) => setTimeout(resolve, latency()));
       const account: AccountViewModel = {

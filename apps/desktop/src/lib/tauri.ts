@@ -22,6 +22,8 @@ export const tauriBridge: DashboardBridge = {
   listAccounts: () => invoke<AccountViewModel[]>("accounts_list"),
   createAccount: (input: GenericOpenAiAccountInput) =>
     invoke<AccountViewModel>("accounts_create", { input }),
+  accountTargetIsLan: (baseUrl: string) =>
+    invoke<boolean>("account_target_is_lan", { baseUrl }),
   deleteAccount: (accountId: string) => invoke<void>("accounts_delete", { accountId }),
   refresh: (accountId?: string) =>
     invoke<AccountViewModel[]>("accounts_refresh", accountId ? { accountId } : undefined),

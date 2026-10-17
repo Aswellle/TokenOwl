@@ -120,6 +120,17 @@ Grab the latest installer from [Releases](https://github.com/Aswellle/TokenOwl/r
 
 Keys go straight into Windows Credential Manager (macOS Keychain on macOS). The SQLite database stores only a *reference* to the key, never the key itself.
 
+If an account points at the LAN or this machine (a self-hosted LiteLLM, say), the first submit asks you to confirm — private network targets are blocked by default.
+
+### Global hotkeys
+
+| Shortcut | Action |
+| :--- | :--- |
+| `Alt+Shift+T` | Toggle between the bubble and the dashboard (works while another app is focused) |
+| `Alt+Shift+R` | Refresh every account without opening the panel first |
+
+If another application already owns a shortcut, TokenOwl skips it and says so at startup; everything else keeps working.
+
 ## How it works
 
 A deliberately boring, layered architecture: the webview renders; Rust does everything else.

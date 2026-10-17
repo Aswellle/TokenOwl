@@ -3,6 +3,7 @@ import ReactDOM from "react-dom/client";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import App from "../features/dashboard/App";
 import { BubbleView } from "../features/bubble/BubbleView";
+import { ErrorBoundary } from "../components/ErrorBoundary";
 import { createMockBridge } from "../lib/mock";
 import { clipCircle, cornerRadius } from "../lib/morph";
 import { isTauri, tauriBridge, windowMode } from "../lib/tauri";
@@ -134,9 +135,13 @@ ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
     {isTauri() ? (
       mode === "bubble" ? (
-        <BubbleView bridge={bridge} />
+        <ErrorBoundary surface="悬浮球">
+          <BubbleView bridge={bridge} />
+        </ErrorBoundary>
       ) : (
-        <App bridge={bridge} />
+        <ErrorBoundary surface="仪表盘">
+          <App bridge={bridge} />
+        </ErrorBoundary>
       )
     ) : (
       <PreviewShell />

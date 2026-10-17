@@ -206,6 +206,8 @@ export interface ManifestProfileViewModel {
 export interface DashboardBridge {
   listAccounts(): Promise<AccountViewModel[]>;
   createAccount(input: GenericOpenAiAccountInput): Promise<AccountViewModel>;
+  /** Whether this base URL would talk to the LAN (blocked by default, docs/06). */
+  accountTargetIsLan(baseUrl: string): Promise<boolean>;
   deleteAccount(accountId: string): Promise<void>;
   refresh(accountId?: string): Promise<AccountViewModel[]>;
   checkForUpdate(): Promise<UpdateInfo | null>;

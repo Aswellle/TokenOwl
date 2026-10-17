@@ -70,6 +70,7 @@ const summaryEmpty: HistorySummaryViewModel = {
 function makeBridge(summary: HistorySummaryViewModel): DashboardBridge {
   return {
     listAccounts: vi.fn(async () => []),
+    accountTargetIsLan: vi.fn(async () => false),
     createAccount: vi.fn(async () => {
       throw new Error("not used");
     }),

@@ -208,6 +208,16 @@ pub fn accounts_list(state: State<'_, Arc<AppRuntime>>) -> Result<Vec<AccountVie
     list_accounts(&state).map_err(String::from)
 }
 
+/// Tells the setup form whether a candidate account points at the LAN.
+///
+/// The form calls this before submitting so it can show the `docs/03` §12
+/// consent prompt. Classification lives in Rust because the webview has no
+/// network stack and must not grow one just to parse a host.
+#[tauri::command]
+pub fn account_target_is_lan(base_url: String) -> bool {
+    resolves_to_lan(base_url.trim())
+}
+
 #[tauri::command]
 pub async fn accounts_create(
     app: AppHandle,
@@ -821,6 +831,46 @@ struct ResolvedNewAccount {
     display_name: String,
     base_url: String,
     endpoints: AccountEndpoints,
+}
+
+/// Whether a host targets the local machine or a private network.
+///
+/// `docs/06` blocks LAN access by default and `docs/03` §12 requires an
+/// explicit prompt the first time a provider points at one. This is the
+/// classification half; the consent itself is collected by the account form.
+///
+/// Loopback and link-local ranges are always local. Private ranges are
+/// detected numerically rather than by prefix matching, so `172.16.0.1` is
+/// private while `172.32.0.1` (public) is not.
+pub(crate) fn is_lan_host(host: &str) -> bool {
+    let host = host.trim().trim_start_matches('[').trim_end_matches(']');
+    if host.eq_ignore_ascii_case("localhost") || host.eq_ignore_ascii_case("localhost.localdomain")
+    {
+        return true;
+    }
+    // `.local` is mDNS: resolution stays on the local link.
+    if host.to_ascii_lowercase().ends_with(".local") {
+        return true;
+    }
+    let Ok(address) = host.parse::<std::net::IpAddr>() else {
+        return false;
+    };
+    match address {
+        std::net::IpAddr::V4(v4) => {
+            v4.is_loopback() || v4.is_private() || v4.is_link_local() || v4.is_unspecified()
+        }
+        std::net::IpAddr::V6(v6) => {
+            v6.is_loopback() || v6.is_unspecified() || (v6.segments()[0] & 0xffc0) == 0xfe80
+        }
+    }
+}
+
+/// True when the resolved account would talk to the LAN or this machine.
+fn resolves_to_lan(base_url: &str) -> bool {
+    url::Url::parse(base_url)
+        .ok()
+        .and_then(|parsed| parsed.host_str().map(is_lan_host))
+        .unwrap_or(false)
 }
 
 fn resolve_new_account(
@@ -1596,5 +1646,56 @@ mod tests {
                 .expect_err("credentials embedded in the URL must be rejected");
             assert!(matches!(error, CommandError::InvalidInput(_)));
         }
+    }
+
+    #[test]
+    fn loopback_and_mdns_hosts_are_lan() {
+        for host in [
+            "localhost",
+            "LOCALHOST",
+            "127.0.0.1",
+            "::1",
+            "gateway.local",
+            "[::1]",
+        ] {
+            assert!(is_lan_host(host), "`{host}` should count as LAN");
+        }
+    }
+
+    #[test]
+    fn private_ranges_are_lan() {
+        for host in [
+            "192.168.1.10",
+            "10.0.0.5",
+            "172.16.0.1",
+            "172.31.255.254",
+            "169.254.1.1",
+            "fe80::1",
+        ] {
+            assert!(is_lan_host(host), "`{host}` should count as LAN");
+        }
+    }
+
+    /// Prefix matching would misclassify these; the numeric check must not.
+    #[test]
+    fn public_addresses_and_hostnames_are_not_lan() {
+        for host in [
+            "api.openai.com",
+            "8.8.8.8",
+            "172.32.0.1",
+            "172.15.255.255",
+            "1.1.1.1",
+            "2606:4700:4700::1111",
+        ] {
+            assert!(!is_lan_host(host), "`{host}` should not count as LAN");
+        }
+    }
+
+    #[test]
+    fn base_url_classification_parses_the_host() {
+        assert!(resolves_to_lan("http://localhost:4000/v1"));
+        assert!(resolves_to_lan("https://192.168.0.20:8443/api"));
+        assert!(!resolves_to_lan("https://api.deepseek.com/v1"));
+        assert!(!resolves_to_lan("not a url"));
     }
 }

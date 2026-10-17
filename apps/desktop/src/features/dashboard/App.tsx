@@ -416,8 +416,12 @@ function SetupForm({
         .map(([kind]) => copy.form.endpointLabels[kind] ?? kind)
     : [];
 
-  const submit = async (event: { preventDefault(): void }) => {
-    event.preventDefault();
+  // LAN consent (docs/06 + docs/03 §12): the first submit against a private
+  // address is intercepted and the same submit is replayed after confirmation.
+  const [lanPrompt, setLanPrompt] = useState(false);
+  const pendingSubmit = useRef(false);
+
+  const sendAccount = async () => {
     const apiKeyInput = apiKeyRef.current;
     if (!apiKeyInput || !apiKeyInput.value.trim()) return;
     await onSubmit({
@@ -429,6 +433,27 @@ function SetupForm({
       balanceEndpoint: profile ? undefined : balanceEndpoint.trim() || undefined,
       apiKeyInput,
     });
+  };
+
+  const submit = async (event: { preventDefault(): void }) => {
+    event.preventDefault();
+    if (pendingSubmit.current) {
+      pendingSubmit.current = false;
+      setLanPrompt(false);
+      await sendAccount();
+      return;
+    }
+    // Ask Rust whether this target is private before the account is created;
+    // a failed probe must not block account creation, so it reads as public.
+    const isLan = await bridge
+      .accountTargetIsLan(effectiveBaseUrl.trim())
+      .catch(() => false);
+    if (isLan) {
+      pendingSubmit.current = true;
+      setLanPrompt(true);
+      return;
+    }
+    await sendAccount();
   };
 
   return (
@@ -459,6 +484,37 @@ function SetupForm({
         <p className="form__error" role="status">
           {copy.form.communitySkipped}: {packSkipped.join("；")}
         </p>
+      )}
+      {lanPrompt && (
+        <div className="lan-consent" role="alertdialog" aria-labelledby="lan-consent-title">
+          <h3 className="lan-consent__title" id="lan-consent-title">
+            {copy.form.lanTitle}
+          </h3>
+          <p className="lan-consent__body">{copy.form.lanBody}</p>
+          <div className="lan-consent__actions">
+            <button
+              className="btn btn--quiet"
+              type="button"
+              onClick={() => {
+                pendingSubmit.current = false;
+                setLanPrompt(false);
+              }}
+            >
+              {copy.actions.cancel}
+            </button>
+            <button
+              className="btn btn--primary"
+              type="button"
+              onClick={() => {
+                pendingSubmit.current = false;
+                setLanPrompt(false);
+                void sendAccount();
+              }}
+            >
+              {copy.form.lanConfirm}
+            </button>
+          </div>
+        </div>
       )}
       <div className="picker" role="group" aria-label={copy.a11y.profilePicker}>
         <span className="picker__heading" aria-hidden="true">

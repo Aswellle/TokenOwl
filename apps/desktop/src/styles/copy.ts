@@ -241,6 +241,10 @@ export const copy = {
     gatewayBaseUrlHelp:
       "填入你部署的网关地址，必须是完整 URL，例如 http://localhost:4000/v1；不能使用示例占位域名。",
     customNote: "自定义接入按 L1 能力处理：只有对方上报的字段才会显示。",
+    lanTitle: "该地址位于局域网或本机",
+    lanBody:
+      "此供应商指向局域网地址。仅在你确认该地址属于自己的网关或可信网络时继续。",
+    lanConfirm: "我确认，继续",
   },
 
   removeConfirm: (label: string) => `移除「${label}」？本机凭据引用与快照会一起删除。`,

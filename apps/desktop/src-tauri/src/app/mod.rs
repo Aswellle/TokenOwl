@@ -328,6 +328,91 @@ fn coordinate_to_i32(value: f64) -> i32 {
     result
 }
 
+/// The two global hotkeys the app registers.
+///
+/// `Alt+Shift+T` toggles between the dashboard and the bubble — the single
+/// action a user reaches for while working in another app. `Alt+Shift+R`
+/// refreshes every account without opening the dashboard first. Both are
+/// global (they work while `TokenOwl` is unfocused) and deliberately avoid
+/// `Ctrl+Shift` combinations that Windows reserves for input-language
+/// switching and that many editors already use.
+const HOTKEY_TOGGLE: &str = "Alt+Shift+T";
+const HOTKEY_REFRESH: &str = "Alt+Shift+R";
+
+/// Registers the global hotkeys, tolerating a failed registration.
+///
+/// A hotkey another application already owns fails to register; that must not
+/// abort startup — the app is fully usable from the tray and the bubble. The
+/// failure is reported to stderr once so a user who presses the hotkey and
+/// sees nothing can find out why.
+fn setup_shortcuts(app: &AppHandle) {
+    use tauri_plugin_global_shortcut::{
+        Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState,
+    };
+
+    let toggle = Shortcut::new(Some(Modifiers::ALT | Modifiers::SHIFT), Code::KeyT);
+    let refresh = Shortcut::new(Some(Modifiers::ALT | Modifiers::SHIFT), Code::KeyR);
+    let toggle_for_handler = toggle;
+    let refresh_for_handler = refresh;
+
+    let result = app.plugin(
+        tauri_plugin_global_shortcut::Builder::new()
+            .with_handler(move |app, shortcut, event| {
+                if event.state() != ShortcutState::Pressed {
+                    return;
+                }
+                if shortcut == &toggle_for_handler {
+                    toggle_dashboard(app);
+                } else if shortcut == &refresh_for_handler {
+                    refresh_all_accounts(app);
+                }
+            })
+            .build(),
+    );
+
+    if let Err(error) = result {
+        eprintln!("global shortcuts unavailable: {error}");
+        return;
+    }
+
+    if let Err(error) = app.global_shortcut().register(toggle) {
+        eprintln!("{HOTKEY_TOGGLE} could not be registered: {error}");
+    }
+    if let Err(error) = app.global_shortcut().register(refresh) {
+        eprintln!("{HOTKEY_REFRESH} could not be registered: {error}");
+    }
+}
+
+/// Shows the dashboard when the bubble (or nothing) is in front, and collapses
+/// back to the bubble when the dashboard already has focus.
+fn toggle_dashboard(app: &AppHandle) {
+    let dashboard_visible = app
+        .get_webview_window("main")
+        .and_then(|window| window.is_visible().ok())
+        .unwrap_or(false);
+    if dashboard_visible {
+        let _ = show_bubble(app.clone(), app.state::<Arc<Mutex<RuntimeState>>>());
+    } else {
+        let _ = open_dashboard(app.clone());
+    }
+}
+
+/// Refreshes every account from the background task, then emits the usual
+/// `quota:updated` event so both windows redraw.
+fn refresh_all_accounts(app: &AppHandle) {
+    let Some(runtime) = app.try_state::<Arc<commands::AppRuntime>>() else {
+        return;
+    };
+    let runtime = Arc::clone(runtime.inner());
+    let handle = app.clone();
+    tauri::async_runtime::spawn(async move {
+        if let Err(error) = commands::refresh_accounts(&runtime, Some(&handle), None).await {
+            eprintln!("hotkey refresh failed: {error}");
+        }
+        let _ = handle.emit("quota:updated", ());
+    });
+}
+
 #[cfg(desktop)]
 #[tauri::command]
 async fn updater_check(app: AppHandle) -> Result<Option<UpdateInfo>, String> {
@@ -364,7 +449,11 @@ async fn updater_install(app: AppHandle) -> Result<(), String> {
 }
 
 fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
-    let open = MenuItemBuilder::with_id("open", "Open Dashboard").build(app)?;
+    // The accelerators are display hints: the plugin already owns these keys
+    // globally, so the menu shows them rather than binding a second handler.
+    let open = MenuItemBuilder::with_id("open", "Open Dashboard")
+        .accelerator(HOTKEY_TOGGLE)
+        .build(app)?;
     let quit = MenuItemBuilder::with_id("quit", "Quit TokenOwl").build(app)?;
     let menu = MenuBuilder::new(app).items(&[&open, &quit]).build()?;
 
@@ -533,6 +622,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
             let database_path = app
@@ -545,6 +635,7 @@ pub fn run() {
             app.manage(Arc::new(runtime));
             app.manage(Arc::new(Mutex::new(RuntimeState::default())));
             setup_tray(app)?;
+            setup_shortcuts(app.handle());
             start_background_tasks(app.handle());
             start_drill_hooks(app.handle());
             Ok(())
@@ -561,6 +652,7 @@ pub fn run() {
             persist_bubble_position,
             commands::accounts_list,
             commands::accounts_create,
+            commands::account_target_is_lan,
             commands::accounts_delete,
             commands::accounts_refresh,
             commands::notifications_list,

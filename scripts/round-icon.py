@@ -8,7 +8,7 @@ system icons. The superellipse below is the standard approximation.
 from PIL import Image, ImageDraw
 import math
 
-SOURCE = r"D:/AP/EF0AC710-6625-4963-A213-8BBA66D441B1.png"
+SOURCE = r"D:/AI/TokenOwl/tokenowl/apps/desktop/app-icon.png"
 OUT_ROUNDED = r"D:/AI/TokenOwl/tokenowl/.icon-rounded.png"
 
 # Apple's icon grid: the rounded shape occupies ~82.4% of the canvas with

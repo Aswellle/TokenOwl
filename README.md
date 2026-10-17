@@ -5,17 +5,17 @@
 <h1 align="center">TokenOwl</h1>
 
 <p align="center">
-  <strong>Your AI credits, at a glance — from the desktop, never from the cloud.</strong><br/>
-  A local-first quota, usage &amp; balance monitor for every AI provider you rely on.
+  <strong>你的 AI 额度，一眼可见 —— 数据始终留在桌面，绝不上云。</strong><br/>
+  一个本地优先的 AI 供应商额度、用量与余额监视器。
 </p>
 
 <p align="center">
-  <a href="#features">Features</a> ·
-  <a href="#supported-providers">Providers</a> ·
-  <a href="#installation">Install</a> ·
-  <a href="#how-it-works">Architecture</a> ·
-  <a href="#development">Develop</a> ·
-  <a href="#security">Security</a>
+  <a href="#功能特性">功能特性</a> ·
+  <a href="#支持的供应商">支持的供应商</a> ·
+  <a href="#安装">安装</a> ·
+  <a href="#工作原理">架构</a> ·
+  <a href="#参与开发">参与开发</a> ·
+  <a href="#安全">安全</a>
 </p>
 
 <p align="center">
@@ -26,185 +26,189 @@
   <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS-blue?style=flat-square" alt="Platform" />
 </p>
 
+<p align="center">
+  <strong>简体中文</strong> · <a href="README.en.md">English</a>
+</p>
+
 ---
 
-You juggle API keys across OpenAI, Anthropic, Gemini, DeepSeek, a self-hosted LiteLLM gateway, and that one Chinese provider with the credits system you never remember to check. Then a generation dies mid-stream with `429`.
+你可能同时管理着 OpenAI、Anthropic、Gemini、DeepSeek 的 API 密钥，外加一台自托管的 LiteLLM 网关，还有那个你总忘记查看余额的积分制国内供应商。然后某一次生成进行到一半，`429` 不期而至。
 
-TokenOwl is a small desktop companion that answers one question **before** it becomes a surprise: *how much do I have left, and when does it come back?*
+TokenOwl 是一个小小的桌面伴侣，它回答一个问题 —— 而且**总是赶在**意外发生之前回答：*我还剩多少额度？什么时候恢复？*
 
-It lives in a corner of your screen as a tiny always-on-top bubble, opens into a full dashboard on click, and does all of this **entirely on your machine** — your API keys go into the OS keychain, your data into a local SQLite file, and nothing ever phones home.
+它以一枚置顶悬浮球的形式常驻屏幕一角，点击展开完整仪表盘，而这一切**完全运行在你的机器上** —— API 密钥进入系统凭据库，数据写入本地 SQLite 文件，没有任何数据外发。
 
 <p align="center">
-  <img src="assets/dashboard.png" alt="TokenOwl dashboard: pressure summary, per-account quota cards with reset countdowns, and a provider rail" width="820" />
+  <img src="assets/dashboard.png" alt="TokenOwl 仪表盘：额度压力汇总、各账户额度卡片与重置倒计时、供应商导轨" width="820" />
 </p>
 
-## Why not just check the web dashboards?
+## 为什么不直接看各家网页控制台？
 
-| | Provider web consoles | TokenOwl |
+| | 供应商网页控制台 | TokenOwl |
 | :--- | :--- | :--- |
-| Check one provider | Open site, log in, navigate | Glance at the bubble |
-| Check five providers | Five tabs, five logins | One dashboard |
-| Mid-work low-quota warning | You find out on the next `429` | Notification *before* it hits |
-| Usage over time | Per-provider, per-console | One heatmap across all accounts |
-| Where your keys live | Browser sessions | OS keychain, never on disk |
-| Where your usage data lives | Their servers | Your SQLite file |
+| 查看一家供应商 | 打开网站、登录、层层导航 | 瞄一眼悬浮球 |
+| 查看五家供应商 | 五个标签页、五次登录 | 一块仪表盘 |
+| 工作中断额提醒 | 等下一次 `429` 才知道 | 通知**赶在**中断之前 |
+| 用量趋势 | 每家各自为政 | 一张热力图覆盖所有账户 |
+| 密钥存在哪里 | 浏览器会话 | 系统凭据库，绝不落盘 |
+| 用量数据存在哪里 | 他们的服务器 | 你的 SQLite 文件 |
 
-## Features
+## 功能特性
 
-**Unified monitoring** — Connect accounts from different providers and see remaining quota, usage, balance, and reset times in one normalized view. Token counts, dollar amounts, request counts, credits — each shown in its native unit, never converted into made-up numbers.
+**统一监控** —— 接入不同供应商的账户，在一个归一化的视图里查看剩余额度、用量、余额与重置时间。Token 数、金额、请求数、积分 —— 各按其原生单位呈现，绝不换算成臆造的数字。
 
-**Honest unknowns** — If a provider doesn't report a limit, TokenOwl shows *unknown*, not `0 / 100`. Every value carries its data source and freshness (`fresh` / `stale` / `expired`), so a stale reading never masquerades as a live one.
+**诚实的未知值** —— 供应商不报告上限时，TokenOwl 显示*未知*，而不是 `0 / 100`。每个数值都携带数据来源与新鲜度（`fresh` / `stale` / `expired`），陈旧数据绝不冒充实时的。
 
-**Floating bubble** — An Apple-Watch-style double ring, always on top and draggable, with edge snapping. Outer ring maps your shortest reset window (e.g. 5-hour), inner ring the long one (e.g. weekly); the provider's brand icon sits in the center. Click it to open the dashboard.
+**悬浮球** —— Apple Watch 风格双环，置顶、可拖拽、屏幕边缘吸附。外环映射你最短的重置窗口（如 5 小时），内环映射长窗口（如每周）；中央是供应商品牌图标。点击即打开仪表盘。
 
 <p align="center">
-  <img src="assets/bubble-rings.png" alt="Bubble with dual quota rings" width="180" />
+  <img src="assets/bubble-rings.png" alt="双额度环悬浮球" width="180" />
   &nbsp;&nbsp;
-  <img src="assets/bubble-empty.png" alt="Bubble in empty state with owl mark" width="180" />
+  <img src="assets/bubble-empty.png" alt="空态猫头鹰悬浮球" width="180" />
 </p>
 
-**Notifications that respect thresholds** — Low-quota warnings (default 20%, escalating at 10%), balance floors, reset reminders, auth-expiry alerts, and repeated network-failure detection — each deduplicated so you're never spammed.
+**尊重阈值的通知** —— 低额度告警（默认 20%，10% 升级）、余额下限、重置提醒、认证过期告警、连续网络失败检测 —— 每条都经过去重，绝不轰炸。
 
-**Usage analytics** — A 26-week GitHub-style heatmap of daily tokens and spend, a 30-day trend chart, per-provider breakdowns with 2h / 24h / 30d windows, and burn-rate projection that estimates when your quota runs out.
+**用量分析** —— 26 周 GitHub 风格热力图逐日呈现 Tokens 与计费，30 天趋势图，按供应商的 2 小时 / 24 小时 / 30 天分段视图，以及预估额度耗尽时间的燃烧速率推演。
 
 <p align="center">
-  <img src="assets/history.png" alt="History view: 30-day stats, trend chart, and 26-week heatmap" width="820" />
+  <img src="assets/history.png" alt="历史视图：30 天统计、趋势图与 26 周热力图" width="820" />
 </p>
 
-**Gateway-friendly** — Self-hosting New API, One API, or LiteLLM? They're first-class built-ins with editable base URLs. Custom OpenAI-compatible endpoints work too.
+**网关友好** —— 自托管 New API、One API 或 LiteLLM？它们都是一等内置项，网关地址可自由编辑。自定义 OpenAI 兼容端点同样支持。
 
-**Auto-updates** — Release artifacts are signed (Minisign); the built-in updater verifies signatures before installing.
+**自动更新** —— 发布产物经 Minisign 签名；内置更新器安装前先验证签名。
 
-## Supported providers
+## 支持的供应商
 
-29 built-in manifests across three wire protocols, graded honestly by what each provider's API actually exposes — not by what a UI would like to show:
+29 个内置清单横跨三种请求协议，按各家 API 实际暴露的能力如实分级 —— 而不是按 UI 想展示什么来分级：
 
-| Level | What you get | Providers |
+| 等级 | 能看到什么 | 供应商 |
 | :--- | :--- | :--- |
-| **L4** — Full quota | quota + usage + balance + reset + identity | OpenAI, OpenRouter |
-| **L3** — Usage / balance | usage or balance readable | DeepSeek, Qwen, Kimi, SiliconFlow |
-| **L2** — Health / models | connection health, models, rate-limit headers | Anthropic, Gemini, Groq, Mistral, xAI, Zhipu, Doubao, Baichuan, MiniMax, StepFun, 01.AI, 360, iFlytek, Baidu, Tencent, Xiaomi MiMo, Cohere… |
-| **L2** — Gateways | your deployment, your URL | New API, One API, LiteLLM |
-| **L1** — Custom | any OpenAI-compatible endpoint | *Custom / compatible* |
+| **L4** — 完整额度 | 额度 + 用量 + 余额 + 重置 + 账户标识 | OpenAI、OpenRouter |
+| **L3** — 用量 / 余额 | 用量或余额可读 | DeepSeek、Qwen、Kimi、SiliconFlow |
+| **L2** — 健康 / 模型 | 连接健康、模型列表、限流响应头 | Anthropic、Gemini、Groq、Mistral、xAI、智谱、豆包、百川、MiniMax、StepFun、零一万物、360、讯飞、百度、腾讯、小米 MiMo、Cohere… |
+| **L2** — 网关 | 你的部署、你的地址 | New API、One API、LiteLLM |
+| **L1** — 自定义 | 任意 OpenAI 兼容端点 | *自定义 / 兼容* |
 
-Native Anthropic and Google Gemini protocol adapters are built in (beyond their OpenAI-compatibility layers), and **community provider packs** — drop a validated YAML manifest into the `community-providers` folder to register a new provider without touching code.
+原生 Anthropic 与 Google Gemini 协议适配器已内置（超越其 OpenAI 兼容层）；**社区供应商包** —— 将通过校验的 YAML 清单放入 `community-providers` 目录即可注册新供应商，无需改代码。
 
-> Missing a provider? Any OpenAI-compatible API works through the *Custom* path today, and a [community pack](#community-provider-packs) takes five minutes to write.
+> 缺少你用的供应商？任何 OpenAI 兼容 API 今天就能走*自定义*路径接入，写一个[社区包](#社区供应商包)也只需五分钟。
 
-## Installation
+## 安装
 
-> **Note:** Windows builds are verified end-to-end. macOS artifacts are produced by CI but not yet exercised on real hardware — treat them as early access.
+> **说明：** Windows 构建已端到端验证。macOS 产物由 CI 构建但尚未在真实硬件上验证 —— 请当作早期版本对待。
 
-### Windows (verified)
+### Windows（已验证）
 
-Grab the latest installer from [Releases](https://github.com/Aswellle/TokenOwl/releases):
+从 [Releases](https://github.com/Aswellle/TokenOwl/releases) 获取最新安装包：
 
-- `TokenOwl_x.y.z_x64-setup.nsis.exe` — recommended installer
-- `TokenOwl_x.y.z_x64_en-US.msi` — MSI for enterprise deployment
+- `TokenOwl_x.y.z_x64-setup.nsis.exe` —— 推荐安装器
+- `TokenOwl_x.y.z_x64_en-US.msi` —— 企业部署用 MSI
 
-### macOS (CI-built, unverified on hardware)
+### macOS（CI 构建，未在真机验证）
 
-- `TokenOwl_x.y.z_aarch64.dmg` — Apple Silicon
-- `TokenOwl_x.y.z_x64.dmg` — Intel
+- `TokenOwl_x.y.z_aarch64.dmg` —— Apple Silicon
+- `TokenOwl_x.y.z_x64.dmg` —— Intel
 
-## Quick start
+## 快速上手
 
-1. Launch TokenOwl — the bubble docks to the nearest screen edge.
-2. Click it, then **Settings → connect an account**. Pick a provider, paste an API key. Endpoints auto-fill from the built-in manifest.
-3. Data arrives within seconds; the bubble rings light up.
-4. Drag the bubble anywhere — it snaps to edges and remembers where you put it.
+1. 启动 TokenOwl —— 悬浮球自动吸附到最近的屏幕边缘。
+2. 点击悬浮球，进入**设置 → 连接账户**。选择供应商，粘贴 API 密钥，端点会按内置清单自动填充。
+3. 数据数秒内到达，悬浮球双环点亮。
+4. 拖动悬浮球到任意位置 —— 它会吸附到边缘，并记住你放的地方。
 
-Keys go straight into Windows Credential Manager (macOS Keychain on macOS). The SQLite database stores only a *reference* to the key, never the key itself.
+密钥直接进入 Windows 凭据管理器（macOS 上是钥匙串）。SQLite 数据库只存密钥的*引用*，绝不存密钥本身。
 
-## How it works
+## 工作原理
 
-A deliberately boring, layered architecture: the webview renders; Rust does everything else.
+一套刻意朴素、分层清晰的架构：webview 只负责渲染，其余一切都由 Rust 完成。
 
 ```
 ┌────────────────────────────────────────────────────────┐
-│  Webview (React 19 + TypeScript strict + motion)       │
-│  dashboard · bubble · history · notifications          │
-│  — no network permission, by capability policy         │
+│  Webview（React 19 + TypeScript strict + motion）      │
+│  仪表盘 · 悬浮球 · 历史 · 通知                          │
+│  —— 按能力策略，无任何网络权限                           │
 └──────────────────────────┬─────────────────────────────┘
-                           │ semantic IPC commands only
+                           │ 仅语义化 IPC 命令
 ┌──────────────────────────▼─────────────────────────────┐
-│  Rust core (Tauri 2)                                   │
+│  Rust 核心（Tauri 2）                                   │
 │                                                        │
 │  scheduler ──► providers ──► domain                    │
-│  jitter +      adapters +    snapshots · reset math    │
-│  backoff       manifests     health grades · burn rate │
+│  抖动 +        适配器 +      快照 · 重置计算             │
+│  退避          清单          健康分级 · 燃烧速率        │
 │      │             │                                    │
 │      ▼             ▼                                    │
 │  storage         networking        credentials          │
-│  SQLite WAL      timeouts ·        OS keychain only     │
-│  migrations      size limits       (ref stored on disk) │
+│  SQLite WAL      超时 ·            仅系统凭据库          │
+│  版本化迁移       大小上限          （磁盘只存引用）      │
 └────────────────────────────────────────────────────────┘
 ```
 
-Design decisions worth knowing about:
+值得了解的设计决策：
 
-- **The webview cannot make network requests.** The Tauri capability set grants only core, opener, process, and updater. Every HTTP call happens in Rust through one shared client with timeouts, response-size caps, and a restrictive CSP. There is no code path from a compromised webview to your API keys.
-- **Manifest-driven providers.** Each built-in provider is a declarative YAML file (`providers/builtin/*.yaml`) describing its wire protocol, endpoints, and honest capability level. Adding a provider is a data problem, not a code problem — and community packs extend the same mechanism at runtime.
-- **Failure isolation per metric.** One failing endpoint degrades to an error chip on that metric; sibling endpoints keep updating. A total outage keeps the last good snapshot, marks it stale, and retries on bounded exponential backoff. The UI never freezes and never silently zeroes.
-- **Versioned SQLite migrations** with integrity checks, automatic pre-migration backups, and per-migration transactions.
+- **Webview 无法发起网络请求。** Tauri 能力集只授予 core、opener、process、updater。所有 HTTP 都发生在 Rust 侧，经由一个共享客户端完成，带超时、响应大小上限与严格 CSP。被攻破的 webview 到你的 API 密钥之间没有通路。
+- **清单驱动的供应商。** 每个内置供应商都是一份声明式 YAML（`providers/builtin/*.yaml`），描述其请求协议、端点与如实的能力等级。新增供应商是数据问题，不是代码问题 —— 社区包在运行时扩展同一机制。
+- **按指标故障隔离。** 单个端点失败降级为该指标上的错误徽标，其余端点继续更新。整体故障时保留上一个可用快照、标记为 stale，并按有界指数退避重试。UI 永不冻结，也绝不悄悄归零。
+- **版本化 SQLite 迁移**，带完整性检查、迁移前自动备份与逐迁移事务。
 
-## Development
+## 参与开发
 
-### Prerequisites
+### 环境要求
 
-- Node.js 22+ and pnpm 10.33.2 (`corepack enable`)
-- Rust stable 1.85+ (2024 edition)
-- Tauri 2 prerequisites per [platform](https://v2.tauri.app/start/prerequisites/)
+- Node.js 22+ 与 pnpm 10.33.2（`corepack enable`）
+- Rust stable 1.85+（2024 edition）
+- 各平台 [Tauri 2 前置依赖](https://v2.tauri.app/start/prerequisites/)
 
 ```bash
 git clone https://github.com/Aswellle/TokenOwl.git
 cd TokenOwl
 corepack enable
-pnpm install                     # workspace install (root)
+pnpm install                     # 工作区安装（仓库根目录）
 ```
 
-### Everyday commands (run from `apps/desktop/`)
+### 日常命令（在 `apps/desktop/` 下运行）
 
 ```bash
-pnpm dev                         # Vite on :1420, browser preview of the UI
-pnpm tauri dev                   # full desktop app with hot reload
-pnpm typecheck                   # tsc --noEmit (strict)
+pnpm dev                         # Vite :1420，浏览器预览 UI
+pnpm tauri dev                   # 完整桌面应用 + 热重载
+pnpm typecheck                   # tsc --noEmit（严格模式）
 pnpm test                        # vitest, jsdom
-pnpm exec playwright test        # e2e smoke suite
+pnpm exec playwright test        # e2e 冒烟套件
 ```
 
 ```bash
 cd apps/desktop/src-tauri
-cargo test                       # 219 unit + integration tests
+cargo test                       # 219 个单元 + 集成测试
 cargo clippy --all-targets --all-features -- -D warnings
 cargo fmt --all
 ```
 
-### Project layout
+### 项目结构
 
 ```
 apps/desktop/
-├── src/                 # React frontend (features/, components/, lib/)
+├── src/                 # React 前端（features/, components/, lib/）
 ├── src-tauri/
 │   └── src/
-│       ├── domain/      # snapshots, reset math, health grades, history
-│       ├── providers/   # adapter trait, builtin adapters, manifest engine
-│       ├── scheduler/   # priority queue, jitter, exponential backoff
-│       ├── storage/     # SQLite WAL, versioned migrations
-│       ├── credentials/ # OS keychain wrapper (refs only on disk)
-│       ├── networking/  # shared HTTP client (limits, redaction)
-│       └── commands/    # Tauri IPC handlers
-├── providers/builtin/   # 29 YAML provider manifests
-assets/                   # screenshots used by this README
+│       ├── domain/      # 快照、重置计算、健康分级、历史
+│       ├── providers/   # 适配器 trait、内置适配器、清单引擎
+│       ├── scheduler/   # 优先级队列、抖动、指数退避
+│       ├── storage/     # SQLite WAL、版本化迁移
+│       ├── credentials/ # 系统凭据库封装（磁盘只存引用）
+│       ├── networking/  # 共享 HTTP 客户端（限制、脱敏）
+│       └── commands/    # Tauri IPC 处理器
+├── providers/builtin/   # 29 份 YAML 供应商清单
+assets/                   # 本自述文件使用的截图
 ```
 
-### Testing philosophy
+### 测试理念
 
-Provider parsing is covered by offline deterministic fixtures — success, partial fields, malformed JSON, 401, 429 with `retry-after`, 5xx, empty bodies, and reset-window edge cases. Secret-handling has a dedicated regression suite that byte-scans SQLite files, logs, and serialized DTOs (with positive controls). UI state transitions, freshness fallbacks, and backoff caps each have their own tests.
+供应商解析由离线确定性 fixture 覆盖 —— 成功、部分字段、畸形 JSON、401、带 `retry-after` 的 429、5xx、空响应体，以及重置窗口边界情形。密钥处理有专门的回归套件，逐字节扫描 SQLite 文件、日志与序列化 DTO（含阳性对照）。UI 状态迁移、新鲜度回退与退避上限各有专属测试。
 
-## Community provider packs
+## 社区供应商包
 
-Drop a YAML manifest into `<app data dir>/community-providers/` and restart:
+将 YAML 清单放入 `<应用数据目录>/community-providers/` 后重启：
 
 ```yaml
 id: my-relay
@@ -219,27 +223,27 @@ endpoints:
 apiFormat: openai-compatible
 ```
 
-The loader is deliberately strict: manifests must parse completely, speak the `openai-compatible` protocol, declare an **https** base URL with no embedded credentials, and use an id that doesn't collide with a built-in. Invalid packs are skipped and reported in Settings — never half-registered.
+加载器刻意从严：清单必须完整解析、使用 `openai-compatible` 协议、声明**https** 基础地址且不内嵌凭据、id 不得与内置项冲突。无效的包会被跳过并在设置页报告原因 —— 绝不半注册。
 
-## Security
+## 安全
 
-- **Keys in the OS keychain only** — SQLite stores a `credential_ref`; the credential type is non-serializable and its `Debug` output is `REDACTED`.
-- **Network-confined webview** — no network permission, restrictive CSP; all HTTP in Rust with HTTPS-first URL validation, size caps, and sensitive-header redaction.
-- **Secret-leak regression suite** — byte-scans databases, logs, and DTOs to prove keys never reach disk in plaintext.
-- **Signed updates** — Minisign-verified updater artifacts; unsigned or re-tagged releases won't install.
+- **密钥只存系统凭据库** —— SQLite 只存 `credential_ref`；凭据类型不可序列化，`Debug` 输出为 `REDACTED`。
+- **网络受限的 webview** —— 无网络权限、严格 CSP；所有 HTTP 在 Rust 中完成，HTTPS 优先的 URL 校验、大小上限与敏感头脱敏。
+- **密钥泄漏回归套件** —— 逐字节扫描数据库、日志与 DTO，证明密钥绝不会明文落盘。
+- **签名更新** —— 更新器产物经 Minisign 验证；未签名或改签的发布无法安装。
 
-Found a vulnerability? Please use [private security advisories](https://github.com/Aswellle/TokenOwl/security/advisories/new) rather than public issues — see [SECURITY.md](SECURITY.md).
+发现漏洞？请使用[私密安全通告](https://github.com/Aswellle/TokenOwl/security/advisories/new)而非公开 issue —— 详见 [SECURITY.md](SECURITY.md)。
 
-## Contributing
+## 贡献
 
-Issues and PRs are welcome — good first issues include new provider manifests (a YAML file plus fixtures) and UI polish. See [CONTRIBUTING](CONTRIBUTING.md) for the workflow, the [capability matrix](providers/builtin/) for what each provider grade means, and the in-code Rustdoc for architecture details.
+欢迎 issue 与 PR —— 适合上手的有新供应商清单（一份 YAML 加 fixture）与 UI 打磨。工作流见 [CONTRIBUTING](CONTRIBUTING.md)，各供应商等级的含义见[能力清单目录](providers/builtin/)，架构细节见代码内 Rustdoc。
 
-## License
+## 许可证
 
 [MIT](LICENSE) © 2026 TokenOwl contributors
 
 ---
 
 <p align="center">
-  <sub>Built with <a href="https://v2.tauri.app/">Tauri 2</a> · <a href="https://react.dev">React 19</a> · <a href="https://www.rust-lang.org">Rust</a> — no cloud, no telemetry, no accounts.</sub>
+  <sub>基于 <a href="https://v2.tauri.app/">Tauri 2</a> · <a href="https://react.dev">React 19</a> · <a href="https://www.rust-lang.org">Rust</a> 构建 —— 无云端、无遥测、无账户。</sub>
 </p>

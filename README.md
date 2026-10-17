@@ -5,7 +5,7 @@
 <h1 align="center">TokenOwl</h1>
 
 <p align="center">
-  <strong>你的 AI 额度，一眼可见 —— 数据始终留在桌面，绝不上云。</strong><br/>
+  <strong>你的 AI 额度，一眼可见 —— 数据始终留在桌面。</strong><br/>
   一个本地优先的 AI 供应商额度、用量与余额监视器。
 </p>
 
@@ -240,7 +240,7 @@ apiFormat: openai-compatible
 
 ## 许可证
 
-[MIT](LICENSE) © 2026 TokenOwl contributors
+[MIT](LICENSE) © 2026 TokenOwl
 
 ---
 

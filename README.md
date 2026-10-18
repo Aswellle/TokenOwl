@@ -251,7 +251,7 @@ apiFormat: openai-compatible
 
 ## 许可证
 
-[MIT](LICENSE) © 2026 TokenOwl
+[MIT](LICENSE)
 
 ---
 

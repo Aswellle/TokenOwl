@@ -254,7 +254,3 @@ apiFormat: openai-compatible
 [MIT](LICENSE)
 
 ---
-
-<p align="center">
-  <sub>基于 <a href="https://v2.tauri.app/">Tauri 2</a> · <a href="https://react.dev">React 19</a> · <a href="https://www.rust-lang.org">Rust</a> 构建 —— 无云端、无遥测、无账户。</sub>
-</p>

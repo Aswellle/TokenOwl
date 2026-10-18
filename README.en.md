@@ -251,10 +251,6 @@ Issues and PRs are welcome — good first issues include new provider manifests 
 
 ## License
 
-[MIT](LICENSE) © 2026 TokenOwl contributors
+[MIT](LICENSE)
 
 ---
-
-<p align="center">
-  <sub>Built with <a href="https://v2.tauri.app/">Tauri 2</a> · <a href="https://react.dev">React 19</a> · <a href="https://www.rust-lang.org">Rust</a> — no cloud, no telemetry, no accounts.</sub>
-</p>

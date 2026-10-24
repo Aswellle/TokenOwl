@@ -7,7 +7,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Release notes are also published on the
 [GitHub Releases page](https://github.com/Aswellle/TokenOwl/releases).
 
-## [Unreleased]
+## [1.3.0] — 2026-10-24
 
 ### Security
 

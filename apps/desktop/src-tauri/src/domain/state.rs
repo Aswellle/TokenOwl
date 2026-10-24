@@ -217,29 +217,50 @@ impl Default for RefreshState {
     }
 }
 
-#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct BackoffPolicy {
     pub base: Duration,
     pub cap: Duration,
     pub jitter: Duration,
 }
 
+impl Default for BackoffPolicy {
+    /// Production retry policy. The derived `Default` left every `Duration`
+    /// at zero, so a failed refresh computed a zero retry delay and
+    /// `next_attempt_at` said "retry immediately, forever". Base waits 30 s
+    /// before the first retry (provider-friendly for a quota monitor whose
+    /// normal cadence is 30 min), growth caps at 15 min, jitter spreads
+    /// concurrent retriers over at most 30 s.
+    fn default() -> Self {
+        Self {
+            base: Duration::from_secs(30),
+            cap: Duration::from_secs(15 * 60),
+            jitter: Duration::from_secs(30),
+        }
+    }
+}
+
 impl BackoffPolicy {
     /// Computes deterministic retry delay from a caller-provided jitter sample in `[0, 1]`.
-    pub fn delay(&self, consecutive_failures: u32, jitter_sample: f64) -> Duration {
+    ///
+    /// `prior_failures` counts consecutive failures BEFORE the one being
+    /// scheduled (0 = first failure → one base delay); the storage layer
+    /// increments its own counter, so call sites pass the pre-increment
+    /// value they read.
+    pub fn delay(&self, prior_failures: u32, jitter_sample: f64) -> Duration {
         if self.cap.is_zero() {
             return Duration::ZERO;
         }
-        let exponent = consecutive_failures.saturating_sub(1).min(31);
+        let exponent = prior_failures.min(31);
         let multiplier = 1u32 << exponent;
         let exponential = self.base.saturating_mul(multiplier).min(self.cap);
         let jitter = self.jitter.mul_f64(jitter_sample.clamp(0.0, 1.0));
         exponential.saturating_add(jitter).min(self.cap)
     }
 
-    /// Compute delay for a specific retry attempt (0-indexed).
-    pub fn delay_for_attempt(&self, attempt: u32) -> Duration {
-        self.delay(attempt, 0.5)
+    /// Delay after the n-th consecutive failure (0 = first failure).
+    pub fn delay_for_attempt(&self, prior_failures: u32) -> Duration {
+        self.delay(prior_failures, 0.5)
     }
 }
 
@@ -329,12 +350,35 @@ mod tests {
             cap: Duration::from_secs(3600),
             jitter: Duration::from_secs(30),
         };
-        assert_eq!(policy.delay(1, 0.0), Duration::from_secs(300));
-        assert_eq!(policy.delay(2, 0.0), Duration::from_secs(600));
-        assert_eq!(policy.delay(3, 1.0), Duration::from_secs(1230));
-        assert_eq!(policy.delay(20, 0.0), Duration::from_secs(3600));
-        assert!(policy.delay(3, 0.0) <= policy.delay(3, 1.0));
-        assert!(policy.delay(3, 1.0) <= policy.cap);
+        // The argument counts prior failures: 0 = first failure → one base
+        // delay, each further failure doubles, jitter stays bounded.
+        assert_eq!(policy.delay(0, 0.0), Duration::from_secs(300));
+        assert_eq!(policy.delay(1, 0.0), Duration::from_secs(600));
+        assert_eq!(policy.delay(2, 1.0), Duration::from_secs(1230));
+        assert_eq!(policy.delay(19, 0.0), Duration::from_secs(3600));
+        assert!(policy.delay(2, 0.0) <= policy.delay(2, 1.0));
+        assert!(policy.delay(2, 1.0) <= policy.cap);
+    }
+
+    /// The production default must never wait zero: a failed refresh used to
+    /// schedule its next attempt immediately because every field defaulted
+    /// to a zero `Duration`.
+    #[test]
+    fn default_backoff_waits_and_stays_within_cap() {
+        let policy = BackoffPolicy::default();
+        assert!(!policy.cap.is_zero());
+        assert!(!policy.base.is_zero());
+        assert_eq!(policy.delay(0, 0.0), policy.base);
+        assert!(!policy.delay_for_attempt(0).is_zero());
+        for prior_failures in 0..20 {
+            let with_jitter = policy.delay(prior_failures, 1.0);
+            assert!(with_jitter >= policy.base, "below base at {prior_failures}");
+            assert!(with_jitter <= policy.cap, "above cap at {prior_failures}");
+        }
+        assert!(
+            policy.delay(1, 1.0) > policy.delay(1, 0.0),
+            "jitter must add spread"
+        );
     }
 
     #[test]

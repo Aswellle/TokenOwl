@@ -65,8 +65,10 @@ pub async fn refresh_account(
         }
         Err(error) => {
             let state = repository.refresh_state(account_id)?;
-            let attempt = state.consecutive_failures;
-            let delay = BackoffPolicy::default().delay_for_attempt(attempt);
+            // Failures BEFORE this one: storage increments its own counter,
+            // so the pre-increment value is exactly what the policy expects.
+            let prior_failures = state.consecutive_failures;
+            let delay = BackoffPolicy::default().delay_for_attempt(prior_failures);
             repository.mark_refresh_failed(
                 account_id,
                 started_at,

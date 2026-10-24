@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "bubble",
+  "description": "Floating bubble: the smallest viable surface — core events and IPC plus window dragging. No plugin permissions: the bubble never opens URLs, restarts the app, or touches the updater.",
+  "windows": ["bubble"],
+  "permissions": ["core:default", "core:window:allow-start-dragging"]
+}

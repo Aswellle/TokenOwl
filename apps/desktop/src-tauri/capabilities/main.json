@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "main",
+  "description": "Dashboard window: core IPC (events, window, invoke) plus titlebar dragging. The opener, process, and updater plugins are only used from Rust commands, so the webview holds no permissions for them.",
+  "windows": ["main"],
+  "permissions": ["core:default", "core:window:allow-start-dragging"]
+}

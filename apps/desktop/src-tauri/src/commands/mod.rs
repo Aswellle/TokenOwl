@@ -37,6 +37,37 @@ pub struct AppRuntime {
     pub data_dir: PathBuf,
     /// Session-scoped LAN confirmation tokens (see [`LanConsentLedger`]).
     pub(crate) lan_consents: LanConsentLedger,
+    /// Per-account single-flight gate across every refresh entrance.
+    pub(crate) refresh_gate: InFlightGate,
+}
+
+/// Per-account single-flight gate across the refresh entrances (background
+/// loop, UI manual refresh, global hotkey). A request for an account that is
+/// already being refreshed is merged away — the in-flight run's outcome
+/// serves both — instead of racing two requests against the same provider
+/// and letting the slower, older answer overwrite the newer one.
+#[derive(Default, Clone)]
+pub(crate) struct InFlightGate {
+    held: std::sync::Arc<std::sync::Mutex<std::collections::HashSet<String>>>,
+}
+
+impl InFlightGate {
+    /// Acquires the account, or returns `false` when another refresh holds
+    /// it. Clones share the same underlying set, so runtime copies cannot
+    /// race past each other.
+    fn try_acquire(&self, account_id: &str) -> bool {
+        self.held
+            .lock()
+            .expect("refresh gate lock")
+            .insert(account_id.to_owned())
+    }
+
+    fn release(&self, account_id: &str) {
+        self.held
+            .lock()
+            .expect("refresh gate lock")
+            .remove(account_id);
+    }
 }
 
 /// Session-scoped, one-time LAN consent tokens.
@@ -169,6 +200,7 @@ impl AppRuntime {
             google,
             data_dir,
             lan_consents: LanConsentLedger::default(),
+            refresh_gate: InFlightGate::default(),
             freshness_policy: FreshnessPolicy {
                 fresh_for: std::time::Duration::from_secs(600),
                 stale_after: std::time::Duration::from_secs(1800),
@@ -384,7 +416,8 @@ pub async fn accounts_create(
     let account_id = account.id.clone();
     // Best-effort first snapshot. A failed request keeps the account plus an explicit
     // refresh error state instead of dropping the account or inventing values.
-    if let Err(error) = refresh_accounts(&state, Some(&app), Some(account_id.clone())).await {
+    if let Err(error) = refresh_accounts(state.inner(), Some(&app), Some(account_id.clone())).await
+    {
         tracing::warn!("initial refresh failed for account {account_id}: {error}");
     }
     list_accounts(&state)
@@ -420,19 +453,30 @@ pub async fn accounts_refresh(
     account_id: Option<String>,
     state: State<'_, Arc<AppRuntime>>,
 ) -> Result<Vec<AccountViewModel>, String> {
-    refresh_accounts(&state, Some(&app), account_id)
+    refresh_accounts(state.inner(), Some(&app), account_id)
         .await
         .map_err(String::from)
 }
 
+/// Accounts refreshed concurrently per wave. Bounded on purpose: unbounded
+/// fan-out would trip provider rate limits, and a quota monitor has nothing
+/// to gain from hammering every account at once.
+const REFRESH_WAVE_SIZE: usize = 4;
+
+/// Refreshes accounts with per-account single-flight and bounded parallelism.
+///
+/// An account already being refreshed by another entrance (background loop,
+/// hotkey, UI) is skipped — the in-flight run's result serves both — and a
+/// failing account never blocks its wave-mates. Single-account failures only
+/// propagate as an error when that specific account was requested.
 pub(crate) async fn refresh_accounts(
-    state: &AppRuntime,
+    runtime: &Arc<AppRuntime>,
     handle: Option<&AppHandle>,
     account_id: Option<String>,
 ) -> Result<Vec<AccountViewModel>, CommandError> {
     let refresh_one = account_id.is_some();
     let account_ids: Vec<String> = {
-        let repository = state.repository()?;
+        let repository = runtime.repository()?;
         match account_id {
             Some(id) => vec![id],
             None => repository
@@ -442,30 +486,80 @@ pub(crate) async fn refresh_accounts(
                 .collect(),
         }
     };
-    for account_id in account_ids {
-        let started_at = unix_seconds();
-        let repository = state.repository()?;
-        let result = refresh_account(
-            repository,
-            &state.adapter,
-            &state.anthropic,
-            &state.google,
-            &state.credentials,
-            &account_id,
-            started_at,
-        )
-        .await;
-        // Notifications are best-effort and never change the refresh outcome.
-        if let Some(handle) = handle {
-            notify_account_events(state, handle, &account_id);
+    let mut failed_requested = false;
+    for wave in account_ids.chunks(REFRESH_WAVE_SIZE) {
+        let mut tasks = Vec::with_capacity(wave.len());
+        for account_id in wave {
+            let runtime = Arc::clone(runtime);
+            let account_id = account_id.to_owned();
+            let handle = handle.cloned();
+            tasks.push(tauri::async_runtime::spawn(async move {
+                if !runtime.refresh_gate.try_acquire(&account_id) {
+                    // Merged into an in-flight refresh; its outcome applies.
+                    return Ok(account_id);
+                }
+                let started_at = unix_seconds();
+                let outcome: Result<(), CommandError> = async {
+                    let repository = runtime.repository()?;
+                    refresh_account(
+                        repository,
+                        &runtime.adapter,
+                        &runtime.anthropic,
+                        &runtime.google,
+                        &runtime.credentials,
+                        &account_id,
+                        started_at,
+                    )
+                    .await
+                    .map_err(|error| match error {
+                        crate::scheduler::RefreshError::Provider(provider) => {
+                            CommandError::Provider(provider)
+                        }
+                        crate::scheduler::RefreshError::Storage(storage) => {
+                            CommandError::Storage(storage)
+                        }
+                    })?;
+                    Ok(())
+                }
+                .await;
+                // Notifications are best-effort and never change the outcome.
+                if let Some(handle) = handle.as_ref() {
+                    notify_account_events(runtime.as_ref(), handle, &account_id);
+                }
+                runtime.refresh_gate.release(&account_id);
+                let failed_id = account_id.clone();
+                outcome.map(|()| account_id).map_err(|error| {
+                    // Only the stable error code crosses the task boundary;
+                    // the full error text can echo provider payload details.
+                    let code = match &error {
+                        CommandError::Provider(provider) => format!("{:?}", provider.code),
+                        CommandError::Storage(_) => "Storage".to_owned(),
+                        _ => "CommandFailed".to_owned(),
+                    };
+                    (failed_id, code)
+                })
+            }));
         }
-        if result.is_err() && refresh_one {
-            return Err(CommandError::InvalidInput(
-                "failed to refresh account".to_owned(),
-            ));
+        for task in tasks {
+            match task.await {
+                Ok(Ok(_)) => {}
+                Ok(Err((account_id, code))) => {
+                    tracing::warn!(account = %account_id, code = %code, "refresh failed");
+                    failed_requested |= refresh_one;
+                }
+                Err(join_error) => {
+                    tracing::warn!("refresh task joined with error: {join_error}");
+                    failed_requested |= refresh_one;
+                }
+            }
         }
     }
-    list_accounts(state)
+    if refresh_one && failed_requested {
+        return Err(CommandError::InvalidInput(
+            "failed to refresh account".to_owned(),
+        ));
+    }
+    list_accounts(runtime)
 }
 
 #[tauri::command]
@@ -2131,5 +2225,21 @@ mod tests {
         );
         let token = ledger.begin("https://192.168.0.20/v1", unix_seconds());
         assert!(authorize_lan_target(&ledger, "https://192.168.0.20/v1", Some(&token)).is_ok());
+    }
+
+    #[test]
+    fn refresh_gate_admits_one_holder_and_shares_state_across_clones() {
+        let gate = InFlightGate::default();
+        let clone = gate.clone();
+        assert!(gate.try_acquire("account-a"));
+        // The same account is refused everywhere, including through clones.
+        assert!(!gate.try_acquire("account-a"));
+        assert!(!clone.try_acquire("account-a"));
+        // Other accounts are unaffected.
+        assert!(clone.try_acquire("account-b"));
+        // Release makes the account acquirable again, exactly once.
+        clone.release("account-a");
+        assert!(gate.try_acquire("account-a"));
+        assert!(!gate.try_acquire("account-a"));
     }
 }

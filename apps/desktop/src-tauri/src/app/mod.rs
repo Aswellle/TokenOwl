@@ -564,7 +564,7 @@ fn start_background_tasks(app: &AppHandle) {
 
             let result = if let Some(runtime) = handle.try_state::<Arc<commands::AppRuntime>>() {
                 let runtime = Arc::clone(runtime.inner());
-                commands::refresh_accounts(runtime.as_ref(), Some(&handle), None).await
+                commands::refresh_accounts(&runtime, Some(&handle), None).await
             } else {
                 Ok(Vec::new())
             };

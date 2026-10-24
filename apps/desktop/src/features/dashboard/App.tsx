@@ -29,6 +29,8 @@ import { ProviderMatrix } from "./components/ProviderMatrix";
 import { SetupForm } from "./components/SetupForm";
 import { AccountRow } from "./components/AccountRow";
 import { Notice } from "./components/Notice";
+import { useAccounts } from "./hooks/useAccounts";
+import { useUpdater } from "./hooks/useUpdater";
 import { ProviderIcon } from "../../components/ProviderIcon";
 import {
   accountResetAt,
@@ -41,14 +43,9 @@ import {
 import { isTauri, shell, tauriBridge } from "../../lib/tauri";
 import { clipCircle, cornerRadius, useMorphFromBubble } from "../../lib/morph";
 import type {
-  AccountViewModel,
   DashboardBridge,
-  GenericOpenAiAccountInput,
-  UpdateInfo,
 } from "../../types";
 
-type LoadPhase = "loading" | "ready" | "offline";
-type ActionState = "idle" | "checking" | "available" | "current";
 type FilterId = "all" | "attention";
 type ViewId = "overview" | "provider" | "history" | "notifications" | "settings";
 
@@ -209,21 +206,27 @@ export interface AppProps {
 }
 
 export function App({ bridge = tauriBridge }: AppProps = {}) {
-  const loadAccountsRequestId = useRef(0);
   const viewRef = useRef<ViewId>("overview");
   const [view, setView] = useState<ViewId>("overview");
   const [direction, setDirection] = useState(1);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [accounts, setAccounts] = useState<AccountViewModel[]>([]);
-  const [phase, setPhase] = useState<LoadPhase>("loading");
   const [filter, setFilter] = useState<FilterId>("all");
-  const [refreshingId, setRefreshingId] = useState<string | "all" | null>(null);
-  const [deletingId, setDeletingId] = useState<string | null>(null);
-  const [formError, setFormError] = useState<string | null>(null);
-  const [formSubmitting, setFormSubmitting] = useState(false);
-  const [notice, setNotice] = useState<{ text: string; tone?: "warning" | "danger" | "accent" } | null>(null);
-  const [updateState, setUpdateState] = useState<ActionState>("idle");
-  const [pendingUpdate, setPendingUpdate] = useState<UpdateInfo | null>(null);
+  const {
+    accounts,
+    phase,
+    notice,
+    refreshingId,
+    deletingId,
+    formError,
+    formSubmitting,
+    loadAccounts,
+    handleRefresh,
+    handleCreate,
+    handleDelete,
+    setNotice,
+  } = useAccounts(bridge);
+  const { updateState, pendingUpdate, setPendingUpdate, handleUpdateCheck, handleInstallUpdate } =
+    useUpdater(bridge, setNotice);
   const [now, setNow] = useState(() => Date.now());
   const [notificationTick, setNotificationTick] = useState(0);
   const [historyTick, setHistoryTick] = useState(0);
@@ -255,41 +258,6 @@ export function App({ bridge = tauriBridge }: AppProps = {}) {
     goView("provider");
   };
 
-  const loadAccounts = async () => {
-    const requestId = ++loadAccountsRequestId.current;
-    setPhase("loading");
-    try {
-      const result = await bridge.listAccounts();
-      if (requestId !== loadAccountsRequestId.current) return;
-      setAccounts(result);
-      setPhase("ready");
-      setNotice(null);
-    } catch {
-      if (requestId !== loadAccountsRequestId.current) return;
-      setPhase("offline");
-      setNotice({ text: copy.notices.loadFailed, tone: "warning" });
-    }
-  };
-
-  useEffect(() => {
-    let active = true;
-    bridge
-      .listAccounts()
-      .then((loaded) => {
-        if (!active) return;
-        setAccounts(loaded);
-        setPhase("ready");
-      })
-      .catch(() => {
-        if (!active) return;
-        setPhase("offline");
-        setNotice({ text: copy.notices.loadFailed, tone: "warning" });
-      });
-    return () => {
-      active = false;
-    };
-  }, [bridge]);
-
   useEffect(() => {
     let active = true;
     const unlisten = listen("quota:updated", () => {
@@ -307,19 +275,6 @@ export function App({ bridge = tauriBridge }: AppProps = {}) {
     let active = true;
     const unlisten = listen("notification:enqueue", () => {
       if (active) setNotificationTick((tick) => tick + 1);
-    }).catch(() => null);
-    return () => {
-      active = false;
-      void unlisten.then((dispose) => dispose?.());
-    };
-  }, []);
-
-  useEffect(() => {
-    let active = true;
-    const unlisten = listen<UpdateInfo>("app:update-available", (event) => {
-      if (!active) return;
-      setUpdateState("available");
-      setPendingUpdate(event.payload);
     }).catch(() => null);
     return () => {
       active = false;
@@ -363,110 +318,6 @@ export function App({ bridge = tauriBridge }: AppProps = {}) {
   const visibleAccounts =
     filter === "all" ? accounts : accounts.filter((account) => account.status !== "healthy" && account.status !== "syncing");
 
-  const handleRefresh = async (accountId?: string) => {
-    setRefreshingId(accountId ?? "all");
-    setNotice(null);
-    try {
-      const updated = await bridge.refresh(accountId);
-      setAccounts((current) => (accountId ? mergeAccounts(current, updated) : updated));
-      setPhase("ready");
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      setAccounts((current) =>
-        current.map((account) =>
-          accountId && account.id !== accountId
-            ? account
-            : {
-                ...account,
-                status: "error",
-                errorMessage: message || copy.notices.refreshFailedOne,
-              },
-        ),
-      );
-      setNotice({ text: message || copy.notices.refreshFailed, tone: "warning" });
-    } finally {
-      setRefreshingId(null);
-    }
-  };
-
-  const handleCreate = async (
-    input: Omit<GenericOpenAiAccountInput, "apiKey"> & { apiKeyInput: HTMLInputElement },
-  ) => {
-    if (!input.label || !input.baseUrl) {
-      input.apiKeyInput.value = "";
-      setFormError(copy.form.missingAccount);
-      return;
-    }
-    const secret = input.apiKeyInput.value;
-    if (!secret.trim()) {
-      setFormError(copy.form.missingKey);
-      return;
-    }
-    setFormSubmitting(true);
-    setFormError(null);
-    try {
-      const account = await bridge.createAccount({
-        providerId: input.providerId,
-        label: input.label,
-        baseUrl: input.baseUrl,
-        quotaEndpoint: input.quotaEndpoint,
-        usageEndpoint: input.usageEndpoint,
-        balanceEndpoint: input.balanceEndpoint,
-        lanConsentToken: input.lanConsentToken,
-        apiKey: secret,
-      });
-      setAccounts((current) => [...current.filter((item) => item.id !== account.id), account]);
-      setPhase("ready");
-      setNotice(null);
-    } catch {
-      setFormError(copy.form.failed);
-    } finally {
-      input.apiKeyInput.value = "";
-      setFormSubmitting(false);
-    }
-  };
-
-  const handleDelete = async (accountId: string) => {
-    setDeletingId(accountId);
-    try {
-      await bridge.deleteAccount(accountId);
-      setAccounts((current) => current.filter((account) => account.id !== accountId));
-      if (selectedId === accountId) goView("overview");
-    } catch {
-      setNotice({ text: copy.notices.deleteFailed, tone: "danger" });
-    } finally {
-      setDeletingId(null);
-    }
-  };
-
-  const handleUpdateCheck = async () => {
-    setUpdateState("checking");
-    try {
-      const update = await bridge.checkForUpdate();
-      if (!update) {
-        setUpdateState("current");
-        setPendingUpdate(null);
-        setNotice({ text: copy.update.current, tone: "accent" });
-        return;
-      }
-      setUpdateState("available");
-      setPendingUpdate(update);
-      setNotice({ text: copy.update.available(update.version), tone: "accent" });
-    } catch {
-      setUpdateState("idle");
-      setNotice({ text: copy.update.unavailable, tone: "warning" });
-    }
-  };
-
-  const handleInstallUpdate = async () => {
-    try {
-      await bridge.installUpdate();
-      setNotice({ text: copy.update.installed, tone: "accent" });
-    } catch {
-      setUpdateState("idle");
-      setNotice({ text: copy.update.unavailable, tone: "warning" });
-    }
-  };
 
   const viewVariants = {
     hidden: (dir: number) =>
@@ -754,7 +605,11 @@ export function App({ bridge = tauriBridge }: AppProps = {}) {
                           refreshing={refreshingId === account.id || refreshingId === "all"}
                           deleting={deletingId === account.id}
                           onRefresh={() => void handleRefresh(account.id)}
-                          onDelete={() => void handleDelete(account.id)}
+                          onDelete={() =>
+                            void handleDelete(account.id, () => {
+                              if (selectedId === account.id) goView("overview");
+                            })
+                          }
                         />
                       ))}
                     </AnimatePresence>
@@ -850,11 +705,6 @@ export function App({ bridge = tauriBridge }: AppProps = {}) {
       </nav>
     </motion.div>
   );
-}
-function mergeAccounts(current: AccountViewModel[], updates: AccountViewModel[]): AccountViewModel[] {
-  const byId = new Map(current.map((account) => [account.id, account]));
-  updates.forEach((account) => byId.set(account.id, account));
-  return Array.from(byId.values());
 }
 
 export default App;

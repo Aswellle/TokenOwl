@@ -7,6 +7,75 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Release notes are also published on the
 [GitHub Releases page](https://github.com/Aswellle/TokenOwl/releases).
 
+## [Unreleased]
+
+### Security
+
+- All provider traffic now flows through one shared HTTP client that denies
+  redirects by default, ignores environment proxies, and enforces the
+  streaming response-size cap in a single place; provider manifests asking to
+  follow redirects are rejected.
+- Plaintext `http` base URLs are accepted only for loopback; remote and LAN
+  targets must use `https`, and base URLs with a query or fragment are
+  rejected outright.
+- LAN target classification now understands IPv6 unique-local and
+  IPv4-mapped addresses and resolves DNS names once, so a public-looking name
+  that points inside the network still triggers the consent prompt.
+- LAN consent is validated by the backend: a one-time, target-bound token is
+  required exactly when Rust classifies the target as local, and the
+  classifier failing means creation is blocked instead of guessed public.
+- API keys no longer appear in `Debug` output of the account input DTO, and
+  raw provider response bodies are never formatted; the sensitive-key
+  matcher's dead entries (`auth_token`, `api_token`) were fixed and unified
+  across metadata sanitizing and telemetry.
+- Release workflows expose signing secrets only to the steps that need them,
+  drop persisted checkout credentials, and pin every action to a verified
+  commit SHA; the bubble window holds no plugin permissions.
+- The resolved secret buffer is zeroized when dropped (best-effort defense in
+  depth; copies that leave the credential type still follow ordinary Rust
+  lifetimes).
+
+### Fixed
+
+- `manifest_profiles` is registered with the invoke handler again — the
+  packaged app had been showing an empty provider list while browser previews
+  kept passing.
+- The retry backoff policy has non-zero defaults (30 s base, 15 min cap,
+  bounded jitter); a provider's `Retry-After` (seconds or HTTP-date) is
+  honored and capped when scheduling the next attempt.
+- Refreshes are per-account single-flight with bounded parallel waves, so the
+  background loop, the UI, and the hotkey can no longer race one account.
+- A failed keyring deletion during account removal is recorded and retried on
+  the next startup instead of silently orphaning the secret; a failed database
+  open right after writing a secret compensates by deleting it.
+- Migration backups are staged and quick-checked before replacing the previous
+  generation, so a failed `VACUUM` can no longer destroy the only restorable
+  copy.
+- Community manifest scans are bounded (file count, per-file size, report
+  length, regular files only), and manifest fields (id, name, timeout,
+  mapping paths) are validated at both load boundaries.
+
+### Changed
+
+- Confirmations render through a shared accessible alert dialog (labelled,
+  modal, Escape cancels, focus starts on the non-destructive action and
+  returns to the trigger); the removal confirm also focuses Cancel first.
+- The dashboard's setup form, account row, and notice are individual modules,
+  and account/updater state lives in dedicated hooks (`useAccounts`,
+  `useUpdater`) — `App.tsx` halved from ~1400 to ~710 lines with no behavior
+  change.
+- The unused priority-queue scheduler was removed; the refresh path is the
+  single scheduling implementation.
+- SECURITY/CONTRIBUTING/AGENTS documents now match the actual repository
+  layout, supported versions, and README languages.
+
+### Added
+
+- Scheduled dependency audit workflow (weekly `cargo audit` plus
+  `pnpm audit --prod --audit-level high`).
+- The dashboard and bubble-view test suites run again in the default test
+  run (they had been excluded when their mocks drifted).
+
 ## [1.2.0] — 2026-10-18
 
 ### Added

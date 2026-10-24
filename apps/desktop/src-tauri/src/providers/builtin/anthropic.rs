@@ -13,10 +13,10 @@ use crate::credentials::{CredentialError, CredentialStore};
 use crate::domain::provider::{
     AccountContext, AccountIdentity, Confidence, FetchContext, HealthStatus,
     OpenAiCompatibleConfig, ProviderAdapter, ProviderDescriptor, ProviderError, ProviderErrorKind,
-    ProviderResponse, ProviderResult, QuotaSnapshot, QuotaSnapshotSet, SnapshotStatus, UsagePoint,
-    UsageRange, WindowType,
+    ProviderResult, QuotaSnapshot, QuotaSnapshotSet, SnapshotStatus, UsagePoint, UsageRange,
+    WindowType,
 };
-use reqwest::Client;
+use crate::networking::{HttpClient, HttpClientConfig};
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use url::Url;
@@ -49,8 +49,7 @@ impl Default for AdapterLimits {
 
 #[derive(Clone, Debug)]
 pub struct AnthropicAdapter {
-    client: Client,
-    limits: AdapterLimits,
+    client: HttpClient,
     config: OpenAiCompatibleConfig,
 }
 
@@ -62,20 +61,13 @@ impl AnthropicAdapter {
                 "HTTP timeout and response limit must be positive",
             ));
         }
-        let client = Client::builder()
-            .timeout(limits.timeout)
-            .build()
-            .map_err(|error| {
-                ProviderError::new(
-                    ProviderErrorKind::ConfigInvalid,
-                    format!("unable to initialize HTTP client: {error}"),
-                )
-            })?;
-        Ok(Self {
-            client,
-            limits,
-            config,
-        })
+        // Shared transport authority: redirects denied, no implicit proxy,
+        // streaming size cap. Only timeout and cap size vary per adapter.
+        let client = HttpClient::new(HttpClientConfig::from_adapter_limits(
+            limits.timeout,
+            limits.max_response_bytes,
+        ))?;
+        Ok(Self { client, config })
     }
 
     pub fn with_default_limits(config: OpenAiCompatibleConfig) -> ProviderResult<Self> {
@@ -113,7 +105,7 @@ impl AnthropicAdapter {
             .get(url)
             .headers(headers)
             .header("accept", "application/json");
-        let response = self.read_response(request).await?;
+        let response = self.client.send_capped(request).await?;
         let status = response.status;
         let identity = match status {
             200..=299 => HealthStatus::Healthy,
@@ -128,52 +120,6 @@ impl AnthropicAdapter {
             None
         };
         Ok((identity, account, response.headers))
-    }
-
-    /// Streams one response under the configured size limit. Header order is
-    /// preserved through the `reqwest` `HeaderMap` iteration.
-    async fn read_response(
-        &self,
-        request: reqwest::RequestBuilder,
-    ) -> ProviderResult<ProviderResponse> {
-        let mut response = request.send().await.map_err(map_request_error)?;
-        let status = response.status();
-        let response_headers = response.headers().clone();
-        if response
-            .content_length()
-            .is_some_and(|length| length > self.limits.max_response_bytes as u64)
-        {
-            return Err(ProviderError::new(
-                ProviderErrorKind::InvalidResponse,
-                "provider response exceeds configured size limit",
-            )
-            .with_status(status.as_u16()));
-        }
-        let size_limit = self.limits.max_response_bytes;
-        let mut body_bytes = Vec::new();
-        while let Some(chunk) = response.chunk().await.map_err(map_request_error)? {
-            if body_bytes.len().saturating_add(chunk.len()) > size_limit {
-                return Err(ProviderError::new(
-                    ProviderErrorKind::InvalidResponse,
-                    "provider response exceeds configured size limit",
-                )
-                .with_status(status.as_u16()));
-            }
-            body_bytes.extend_from_slice(&chunk);
-        }
-        let body = String::from_utf8(body_bytes).map_err(|_| {
-            ProviderError::new(
-                ProviderErrorKind::InvalidResponse,
-                "provider response is not valid UTF-8",
-            )
-            .with_status(status.as_u16())
-        })?;
-        let headers = response_headers_to_map(&response_headers);
-        Ok(ProviderResponse {
-            status: status.as_u16(),
-            body,
-            headers,
-        })
     }
 }
 
@@ -379,18 +325,6 @@ fn request_headers(
     Ok(headers)
 }
 
-fn response_headers_to_map(headers: &HeaderMap) -> std::collections::BTreeMap<String, String> {
-    headers
-        .iter()
-        .map(|(name, value)| {
-            (
-                name.as_str().to_owned(),
-                value.to_str().unwrap_or_default().to_owned(),
-            )
-        })
-        .collect()
-}
-
 fn auth_error(status: u16) -> ProviderError {
     ProviderError::new(
         ProviderErrorKind::AuthExpired,
@@ -404,22 +338,6 @@ fn map_credential_error(error: CredentialError) -> ProviderError {
         ProviderErrorKind::CredentialError,
         format!("credential resolution failed: {error}"),
     )
-}
-
-fn map_request_error(error: reqwest::Error) -> ProviderError {
-    if error.is_timeout() {
-        ProviderError::new(ProviderErrorKind::Timeout, "request timed out")
-    } else if error.is_connect() {
-        ProviderError::new(
-            ProviderErrorKind::NetworkUnavailable,
-            "connection to the provider failed",
-        )
-    } else {
-        ProviderError::new(
-            ProviderErrorKind::NetworkUnavailable,
-            format!("request failed: {error}"),
-        )
-    }
 }
 
 fn unix_seconds() -> u64 {

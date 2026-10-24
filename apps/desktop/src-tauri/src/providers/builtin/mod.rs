@@ -250,13 +250,17 @@ pub struct ManifestProfile {
 ///
 /// # Panics
 ///
-/// Panics when an embedded manifest stops parsing (build-time bug).
+/// Panics when an embedded manifest stops parsing or asks for network
+/// behavior the shared transport cannot honor (both are build-time bugs).
 pub fn manifest_profiles() -> Vec<ManifestProfile> {
     use crate::providers::manifest::ProviderManifest;
     BUILTIN_MANIFESTS
         .iter()
-        .map(|(_id, yaml)| {
+        .map(|(id, yaml)| {
             let manifest = ProviderManifest::from_yaml(yaml).expect("embedded manifest parses");
+            if let Some(reason) = manifest.unsupported_network_request() {
+                panic!("embedded manifest {id}: {reason}");
+            }
             profile_from_manifest(manifest)
         })
         .collect()

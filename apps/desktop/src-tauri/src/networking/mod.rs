@@ -1,7 +1,12 @@
 //! Unified HTTP client for provider requests.
 //!
-//! Provides timeout, retry policy, TLS enforcement, redirect policy,
-use crate::domain::provider::{ProviderError, ProviderErrorKind};
+//! This is the only place a `reqwest::Client` may be built: every provider
+//! adapter holds an [`HttpClient`], so redirect policy, proxy behavior,
+//! timeouts, and the streaming response-size cap are enforced once instead of
+//! being re-implemented per adapter. Adapters keep their own
+//! `AdapterLimits` (per-provider timeout/size defaults) and feed them in via
+//! [`HttpClientConfig::from_adapter_limits`].
+use crate::domain::provider::{ProviderError, ProviderErrorKind, ProviderResponse};
 use reqwest::header::HeaderMap;
 use reqwest::{Client, RequestBuilder};
 use std::time::Duration;
@@ -15,9 +20,15 @@ pub struct HttpClientConfig {
     pub connect_timeout: Duration,
     /// Maximum response body size in bytes.
     pub max_response_bytes: usize,
-    /// Whether to follow redirects.
+    /// Whether to follow redirects. The default is `false`: a 3xx response is
+    /// surfaced to the caller instead of being followed, so credentials in
+    /// request headers can never leak to a second host.
     pub follow_redirects: bool,
-    /// Proxy URL (optional).
+    /// Proxy policy, explicit by design. `None` disables proxies entirely —
+    /// environment variables such as `HTTP_PROXY` are ignored — while `Some`
+    /// routes through exactly that proxy. Reqwest's implicit environment
+    /// proxy detection is deliberately opted out of so transport behavior is
+    /// deterministic and testable.
     pub proxy: Option<String>,
 }
 
@@ -33,7 +44,24 @@ impl Default for HttpClientConfig {
     }
 }
 
-/// Unified HTTP client with security and retry policies.
+impl HttpClientConfig {
+    /// Transport policy for an adapter's per-provider limits. The adapter
+    /// supplies the request timeout and response cap; redirect and proxy
+    /// policy always take the global defaults (deny redirects, no implicit
+    /// proxy).
+    pub fn from_adapter_limits(timeout: Duration, max_response_bytes: usize) -> Self {
+        Self {
+            timeout,
+            max_response_bytes,
+            ..Self::default()
+        }
+    }
+}
+
+/// Unified HTTP client with security and retry policies. `Clone` is cheap
+/// (the underlying connection pool is shared); `Debug` leaks nothing — the
+/// config holds no secrets and `reqwest::Client`'s own Debug is opaque.
+#[derive(Clone, Debug)]
 pub struct HttpClient {
     client: Client,
     config: HttpClientConfig,
@@ -50,14 +78,17 @@ impl HttpClient {
             builder = builder.redirect(reqwest::redirect::Policy::none());
         }
 
-        if let Some(proxy_url) = &config.proxy {
-            let proxy = reqwest::Proxy::all(proxy_url).map_err(|e| {
-                ProviderError::new(
-                    ProviderErrorKind::ConfigInvalid,
-                    format!("invalid proxy URL: {e}"),
-                )
-            })?;
-            builder = builder.proxy(proxy);
+        match &config.proxy {
+            Some(proxy_url) => {
+                let proxy = reqwest::Proxy::all(proxy_url).map_err(|e| {
+                    ProviderError::new(
+                        ProviderErrorKind::ConfigInvalid,
+                        format!("invalid proxy URL: {e}"),
+                    )
+                })?;
+                builder = builder.proxy(proxy);
+            }
+            None => builder = builder.no_proxy(),
         }
 
         let client = builder.build().map_err(|e| {
@@ -75,24 +106,74 @@ impl HttpClient {
         Self::new(HttpClientConfig::default())
     }
 
-    /// Get a reference to the underlying reqwest client.
-    pub fn inner(&self) -> &Client {
-        &self.client
-    }
-
     /// Get the client configuration.
     pub fn config(&self) -> &HttpClientConfig {
         &self.config
     }
 
     /// Build a GET request.
-    pub fn get(&self, url: &str) -> RequestBuilder {
+    pub fn get(&self, url: impl reqwest::IntoUrl) -> RequestBuilder {
         self.client.get(url)
     }
 
     /// Build a POST request.
-    pub fn post(&self, url: &str) -> RequestBuilder {
+    pub fn post(&self, url: impl reqwest::IntoUrl) -> RequestBuilder {
         self.client.post(url)
+    }
+
+    /// Sends the request and streams the body under the configured size cap.
+    ///
+    /// A declared `Content-Length` over the cap is rejected before any body
+    /// byte is read; a missing or lying length is caught while streaming by
+    /// counting every chunk. The returned [`ProviderResponse`] keeps only
+    /// non-sensitive headers. This is the single read path every adapter must
+    /// use — adapters do not call `send()` themselves.
+    pub async fn send_capped(
+        &self,
+        request: RequestBuilder,
+    ) -> Result<ProviderResponse, ProviderError> {
+        let mut response = request.send().await.map_err(map_request_error)?;
+        let status = response.status();
+        let response_headers = response.headers().clone();
+        if response
+            .content_length()
+            .is_some_and(|length| length > self.config.max_response_bytes as u64)
+        {
+            return Err(ProviderError::new(
+                ProviderErrorKind::InvalidResponse,
+                "provider response exceeds configured size limit",
+            )
+            .with_status(status.as_u16()));
+        }
+        let size_limit = self.config.max_response_bytes;
+        let declared_length = response
+            .content_length()
+            .unwrap_or(0)
+            .min(u64::try_from(size_limit).unwrap_or(u64::MAX));
+        let mut body_bytes =
+            Vec::with_capacity(usize::try_from(declared_length).unwrap_or(size_limit));
+        while let Some(chunk) = response.chunk().await.map_err(map_request_error)? {
+            if body_bytes.len().saturating_add(chunk.len()) > size_limit {
+                return Err(ProviderError::new(
+                    ProviderErrorKind::InvalidResponse,
+                    "provider response exceeds configured size limit",
+                )
+                .with_status(status.as_u16()));
+            }
+            body_bytes.extend_from_slice(&chunk);
+        }
+        let body = String::from_utf8(body_bytes).map_err(|_| {
+            ProviderError::new(
+                ProviderErrorKind::InvalidResponse,
+                "provider response is not valid UTF-8",
+            )
+            .with_status(status.as_u16())
+        })?;
+        Ok(ProviderResponse {
+            status: status.as_u16(),
+            body,
+            headers: response_headers_to_map(&response_headers),
+        })
     }
 
     /// Check if a response exceeds the maximum size limit.
@@ -139,6 +220,45 @@ impl HttpClient {
     }
 }
 
+/// Maps transport failures onto stable provider error categories. No raw
+/// reqwest display text is kept: messages stay short and constant, and URLs
+/// or bodies never enter the error string.
+pub(crate) fn map_request_error(error: reqwest::Error) -> ProviderError {
+    if error.is_timeout() {
+        ProviderError::new(ProviderErrorKind::Timeout, "provider request timed out")
+    } else if error.is_connect() || error.is_request() {
+        ProviderError::new(
+            ProviderErrorKind::NetworkUnavailable,
+            "provider network request failed",
+        )
+    } else if error.is_status() {
+        ProviderError::new(
+            ProviderErrorKind::ProviderUnavailable,
+            "provider request failed",
+        )
+    } else {
+        ProviderError::new(ProviderErrorKind::Unknown, "provider transport failed")
+    }
+}
+
+/// Copies response headers into a plain map, dropping sensitive ones so the
+/// stored header set can never carry credentials onward.
+fn response_headers_to_map(headers: &HeaderMap) -> std::collections::BTreeMap<String, String> {
+    headers
+        .iter()
+        .filter_map(|(name, value)| {
+            let name_str = name.as_str().to_lowercase();
+            if is_sensitive_header(&name_str) {
+                return None;
+            }
+            value
+                .to_str()
+                .ok()
+                .map(|value| (name.as_str().to_owned(), value.to_owned()))
+        })
+        .collect()
+}
+
 pub(crate) fn is_sensitive_header(name: &str) -> bool {
     matches!(
         name,
@@ -158,6 +278,19 @@ mod tests {
         assert_eq!(config.connect_timeout, Duration::from_secs(10));
         assert_eq!(config.max_response_bytes, 1024 * 1024);
         assert!(!config.follow_redirects);
+        assert_eq!(config.proxy, None);
+    }
+
+    #[test]
+    fn from_adapter_limits_keeps_global_policies() {
+        let config = HttpClientConfig::from_adapter_limits(Duration::from_secs(15), 512 * 1024);
+        assert_eq!(config.timeout, Duration::from_secs(15));
+        assert_eq!(config.max_response_bytes, 512 * 1024);
+        // Redirect denial and the no-implicit-proxy rule are not per-adapter
+        // settings; they must survive every construction path.
+        assert!(!config.follow_redirects);
+        assert_eq!(config.proxy, None);
+        assert_eq!(config.connect_timeout, Duration::from_secs(10));
     }
 
     #[test]
@@ -206,5 +339,46 @@ mod tests {
         let redacted = HttpClient::redact_headers(&headers);
         assert_eq!(redacted[0].1, "***REDACTED***");
         assert_eq!(redacted[1].1, "application/json");
+    }
+
+    #[test]
+    fn response_headers_to_map_drops_sensitive_headers() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            HeaderName::from_static("x-api-key"),
+            HeaderValue::from_static("sk-secret"),
+        );
+        headers.insert(
+            HeaderName::from_static("retry-after"),
+            HeaderValue::from_static("30"),
+        );
+        let mapped = response_headers_to_map(&headers);
+        assert!(!mapped.contains_key("x-api-key"));
+        assert_eq!(mapped.get("retry-after").map(String::as_str), Some("30"));
+    }
+
+    #[test]
+    fn request_error_mapping_is_stable_and_secret_free() {
+        let url = "https://provider.invalid.test/v1/usage";
+        let error = tauri::async_runtime::block_on(async {
+            HttpClient::with_defaults()
+                .unwrap()
+                .get(url)
+                .send()
+                .await
+                .expect_err("invalid host must fail")
+        });
+        let mapped = map_request_error(error);
+        assert!(
+            matches!(
+                mapped.code,
+                ProviderErrorKind::NetworkUnavailable | ProviderErrorKind::Unknown
+            ),
+            "DNS/connect failures map to a stable category"
+        );
+        assert!(
+            !mapped.message.contains("provider.invalid.test"),
+            "error text must not echo the URL"
+        );
     }
 }

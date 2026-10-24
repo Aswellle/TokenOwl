@@ -9,10 +9,9 @@ use crate::credentials::{CredentialError, CredentialStore};
 use crate::domain::provider::{
     AccountContext, AccountIdentity, AuthMethod, FetchContext, HealthStatus,
     OpenAiCompatibleConfig, ProviderAdapter, ProviderDescriptor, ProviderError, ProviderErrorKind,
-    ProviderResponse, ProviderResult, QuotaSnapshot, QuotaSnapshotSet, SnapshotStatus, UsagePoint,
-    UsageRange,
+    ProviderResult, QuotaSnapshot, QuotaSnapshotSet, SnapshotStatus, UsagePoint, UsageRange,
 };
-use reqwest::Client;
+use crate::networking::{HttpClient, HttpClientConfig};
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use url::Url;
@@ -43,7 +42,7 @@ pub struct FetchResult {
 
 #[derive(Clone, Debug)]
 pub struct OpenAiCompatibleAdapter {
-    client: Client,
+    client: HttpClient,
     limits: AdapterLimits,
     config: OpenAiCompatibleConfig,
 }
@@ -56,15 +55,14 @@ impl OpenAiCompatibleAdapter {
                 "HTTP timeout and response limit must be positive",
             ));
         }
-        let client = Client::builder()
-            .timeout(limits.timeout)
-            .build()
-            .map_err(|error| {
-                ProviderError::new(
-                    ProviderErrorKind::ConfigInvalid,
-                    format!("unable to initialize HTTP client: {error}"),
-                )
-            })?;
+        // The shared client is the transport authority: redirects are denied,
+        // no implicit environment proxy is honored, and the response-size cap
+        // is enforced while streaming. Only the timeout and size limit vary
+        // per adapter.
+        let client = HttpClient::new(HttpClientConfig::from_adapter_limits(
+            limits.timeout,
+            limits.max_response_bytes,
+        ))?;
         Ok(Self {
             client,
             limits,
@@ -148,7 +146,7 @@ impl OpenAiCompatibleAdapter {
             .get(url)
             .headers(headers)
             .header("accept", "application/json");
-        let outcome = self.read_response(request).await;
+        let outcome = self.client.send_capped(request).await;
         match outcome {
             Ok(response) => {
                 let parsed = match config.field_mappings.as_ref() {
@@ -167,56 +165,6 @@ impl OpenAiCompatibleAdapter {
             }
             Err(error) => EndpointOutcome::Failed(error),
         }
-    }
-
-    /// Streams one endpoint response under the configured size limit and never
-    /// keeps the raw body beyond the parse call.
-    async fn read_response(
-        &self,
-        request: reqwest::RequestBuilder,
-    ) -> ProviderResult<ProviderResponse> {
-        let mut response = request.send().await.map_err(map_request_error)?;
-        let status = response.status();
-        let response_headers = response.headers().clone();
-        if response
-            .content_length()
-            .is_some_and(|length| length > self.limits.max_response_bytes as u64)
-        {
-            return Err(ProviderError::new(
-                ProviderErrorKind::InvalidResponse,
-                "provider response exceeds configured size limit",
-            )
-            .with_status(status.as_u16()));
-        }
-        let size_limit = self.limits.max_response_bytes;
-        let declared_length = response
-            .content_length()
-            .unwrap_or(0)
-            .min(u64::try_from(size_limit).unwrap_or(u64::MAX));
-        let mut body_bytes =
-            Vec::with_capacity(usize::try_from(declared_length).unwrap_or(size_limit));
-        while let Some(chunk) = response.chunk().await.map_err(map_request_error)? {
-            if body_bytes.len().saturating_add(chunk.len()) > self.limits.max_response_bytes {
-                return Err(ProviderError::new(
-                    ProviderErrorKind::InvalidResponse,
-                    "provider response exceeds configured size limit",
-                )
-                .with_status(status.as_u16()));
-            }
-            body_bytes.extend_from_slice(&chunk);
-        }
-        let body = String::from_utf8(body_bytes).map_err(|_| {
-            ProviderError::new(
-                ProviderErrorKind::InvalidResponse,
-                "provider response is not valid UTF-8",
-            )
-            .with_status(status.as_u16())
-        })?;
-        Ok(ProviderResponse {
-            status: status.as_u16(),
-            body,
-            headers: response_headers_to_map(&response_headers),
-        })
     }
 }
 
@@ -407,40 +355,6 @@ fn request_headers(
     Ok(headers)
 }
 
-fn response_headers_to_map(headers: &HeaderMap) -> std::collections::BTreeMap<String, String> {
-    headers
-        .iter()
-        .filter_map(|(name, value)| {
-            let name_str = name.as_str().to_lowercase();
-            if crate::networking::is_sensitive_header(&name_str) {
-                return None;
-            }
-            value
-                .to_str()
-                .ok()
-                .map(|value| (name.as_str().to_owned(), value.to_owned()))
-        })
-        .collect()
-}
-
-fn map_request_error(error: reqwest::Error) -> ProviderError {
-    if error.is_timeout() {
-        ProviderError::new(ProviderErrorKind::Timeout, "provider request timed out")
-    } else if error.is_connect() || error.is_request() {
-        ProviderError::new(
-            ProviderErrorKind::NetworkUnavailable,
-            "provider network request failed",
-        )
-    } else if error.is_status() {
-        ProviderError::new(
-            ProviderErrorKind::ProviderUnavailable,
-            "provider request failed",
-        )
-    } else {
-        ProviderError::new(ProviderErrorKind::Unknown, "provider transport failed")
-    }
-}
-
 fn map_credential_error(error: CredentialError) -> ProviderError {
     ProviderError::new(ProviderErrorKind::CredentialError, error.to_string())
 }
@@ -508,6 +422,7 @@ impl ProviderAdapter for OpenAiCompatibleAdapter {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::domain::provider::ProviderResponse;
 
     #[test]
     fn endpoint_validation_preserves_base_path() {

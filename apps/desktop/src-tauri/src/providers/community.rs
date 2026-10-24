@@ -87,6 +87,12 @@ fn load_community_manifest(path: &Path) -> Result<CommunityManifest, String> {
             manifest.id
         ));
     }
+    // The shared transport denies redirects unconditionally; a pack asking to
+    // follow them is rejected with a clear reason rather than registering
+    // with different network behavior than it declares.
+    if let Some(reason) = manifest.unsupported_network_request() {
+        return Err(reason);
+    }
     validate_base_url(&manifest.base_url)?;
     Ok(CommunityManifest {
         manifest,

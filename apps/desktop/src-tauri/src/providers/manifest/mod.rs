@@ -85,7 +85,13 @@ pub struct ManifestFieldMapping {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ManifestNetwork {
+    /// Provider-suggested request timeout in milliseconds. Metadata only:
+    /// request timeouts come from each adapter's `AdapterLimits`, and this
+    /// value is deliberately not a refresh interval.
     pub timeout_ms: Option<u64>,
+    /// Parsed for schema compatibility, but the shared transport always
+    /// denies redirects. `Some(true)` is rejected at load time with a clear
+    /// reason instead of being silently ignored.
     pub follow_redirects: Option<bool>,
 }
 
@@ -98,6 +104,23 @@ impl ProviderManifest {
     /// callers should validate the source before parsing.
     pub fn from_yaml(yaml: &str) -> Result<Self, serde_yaml::Error> {
         serde_yaml::from_str(yaml)
+    }
+
+    /// Network policy the transport cannot honor, as a user-presentable
+    /// reason. Loading boundaries (community packs, embedded manifests)
+    /// reject the manifest instead of silently ignoring the flag.
+    pub fn unsupported_network_request(&self) -> Option<String> {
+        if self
+            .network
+            .as_ref()
+            .and_then(|network| network.follow_redirects)
+            == Some(true)
+        {
+            return Some(
+                "followRedirects: true is not supported; redirects are always denied".to_owned(),
+            );
+        }
+        None
     }
 
     /// Convert the manifest to an `OpenAiCompatibleConfig`.
@@ -124,11 +147,12 @@ impl ProviderManifest {
         capabilities.quota = self.endpoints.quota.is_some();
         capabilities.reset_at = self.endpoints.reset.is_some();
 
-        let default_refresh = self
-            .network
-            .as_ref()
-            .and_then(|n| n.timeout_ms)
-            .map_or_else(|| Duration::from_secs(300), Duration::from_millis);
+        // `network.timeout_ms` historically leaked into `default_refresh`
+        // here, turning a 10,000 ms request-timeout wish into a 10 s refresh
+        // cadence. The two are different concerns: the refresh interval is
+        // the scheduler default, and request timeouts belong to the shared
+        // transport's per-adapter limits.
+        let default_refresh = Duration::from_secs(300);
 
         let field_mappings =
             self.mapping
@@ -219,6 +243,56 @@ capability:
         assert!(config.capabilities.model_catalog);
         assert!(config.capabilities.usage);
         assert!(config.capabilities.quota);
+    }
+
+    #[test]
+    fn network_timeout_ms_is_not_a_refresh_interval() {
+        let manifest = ProviderManifest::from_yaml(OPENAI_MANIFEST).expect("valid YAML");
+        let config = manifest.to_config();
+        // `network.timeout_ms: 10000` is a request-timeout wish. It must not
+        // leak into the refresh cadence, which stays the 300 s scheduler
+        // default; a 10 s "refresh interval" was the historical bug.
+        assert_eq!(config.default_refresh, Duration::from_secs(300));
+    }
+
+    #[test]
+    fn manifest_without_network_keeps_the_default_refresh() {
+        let yaml = r"
+id: minimal-refresh
+version: 1
+name: Minimal Refresh Provider
+auth:
+  - api_key
+baseUrl: https://example.com/v1
+endpoints: {}
+";
+        let config = ProviderManifest::from_yaml(yaml)
+            .expect("valid YAML")
+            .to_config();
+        assert_eq!(config.default_refresh, Duration::from_secs(300));
+    }
+
+    #[test]
+    fn follow_redirects_true_is_reported_as_unsupported() {
+        let yaml = r"
+id: redirecting
+version: 1
+name: Redirecting Provider
+auth:
+  - api_key
+baseUrl: https://example.com/v1
+endpoints: {}
+network:
+  followRedirects: true
+";
+        let manifest = ProviderManifest::from_yaml(yaml).expect("valid YAML");
+        let reason = manifest
+            .unsupported_network_request()
+            .expect("followRedirects: true must not be silently accepted");
+        assert!(reason.contains("followRedirects"));
+
+        let allowed = ProviderManifest::from_yaml(OPENAI_MANIFEST).expect("valid YAML");
+        assert_eq!(allowed.unsupported_network_request(), None);
     }
 
     #[test]

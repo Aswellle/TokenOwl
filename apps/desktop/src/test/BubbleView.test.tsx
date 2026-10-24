@@ -6,7 +6,7 @@ const { mockStartDragging, mockOnMoved, mockOpenDashboard, mockPersistPosition }
   // The real `onMoved` resolves directly to the unlisten FUNCTION (unlike
 // `listen`, whose promise resolves to `{ unlisten }`); resolving to an
 // object makes the effect cleanup call a non-function.
-  mockOnMoved: vi.fn(() => Promise.resolve(vi.fn())),
+  mockOnMoved: vi.fn((_callback: () => void) => Promise.resolve(vi.fn())),
   mockOpenDashboard: vi.fn().mockResolvedValue(undefined),
   mockPersistPosition: vi.fn().mockResolvedValue(undefined),
 }));
@@ -115,8 +115,10 @@ describe("BubbleView drag interactions", () => {
 
     // The desktop-only effect subscribes on mount; emit one window move and
     // let the debounced persist fire.
+    const handler = mockOnMoved.mock.calls.at(0)?.[0];
+    expect(handler).toBeTypeOf("function");
     await act(async () => {
-      mockOnMoved.mock.calls[0][0]();
+      handler?.();
     });
     await act(async () => {
       const { promise, resolve } = Promise.withResolvers<void>();

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { AlertDialog } from "../../components/AlertDialog";
 import { AnimatePresence, motion, useMotionValueEvent, useReducedMotion, useSpring } from "motion/react";
 import { listen } from "@tauri-apps/api/event";
 import "../../styles/App.css";
@@ -424,8 +425,6 @@ function SetupForm({
   const [lanConsent, setLanConsent] = useState<{ token: string } | null>(null);
   const [consentBusy, setConsentBusy] = useState(false);
   const [classifyError, setClassifyError] = useState<string | null>(null);
-  const cancelRef = useRef<HTMLButtonElement>(null);
-  const dialogRef = useRef<HTMLDivElement>(null);
   const submitTriggerRef = useRef<HTMLButtonElement>(null);
 
   const sendAccount = async (lanConsentToken?: string) => {
@@ -441,18 +440,6 @@ function SetupForm({
       lanConsentToken,
       apiKeyInput,
     });
-  };
-
-  const closeConsent = () => {
-    setLanConsent(null);
-    submitTriggerRef.current?.focus();
-  };
-
-  const confirmConsent = () => {
-    const token = lanConsent?.token;
-    setLanConsent(null);
-    submitTriggerRef.current?.focus();
-    if (token) void sendAccount(token);
   };
 
   const submit = async (event: { preventDefault(): void }) => {
@@ -477,8 +464,6 @@ function SetupForm({
       return;
     }
     setLanConsent({ token });
-    // Focus the non-destructive action once the dialog has mounted.
-    requestAnimationFrame(() => cancelRef.current?.focus());
   };
 
   return (
@@ -516,61 +501,20 @@ function SetupForm({
         </p>
       )}
       {lanConsent && (
-        <div
+        <AlertDialog
           className="lan-consent"
-          role="alertdialog"
-          aria-modal="true"
-          aria-labelledby="lan-consent-title"
-          aria-describedby="lan-consent-body"
-          ref={dialogRef}
-          onKeyDown={(event) => {
-            if (event.key === "Escape") {
-              event.preventDefault();
-              closeConsent();
-              return;
-            }
-            if (event.key === "Tab") {
-              // Two actions only: keep Tab (and Shift+Tab) cycling inside the
-              // dialog so background controls stay out of reach.
-              const buttons = Array.from(
-                dialogRef.current?.querySelectorAll<HTMLButtonElement>("button") ?? [],
-              );
-              if (buttons.length === 0) return;
-              event.preventDefault();
-              const active = buttons.indexOf(
-                document.activeElement as HTMLButtonElement,
-              );
-              const next = event.shiftKey
-                ? (active + buttons.length - 1) % buttons.length
-                : (active + 1) % buttons.length;
-              buttons[next]?.focus();
-            }
+          title={copy.form.lanTitle}
+          body={copy.form.lanBody}
+          confirmLabel={copy.form.lanConfirm}
+          cancelLabel={copy.actions.cancel}
+          returnFocusTo={submitTriggerRef}
+          onCancel={() => setLanConsent(null)}
+          onConfirm={() => {
+            const token = lanConsent.token;
+            setLanConsent(null);
+            void sendAccount(token);
           }}
-        >
-          <h3 className="lan-consent__title" id="lan-consent-title">
-            {copy.form.lanTitle}
-          </h3>
-          <p className="lan-consent__body" id="lan-consent-body">
-            {copy.form.lanBody}
-          </p>
-          <div className="lan-consent__actions">
-            <button
-              className="btn btn--quiet"
-              type="button"
-              ref={cancelRef}
-              onClick={closeConsent}
-            >
-              {copy.actions.cancel}
-            </button>
-            <button
-              className="btn btn--primary"
-              type="button"
-              onClick={confirmConsent}
-            >
-              {copy.form.lanConfirm}
-            </button>
-          </div>
-        </div>
+        />
       )}
       <div className="picker" role="group" aria-label={copy.a11y.profilePicker}>
         <span className="picker__heading" aria-hidden="true">

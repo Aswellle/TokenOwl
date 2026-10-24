@@ -47,6 +47,21 @@ pub const MIGRATIONS: &[Migration] = &[
 pub const SCHEMA_VERSION: i32 = MIGRATIONS[MIGRATIONS.len() - 1].version;
 
 const BACKUP_SUFFIX: &str = ".pre-migration.bak";
+const BACKUP_STAGING_SUFFIX: &str = ".pre-migration.bak.new";
+
+fn backup_path(database_path: &Path) -> PathBuf {
+    suffixed(database_path, BACKUP_SUFFIX)
+}
+
+fn staging_path(database_path: &Path) -> PathBuf {
+    suffixed(database_path, BACKUP_STAGING_SUFFIX)
+}
+
+fn suffixed(database_path: &Path, suffix: &str) -> PathBuf {
+    let mut file_name = database_path.as_os_str().to_owned();
+    file_name.push(suffix);
+    PathBuf::from(file_name)
+}
 
 /// Applies every pending migration from [`MIGRATIONS`]. `database_path` enables
 /// the pre-migration backup; in-memory databases skip it.
@@ -130,18 +145,63 @@ fn has_user_tables(connection: &Connection) -> Result<bool, StorageError> {
     Ok(count > 0)
 }
 
-/// Writes a consistent copy of the current database next to the original. At
-/// most one generation is kept; an existing backup from a previous run is
-/// replaced because `VACUUM INTO` refuses existing targets.
+/// Writes a consistent copy of the current database next to the original.
+///
+/// The copy is staged and verified before it replaces anything: `VACUUM INTO`
+/// targets a temp sibling, the staged file is opened read-only and quick-
+/// checked, and only then does it take the previous generation's place. A
+/// failed or corrupt generation therefore leaves the last good backup and
+/// the original database untouched — the previous behavior deleted the old
+/// backup before writing the new one, so a failed `VACUUM` destroyed the
+/// only restorable copy.
 fn create_backup(connection: &Connection, database_path: &Path) -> Result<(), StorageError> {
-    let mut file_name = database_path.as_os_str().to_owned();
-    file_name.push(BACKUP_SUFFIX);
-    let backup_path = PathBuf::from(file_name);
+    let backup_path = backup_path(database_path);
+    let staging_path = staging_path(database_path);
+    if staging_path.is_dir() {
+        // Something unexpected occupies the staging name; abort loudly
+        // instead of deleting an unknown directory.
+        return Err(StorageError::Backup(std::io::Error::other(
+            "backup staging path exists and is a directory",
+        )));
+    }
+    // A stale staging file from an interrupted run would make VACUUM refuse
+    // its target; clear it before generating.
+    if staging_path.exists() {
+        std::fs::remove_file(&staging_path)?;
+    }
+    connection.execute(
+        "VACUUM INTO ?1",
+        params![staging_path.display().to_string()],
+    )?;
+    verify_staged_backup(&staging_path)?;
+    // The staged copy proved itself; now it may replace the old generation.
     if backup_path.exists() {
         std::fs::remove_file(&backup_path)?;
     }
-    connection.execute("VACUUM INTO ?1", params![backup_path.display().to_string()])?;
+    std::fs::rename(&staging_path, &backup_path)?;
     Ok(())
+}
+
+/// A staged backup only counts once it opens read-only and passes a quick
+/// integrity check — a truncated or corrupt copy must never displace the
+/// previous good backup.
+fn verify_staged_backup(staging_path: &Path) -> Result<(), StorageError> {
+    let connection =
+        Connection::open_with_flags(staging_path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+    let checked = connection
+        .prepare("PRAGMA quick_check")
+        .and_then(|mut statement| {
+            statement
+                .query_map([], |row| row.get::<_, String>(0))?
+                .collect::<Result<Vec<_>, _>>()
+        });
+    match checked {
+        Ok(messages) if messages.len() == 1 && messages[0].eq_ignore_ascii_case("ok") => Ok(()),
+        Ok(messages) => Err(StorageError::Integrity {
+            messages: format!("staged backup failed quick_check: {}", messages.join("; ")),
+        }),
+        Err(error) => Err(error.into()),
+    }
 }
 
 /// Applies a single migration atomically. Any failure rolls the transaction
@@ -210,9 +270,19 @@ mod tests {
         PathBuf::from(name)
     }
 
+    fn staging_path(path: &Path) -> PathBuf {
+        let mut name = path.as_os_str().to_owned();
+        name.push(BACKUP_STAGING_SUFFIX);
+        PathBuf::from(name)
+    }
+
     fn cleanup(path: &Path) {
-        for candidate in [path.to_path_buf(), backup_path(path)] {
-            let _ = std::fs::remove_file(candidate);
+        for candidate in [path.to_path_buf(), backup_path(path), staging_path(path)] {
+            if candidate.is_dir() {
+                let _ = std::fs::remove_dir(candidate);
+            } else {
+                let _ = std::fs::remove_file(candidate);
+            }
         }
     }
 
@@ -347,5 +417,57 @@ mod tests {
         let connection = Connection::open_in_memory().expect("memory db");
         apply_migrations_with(&connection, None, &[]).expect("no migrations");
         assert_eq!(user_version(&connection), 0);
+    }
+
+    /// A backup generation that fails mid-flight must leave the previous
+    /// good backup and the original database exactly as they were — the old
+    /// behavior deleted the backup before writing the new one, so one failed
+    /// `VACUUM` destroyed the only restorable copy.
+    #[test]
+    fn failed_backup_generation_keeps_the_previous_backup() {
+        let path = temp_db_path("failedbak");
+        legacy_database(&path);
+        std::fs::write(backup_path(&path), b"previous-good-backup").expect("seed old backup");
+        // Occupy the staging name with a directory: generation aborts
+        // loudly instead of deleting something unexpected.
+        std::fs::create_dir_all(staging_path(&path)).expect("block staging path");
+
+        let connection = Connection::open(&path).expect("open");
+        apply_migrations_with(&connection, Some(&path), MIGRATIONS)
+            .expect_err("backup failure must abort the migration");
+        assert_eq!(
+            std::fs::read(backup_path(&path)).expect("old backup readable"),
+            b"previous-good-backup",
+            "the previous backup must survive a failed generation byte-for-byte"
+        );
+        assert_eq!(user_version(&connection), 0, "migration must not proceed");
+        drop(connection);
+        assert!(legacy_row_survived(&path), "original data intact");
+        cleanup(&path);
+    }
+
+    /// A successful rotation leaves no staging residue and the backup is a
+    /// readable database, not merely a file that exists.
+    #[test]
+    fn successful_backup_rotation_verifies_and_leaves_no_staging_file() {
+        let path = temp_db_path("rotate");
+        legacy_database(&path);
+        let connection = Connection::open(&path).expect("open");
+        apply_migrations_with(&connection, Some(&path), MIGRATIONS).expect("migrate");
+        drop(connection);
+        assert!(
+            !staging_path(&path).exists(),
+            "staging file must be renamed away"
+        );
+        let backup = Connection::open_with_flags(
+            backup_path(&path),
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+        )
+        .expect("backup opens as a database");
+        let legacy: i64 = backup
+            .query_row("SELECT id FROM legacy LIMIT 1", [], |row| row.get(0))
+            .expect("backup holds the pre-migration data");
+        assert_eq!(legacy, 7);
+        cleanup(&path);
     }
 }

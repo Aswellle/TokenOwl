@@ -1,35 +1,52 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, act, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 
-const { mockListAccounts, mockRefresh, mockCreateAccount, mockDeleteAccount, mockListen } = vi.hoisted(() => ({
+const {
+  mockListAccounts,
+  mockRefresh,
+  mockCreateAccount,
+  mockDeleteAccount,
+  mockManifestProfiles,
+  mockLanConsentBegin,
+  mockListen,
+} = vi.hoisted(() => ({
   mockListAccounts: vi.fn(),
   mockRefresh: vi.fn(),
   mockCreateAccount: vi.fn(),
   mockDeleteAccount: vi.fn(),
+  mockManifestProfiles: vi.fn(),
+  mockLanConsentBegin: vi.fn(),
   mockListen: vi.fn(() => new Promise(() => {})),
 }));
 
-vi.mock("@lobehub/icons", () => ({
-  ProviderIcon: () => null,
-}));
-
-vi.mock("@tauri-apps/api/event", () => ({
-  listen: mockListen,
-}));
-
-vi.mock("../../lib/tauri", () => ({
+vi.mock("@lobehub/icons", () => ({ ProviderIcon: () => null }));
+vi.mock("@tauri-apps/api/event", () => ({ listen: mockListen }));
+vi.mock("../lib/tauri", () => ({
+  isTauri: vi.fn(() => false),
   shell: {
-    openDashboard: vi.fn().mockResolvedValue(undefined),
-    showBubble: vi.fn().mockResolvedValue(undefined),
-    persistBubblePosition: vi.fn().mockResolvedValue(undefined),
+    openDashboard: vi.fn(),
+    showBubble: vi.fn(),
+    persistBubblePosition: vi.fn(),
+    openProjectPage: vi.fn(),
   },
   tauriBridge: {
     listAccounts: mockListAccounts,
     createAccount: mockCreateAccount,
+    accountTargetIsLan: vi.fn().mockResolvedValue(false),
+    lanConsentBegin: mockLanConsentBegin,
     deleteAccount: mockDeleteAccount,
     refresh: mockRefresh,
-    checkForUpdate: vi.fn().mockResolvedValue(null),
+    checkForUpdate: vi.fn(),
     installUpdate: vi.fn(),
+    listNotifications: vi.fn().mockResolvedValue([]),
+    markNotificationsRead: vi.fn(),
+    getNotificationPreferences: vi.fn(),
+    setNotificationPreferences: vi.fn(),
+    historySummary: vi.fn(),
+    historyBreakdown: vi.fn().mockResolvedValue([]),
+    providerMatrix: vi.fn().mockResolvedValue([]),
+    manifestProfiles: mockManifestProfiles,
+    usageWindows: vi.fn(),
   },
 }));
 
@@ -43,94 +60,109 @@ const mockAccount = {
   status: "healthy" as const,
   freshness: "fresh" as const,
   snapshots: [],
-  source: "official_api" as const,
-  lastUpdatedAt: "2026-10-10T12:00:00Z",
+  source: "OFFICIAL_API",
+  lastUpdatedAt: 1_762_000_000,
 };
 
 describe("Dashboard state machine", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockManifestProfiles.mockResolvedValue({ profiles: [], skipped: [] });
+    mockLanConsentBegin.mockResolvedValue(null);
   });
 
   it("transitions from loading to ready on successful load", async () => {
     mockListAccounts.mockResolvedValue([mockAccount]);
     render(<App />);
     await waitFor(() => expect(screen.getByText("Test Account")).toBeInTheDocument());
-    expect(screen.getByText("Test Account")).toBeInTheDocument();
   });
 
   it("transitions to offline on load failure", async () => {
     mockListAccounts.mockRejectedValue(new Error("network error"));
     render(<App />);
-    await waitFor(() => expect(screen.getByText(/加载失败|offline/i)).toBeInTheDocument());
-    expect(screen.getByText(/加载失败|offline/i)).toBeInTheDocument();
+    // The offline copy appears in both the status chip and the empty state;
+    // one of each is exactly the point.
+    await waitFor(() =>
+      expect(screen.getAllByText(/本地服务不可用|offline/i).length).toBeGreaterThan(0),
+    );
   });
 
   it("shows empty state when no accounts", async () => {
     mockListAccounts.mockResolvedValue([]);
     render(<App />);
-    await waitFor(() => expect(screen.getByText(/添加账户|Add Provider/i)).toBeInTheDocument());
-    expect(screen.getByText(/添加账户|Add Provider/i)).toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /添加账户|Add Provider/i })).toBeInTheDocument(),
+    );
   });
 
   it("handles refresh success", async () => {
     mockListAccounts.mockResolvedValue([mockAccount]);
     mockRefresh.mockResolvedValue([{ ...mockAccount, status: "healthy" }]);
     render(<App />);
-    await act(async () => {});
-    const refreshButton = screen.getByLabelText(/刷新|Refresh/i);
-    fireEvent.click(refreshButton);
+    await waitFor(() => expect(screen.getByText("Test Account")).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole("button", { name: /全部刷新/ }));
+
     await waitFor(() => expect(mockRefresh).toHaveBeenCalled());
-    expect(mockRefresh).toHaveBeenCalled();
   });
 
-  it("handles refresh failure with error notice", async () => {
+  it("handles refresh failure with a retained-data notice", async () => {
     mockListAccounts.mockResolvedValue([mockAccount]);
     mockRefresh.mockRejectedValue(new Error("refresh failed"));
     render(<App />);
-    await act(async () => {});
-    const refreshButton = screen.getByLabelText(/刷新|Refresh/i);
-    fireEvent.click(refreshButton);
-    await waitFor(() => expect(screen.getByText(/刷新失败|failed/i)).toBeInTheDocument());
-    expect(screen.getByText(/刷新失败|failed/i)).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText("Test Account")).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole("button", { name: /全部刷新/ }));
+
+    await waitFor(() =>
+      expect(screen.getByText(/刷新失败|refresh failed/i)).toBeInTheDocument(),
+    );
   });
 
-  it("filters accounts by attention", async () => {
+  it("filters accounts by the needs-attention chip", async () => {
     const healthyAccount = { ...mockAccount, id: "acc-1", status: "healthy" as const };
-    const errorAccount = { ...mockAccount, id: "acc-2", status: "error" as const, label: "Error Account" };
+    const errorAccount = {
+      ...mockAccount,
+      id: "acc-2",
+      status: "error" as const,
+      label: "Error Account",
+    };
     mockListAccounts.mockResolvedValue([healthyAccount, errorAccount]);
     render(<App />);
     await waitFor(() => expect(screen.getByText("Test Account")).toBeInTheDocument());
-    expect(screen.getByText("Test Account")).toBeInTheDocument();
     expect(screen.getByText("Error Account")).toBeInTheDocument();
-    const attentionFilter = screen.getByRole("button", { name: /注意|Attention/i });
-    fireEvent.click(attentionFilter);
-    await waitFor(() => expect(screen.queryByText("Test Account")).not.toBeInTheDocument());
-    expect(screen.queryByText("Test Account")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /需处理/ }));
+
+    await waitFor(() =>
+      expect(screen.queryByText("Test Account")).not.toBeInTheDocument(),
+    );
     expect(screen.getByText("Error Account")).toBeInTheDocument();
   });
 
-  it("handles delete success", async () => {
+  it("removes an account after the inline confirm", async () => {
     mockListAccounts.mockResolvedValue([mockAccount]);
     mockDeleteAccount.mockResolvedValue(undefined);
     render(<App />);
-    await act(async () => {});
-    const deleteButton = screen.getByLabelText(/移除|Delete/i);
-    fireEvent.click(deleteButton);
-    await act(async () => {});
-    const confirmButton = screen.getByRole("button", { name: /确认|Confirm/i });
-    fireEvent.click(confirmButton);
+    await waitFor(() => expect(screen.getByText("Test Account")).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole("button", { name: /移除账户 Test Account/ }));
+    const confirm = await screen.findByRole("button", { name: /确认移除/ });
+    fireEvent.click(confirm);
+
     await waitFor(() => expect(mockDeleteAccount).toHaveBeenCalledWith("acc-1"));
-    expect(mockDeleteAccount).toHaveBeenCalledWith("acc-1");
   });
 
-  it("shows form when add provider clicked", async () => {
+  it("shows the setup form when add provider is clicked", async () => {
     mockListAccounts.mockResolvedValue([]);
     render(<App />);
-    await act(async () => {});
-    const addButton = screen.getByRole("button", { name: /添加|Add/i });
-    fireEvent.click(addButton);
-    await waitFor(() => expect(screen.getByText(/创建账户|Add Provider/i)).toBeInTheDocument());
-    expect(screen.getByText(/创建账户|Add Provider/i)).toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /添加账户|Add Provider/i })).toBeInTheDocument(),
+    );
+    fireEvent.click(screen.getByRole("button", { name: /添加账户|Add Provider/i }));
+
+    await waitFor(() =>
+      expect(screen.getByLabelText(/账户名称|Account name/i)).toBeInTheDocument(),
+    );
   });
 });

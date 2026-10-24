@@ -148,6 +148,7 @@ fn load_community_manifest(path: &Path) -> Result<CommunityManifest, String> {
     if let Some(reason) = manifest.unsupported_network_request() {
         return Err(reason);
     }
+    manifest.validate_schema_bounds()?;
     validate_base_url(&manifest.base_url)?;
     Ok(CommunityManifest {
         manifest,

@@ -123,6 +123,55 @@ impl ProviderManifest {
         None
     }
 
+    /// Field-level bounds every manifest must satisfy before it can register.
+    ///
+    /// These are structural limits — id format, name and mapping lengths,
+    /// timeout range — not transport policy (see
+    /// [`ProviderManifest::unsupported_network_request`]). Both load
+    /// boundaries call this so a hand-edited pack fails with the offending
+    /// field named instead of registering garbage that breaks later.
+    pub fn validate_schema_bounds(&self) -> Result<(), String> {
+        let id_valid = !self.id.is_empty()
+            && self.id.len() <= 64
+            && self
+                .id
+                .chars()
+                .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+            && !self.id.starts_with('-')
+            && !self.id.ends_with('-');
+        if !id_valid {
+            return Err(format!(
+                "id `{}` must be 1-64 characters of lowercase letters, digits, and hyphens, not starting or ending with a hyphen",
+                self.id
+            ));
+        }
+        if self.name.trim().is_empty() || self.name.chars().count() > 64 {
+            return Err("name must be 1-64 characters".to_owned());
+        }
+        if let Some(timeout_ms) = self.network.as_ref().and_then(|n| n.timeout_ms) {
+            if !(1_000..=120_000).contains(&timeout_ms) {
+                return Err(format!(
+                    "network.timeoutMs {timeout_ms} must be between 1000 and 120000"
+                ));
+            }
+        }
+        if let Some(mapping) = self.mapping.as_ref() {
+            for (kind, field) in [("balance", &mapping.balance), ("usage", &mapping.usage)] {
+                if let Some(field) = field {
+                    if field.value.trim().is_empty()
+                        || field.value.chars().count() > 128
+                        || field.value.chars().any(char::is_whitespace)
+                    {
+                        return Err(format!(
+                            "mapping.{kind}.value must be 1-128 characters without whitespace"
+                        ));
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
     /// Convert the manifest to an `OpenAiCompatibleConfig`.
     pub fn to_config(&self) -> OpenAiCompatibleConfig {
         let region = self
@@ -293,6 +342,116 @@ network:
 
         let allowed = ProviderManifest::from_yaml(OPENAI_MANIFEST).expect("valid YAML");
         assert_eq!(allowed.unsupported_network_request(), None);
+    }
+
+    fn bounds_yaml(id: &str, name: &str, timeout_ms: u64, mapping_value: &str) -> String {
+        format!(
+            "\
+id: {id}
+version: 1
+name: {name}
+auth:
+  - api_key
+baseUrl: https://relay.example.com/v1
+endpoints:
+  models: /models
+network:
+  timeoutMs: {timeout_ms}
+mapping:
+  balance:
+    value: \"{mapping_value}\"
+"
+        )
+    }
+
+    #[test]
+    fn schema_bounds_accept_a_well_formed_manifest() {
+        let manifest = ProviderManifest::from_yaml(&bounds_yaml(
+            "acme-relay",
+            "Acme Relay",
+            15_000,
+            "data.balance",
+        ))
+        .expect("valid YAML");
+        assert_eq!(manifest.validate_schema_bounds(), Ok(()));
+    }
+
+    /// ids become part of provider ids and capability keys; they must stay
+    /// lowercase, short, and hyphen-separated.
+    #[test]
+    fn schema_bounds_reject_malformed_ids() {
+        for id in [
+            "",
+            "UPPER",
+            "has_underscore",
+            "has space",
+            "-leading",
+            "trailing-",
+            &"a".repeat(65),
+        ] {
+            let manifest =
+                ProviderManifest::from_yaml(&bounds_yaml(id, "Acme", 15_000, "data.balance"))
+                    .expect("valid YAML");
+            assert!(
+                manifest.validate_schema_bounds().is_err(),
+                "`{id}` must fail the id bound"
+            );
+        }
+    }
+
+    #[test]
+    fn schema_bounds_reject_oversized_names() {
+        let long_name = "n".repeat(65);
+        let manifest =
+            ProviderManifest::from_yaml(&bounds_yaml("acme", &long_name, 15_000, "data.balance"))
+                .expect("valid YAML");
+        assert!(manifest.validate_schema_bounds().is_err());
+    }
+
+    /// `timeoutMs` is metadata today, but a nonsense value (zero, or hours)
+    /// signals a miswritten pack and must be caught at load, not deferred to
+    /// some future consumer.
+    #[test]
+    fn schema_bounds_reject_out_of_range_timeouts() {
+        for timeout_ms in [0, 500, 120_001] {
+            let manifest = ProviderManifest::from_yaml(&bounds_yaml(
+                "acme",
+                "Acme",
+                timeout_ms,
+                "data.balance",
+            ))
+            .expect("valid YAML");
+            assert!(
+                manifest.validate_schema_bounds().is_err(),
+                "timeoutMs {timeout_ms} must be rejected"
+            );
+        }
+    }
+
+    #[test]
+    fn schema_bounds_reject_unusable_mapping_paths() {
+        for mapping_value in ["", &"x".repeat(129), "has space"] {
+            let manifest =
+                ProviderManifest::from_yaml(&bounds_yaml("acme", "Acme", 15_000, mapping_value))
+                    .expect("valid YAML");
+            assert!(
+                manifest.validate_schema_bounds().is_err(),
+                "mapping `{mapping_value}` must be rejected"
+            );
+        }
+    }
+
+    /// Embedded manifests are authored alongside the validator; if one stops
+    /// passing, that is a build-time bug, not a skip.
+    #[test]
+    fn embedded_manifests_pass_the_schema_bounds() {
+        for (id, yaml) in crate::providers::builtin::BUILTIN_MANIFESTS {
+            let manifest = ProviderManifest::from_yaml(yaml).expect("embedded manifest parses");
+            assert!(
+                manifest.validate_schema_bounds().is_ok(),
+                "embedded manifest `{id}` fails schema bounds"
+            );
+        }
     }
 
     #[test]

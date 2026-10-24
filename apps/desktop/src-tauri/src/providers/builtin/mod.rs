@@ -261,6 +261,9 @@ pub fn manifest_profiles() -> Vec<ManifestProfile> {
             if let Some(reason) = manifest.unsupported_network_request() {
                 panic!("embedded manifest {id}: {reason}");
             }
+            if let Err(reason) = manifest.validate_schema_bounds() {
+                panic!("embedded manifest {id}: {reason}");
+            }
             profile_from_manifest(manifest)
         })
         .collect()

@@ -7,7 +7,7 @@ Thank you for considering a contribution! TokenOwl is a local-first desktop app,
 - **New provider manifests** — the highest-leverage contribution. Most providers are a single YAML file plus test fixtures; no core code changes required (see below).
 - **Bug fixes** — anything from snapshot math to UI state handling. Please include a failing test first when practical.
 - **UI/UX polish** — the design system is token-based; state handling (empty/loading/stale/error) and accessibility are non-negotiable.
-- **Documentation** — README and Rustdoc are the public documentation; code identifiers are English, README prose English.
+- **Documentation** — README (Simplified Chinese, with an English edition at `README.en.md`) and Rustdoc are the public documentation; code identifiers and Rustdoc are English.
 
 ## Getting started
 

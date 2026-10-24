@@ -4,7 +4,7 @@
 
 TokenOwl is a local-first Windows/macOS desktop monitor for AI-provider quota, balance, usage, and reset information, built on Tauri 2 with a Rust backend and React 19 webview. A small always-on-top bubble opens the main dashboard; all data stays on-device.
 
-The v1.0.0 implementation is in place: 8 provider adapters, scheduler, SQLite persistence, OS keychain, notifications, and a signed updater. The numbered `docs/` (Chinese) remain the product/architecture spec; `docs/IMPLEMENTATION-STATUS.md` tracks what is actually verified — Windows only, macOS unverified.
+The implementation is in place: embedded provider manifests, a unified HTTP transport, refresh orchestration with per-account single-flight, SQLite persistence, OS keychain, a notification pipeline, and a signed updater. The numbered `docs/` (Chinese) remain the product/architecture spec but are **local-only** (`.gitignore`d): they exist on developer machines, not in the repository. Windows is the only verified platform; macOS is unverified.
 
 ## Architecture & Data Flow
 
@@ -17,11 +17,11 @@ The v1.0.0 implementation is in place: 8 provider adapters, scheduler, SQLite pe
 
 ## Monorepo Layout
 
-- Root is a pnpm workspace (`apps/*`, `packages/*`) with a single `pnpm-lock.yaml` and no root `package.json`.
+- Root is a pnpm workspace (`apps/*`) with a single `pnpm-lock.yaml` and no root `package.json`.
 - `apps/desktop/` — the only real package: React/Vite frontend in `src/`, Rust crate in `src-tauri/`. All JavaScript commands run from here.
-- `packages/design-tokens`, `packages/provider-schema`, `packages/shared-types`, `packages/ui`, `scripts/`, and `providers/community/` — empty placeholder directories; nothing imports from them yet.
-- `providers/builtin/*.yaml` — declarative manifests for the 8 built-in providers (OpenAI, Anthropic, Gemini, OpenRouter, DeepSeek, Qwen, Kimi, MiniMax), parsed by `ProviderManifest::from_yaml`; the runtime registry itself is assembled in Rust code.
-- `docs/` — numbered product/architecture/security/roadmap documents (Chinese) plus `BASELINE.md`, `ENGINEERING-DECISIONS.md`, `IMPLEMENTATION-STATUS.md`, and `IMPLEMENTATION-GAP.md`.
+- `scripts/` — icon/regeneration helpers. There is no `packages/` tree.
+- `providers/builtin/*.yaml` — declarative manifests for the built-in providers (OpenAI, Anthropic, Gemini, OpenRouter, DeepSeek, Qwen, Kimi, MiniMax, and more), embedded into the binary via `include_str!` as `BUILTIN_MANIFESTS` in `src/providers/builtin/mod.rs` and parsed by `ProviderManifest::from_yaml`. Community packs load at runtime from the app-data `community-providers/` directory.
+- `docs/` — **local-only** (`.gitignore`d): numbered product/architecture/security/roadmap documents (Chinese) plus status tracking. Do not assume these files exist on a fresh clone.
 - `.github/workflows/` — `ci-frontend`, `ci-rust`, `ci-version` (version-consistency check), and `release` (signed updater artifacts).
 - Build artifacts (`dist/`, `src-tauri/target/`, `src-tauri/gen/`, generated icons) are generated; never edit them by hand.
 
@@ -80,7 +80,7 @@ cargo clippy -- -D warnings
 ## Testing & QA
 
 - Frontend: `pnpm test` runs Vitest (jsdom, globals, setup file `src/test/setup.ts`). Tests live in `src/test/`; `BubbleView.test.tsx`, `Dashboard.test.tsx`, and `e2e/**` are excluded in `vite.config.ts`.
-- E2E: `apps/desktop/e2e/smoke.spec.ts` (Playwright, spawns `pnpm tauri dev`) exists but has no playwright config or npm script wired up — do not assume `pnpm e2e` works.
+- E2E: `apps/desktop/e2e/smoke.spec.ts` plus `playwright.config.ts`; `pnpm e2e` runs Playwright against the plain Vite preview with the mocked bridge — it proves the webview app, not the native shell.
 - Rust: run `cargo test` from `apps/desktop/src-tauri/`. Unit tests are embedded in the `domain/` modules; integration tests use `tests/fixtures/*.json` via `tests/provider_fixtures.rs`.
 - Provider changes should add offline deterministic coverage for success, partial/missing fields, malformed JSON, unauthorized, rate-limited/`retry-after`, server error, empty responses, and status/unit/reset mapping as applicable. Never use real accounts as the only test basis.
 - State changes should test freshness transitions, stale fallback/hard expiry, backoff caps, position normalization, secret-metadata removal, and reset/timezone boundaries.

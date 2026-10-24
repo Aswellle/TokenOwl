@@ -23,8 +23,17 @@ pub enum CredentialError {
 }
 
 /// A resolved secret with deliberately restricted formatting and serialization behavior.
+///
+/// The inner buffer is a `Zeroizing` string: when this value (and any clone
+/// of it) drops, the bytes are overwritten instead of lingering in freed
+/// heap until the allocator reuses it. This is defense in depth, not a
+/// guarantee — copies that leave this type (the request's `HeaderValue`,
+/// intermediate `String`s in header formatting) still follow ordinary Rust
+/// lifetimes and cannot be wiped from here. The primary protections remain
+/// unchanged: no `Debug`, no `Display`, no serialization, and persistence
+/// only in the OS credential store.
 #[derive(Clone)]
-pub struct CredentialValue(String);
+pub struct CredentialValue(zeroize::Zeroizing<String>);
 
 impl CredentialValue {
     pub fn as_str(&self) -> &str {
@@ -83,7 +92,7 @@ impl CredentialStore {
             .entry(credential_ref)?
             .get_password()
             .map_err(map_keyring_error)?;
-        Ok(CredentialValue(secret))
+        Ok(CredentialValue(zeroize::Zeroizing::new(secret)))
     }
 
     pub fn delete(&self, credential_ref: &str) -> Result<(), CredentialError> {
@@ -202,7 +211,7 @@ mod tests {
 
     #[test]
     fn resolved_values_are_redacted_in_debug() {
-        let value = CredentialValue("fixture-secret".to_owned());
+        let value = CredentialValue(zeroize::Zeroizing::new("fixture-secret".to_owned()));
         assert_eq!(format!("{value:?}"), "CredentialValue(REDACTED)");
         assert!(!format!("{value:?}").contains("fixture-secret"));
     }
@@ -226,7 +235,7 @@ fn credential_value_does_not_implement_display() {
 
 #[test]
 fn credential_value_as_str_returns_secret_only_when_explicitly_called() {
-    let value = CredentialValue("my-secret-key".to_owned());
+    let value = CredentialValue(zeroize::Zeroizing::new("my-secret-key".to_owned()));
     // as_str is the only way to access the secret, and it requires explicit intent.
     assert_eq!(value.as_str(), "my-secret-key");
 }
@@ -250,7 +259,7 @@ fn credential_error_display_does_not_contain_secret() {
 
 #[test]
 fn credential_value_clone_is_safe() {
-    let value = CredentialValue("sensitive-data".to_owned());
+    let value = CredentialValue(zeroize::Zeroizing::new("sensitive-data".to_owned()));
     let cloned = value.clone();
     // Clone is safe but does not expose the secret through Debug.
     assert_eq!(format!("{cloned:?}"), "CredentialValue(REDACTED)");
@@ -272,7 +281,7 @@ mod secret_leak {
 
     #[test]
     fn debug_output_is_fully_redacted() {
-        let value = CredentialValue(SECRET.to_owned());
+        let value = CredentialValue(zeroize::Zeroizing::new(SECRET.to_owned()));
         let rendered = format!("{value:?}");
         assert_eq!(rendered, "CredentialValue(REDACTED)");
         assert!(!rendered.contains(SECRET));
@@ -281,13 +290,13 @@ mod secret_leak {
 
     #[test]
     fn clone_keeps_the_redacted_debug() {
-        let value = CredentialValue(SECRET.to_owned()).clone();
+        let value = CredentialValue(zeroize::Zeroizing::new(SECRET.to_owned())).clone();
         assert_eq!(format!("{value:?}"), "CredentialValue(REDACTED)");
     }
 
     #[test]
     fn as_str_stays_available_for_request_building() {
-        let value = CredentialValue(SECRET.to_owned());
+        let value = CredentialValue(zeroize::Zeroizing::new(SECRET.to_owned()));
         assert_eq!(value.as_str(), SECRET);
     }
 

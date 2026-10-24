@@ -29,6 +29,7 @@ with MIT and are recorded in `apps/desktop/src-tauri/Cargo.lock` (Rust) and
 | `anyhow` | MIT OR Apache-2.0 | Error context |
 | `tracing` | MIT | Structured logging |
 | `nanoid` | MIT | Identifier generation |
+| `zeroize` | MIT OR Apache-2.0 | Secret buffer zeroing on drop |
 | `async-trait` | MIT OR Apache-2.0 | Async trait support |
 
 ## JavaScript packages

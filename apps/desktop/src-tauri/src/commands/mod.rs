@@ -209,6 +209,12 @@ impl AppRuntime {
         })
     }
 
+    /// Startup hook: retries credential deletions a previous run could not
+    /// finish. Best-effort — failures stay queued for the next launch.
+    pub fn run_startup_cleanup(&self) {
+        run_credential_cleanup_sweep(self);
+    }
+
     fn repository(&self) -> Result<LocalRepository, CommandError> {
         LocalRepository::open(&self.database_path).map_err(CommandError::from)
     }
@@ -437,14 +443,127 @@ pub fn accounts_delete(
         .account(&account_id)
         .map_err(|error| error.to_string())?
         .ok_or_else(|| "account not found".to_owned())?;
-    // The account row is the primary record: removing it must not be blocked by a
-    // credential-store outage, and no secret value is ever logged here.
+    // The account row is the primary record: removing it must not be blocked
+    // by a credential-store outage, and no secret value is ever logged here.
+    // A failed keyring delete is recorded for startup retry instead of being
+    // silently dropped — otherwise the secret would linger in the OS store
+    // with nothing left pointing at it.
     if let Some(reference) = account.credential_ref.as_deref() {
-        let _ = state.credentials.delete(reference);
+        if let Err(error) = state.credentials.delete(reference) {
+            if let Err(record_error) = record_pending_cleanup(
+                &repository,
+                reference,
+                cleanup_error_code(&error),
+                unix_seconds(),
+            ) {
+                tracing::warn!("could not record pending credential cleanup: {record_error}");
+            }
+        }
     }
     repository
         .delete_account(&account_id)
         .map_err(|error| error.to_string())
+}
+
+/// Settings key holding credential deletions that failed and must be retried.
+const CLEANUP_SETTING_KEY: &str = "credential_cleanup_pending";
+
+/// One orphaned credential reference waiting for a retry. Only the stable
+/// error code is kept — never the secret, and never the store's raw error
+/// text.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct PendingCredentialCleanup {
+    pub credential_ref: String,
+    pub error_code: String,
+    pub recorded_at: u64,
+}
+
+/// Stable, secret-free error code for a failed credential-store operation.
+fn cleanup_error_code(error: &crate::credentials::CredentialError) -> &'static str {
+    match error {
+        crate::credentials::CredentialError::EmptyReference => "EmptyReference",
+        crate::credentials::CredentialError::StoreUnavailable => "StoreUnavailable",
+        crate::credentials::CredentialError::Missing => "Missing",
+        crate::credentials::CredentialError::Store(_) => "Store",
+    }
+}
+
+/// Appends a failed deletion to the persistent queue (deduplicated by
+/// reference). The queue lives in the settings table, so it survives
+/// restarts without a schema change.
+pub(crate) fn record_pending_cleanup(
+    repository: &LocalRepository,
+    credential_ref: &str,
+    error_code: &str,
+    now: u64,
+) -> Result<(), StorageError> {
+    let mut queue = load_pending_cleanups(repository)?;
+    if queue
+        .iter()
+        .any(|entry| entry.credential_ref == credential_ref)
+    {
+        return Ok(());
+    }
+    queue.push(PendingCredentialCleanup {
+        credential_ref: credential_ref.to_owned(),
+        error_code: error_code.to_owned(),
+        recorded_at: now,
+    });
+    let value = serde_json::to_value(&queue)?;
+    repository.set_setting(CLEANUP_SETTING_KEY, &value)
+}
+
+fn load_pending_cleanups(
+    repository: &LocalRepository,
+) -> Result<Vec<PendingCredentialCleanup>, StorageError> {
+    match repository.get_setting(CLEANUP_SETTING_KEY)? {
+        None => Ok(Vec::new()),
+        Some(value) => Ok(serde_json::from_value(value)?),
+    }
+}
+
+/// Retries every queued deletion; entries whose retry succeeds are dropped,
+/// the rest stay queued for the next startup. The delete operation is
+/// injected so tests can exercise both outcomes without a real keyring.
+/// Returns the number of orphans still pending.
+pub(crate) fn retry_pending_cleanups(
+    repository: &LocalRepository,
+    delete: impl Fn(&str) -> Result<(), crate::credentials::CredentialError>,
+) -> Result<usize, StorageError> {
+    let queue = load_pending_cleanups(repository)?;
+    let mut remaining = Vec::new();
+    for entry in queue {
+        match delete(&entry.credential_ref) {
+            Ok(()) => {}
+            Err(_) => remaining.push(entry),
+        }
+    }
+    let still_pending = remaining.len();
+    if still_pending == 0 {
+        // Clear the key entirely rather than persisting an empty array.
+        let empty = serde_json::Value::Array(Vec::new());
+        repository.set_setting(CLEANUP_SETTING_KEY, &empty)?;
+    } else if let Ok(value) = serde_json::to_value(&remaining) {
+        repository.set_setting(CLEANUP_SETTING_KEY, &value)?;
+    }
+    Ok(still_pending)
+}
+
+/// Startup sweep: retries orphaned credential deletions recorded by a
+/// previous run. Failures stay queued; the app is unaffected either way.
+pub(crate) fn run_credential_cleanup_sweep(state: &AppRuntime) {
+    let Ok(repository) = state.repository() else {
+        return;
+    };
+    let credentials = state.credentials.clone();
+    match retry_pending_cleanups(&repository, |reference| credentials.delete(reference)) {
+        Ok(0) => {}
+        Ok(still_pending) => {
+            tracing::warn!(still_pending, "credential cleanup entries remain queued");
+        }
+        Err(error) => tracing::warn!("credential cleanup sweep failed: {error}"),
+    }
 }
 
 #[tauri::command]
@@ -1376,7 +1495,15 @@ fn persist_new_account(
     config.auth_method = AuthMethod::ApiKey;
     config.validate()?;
     state.credentials.set(&credential_ref, api_key)?;
-    let repository = state.repository()?;
+    let repository = match state.repository() {
+        Ok(repository) => repository,
+        Err(error) => {
+            // The secret was just written; without this compensation a failed
+            // database open would orphan it in the OS store with no record.
+            let _ = state.credentials.delete(&credential_ref);
+            return Err(error);
+        }
+    };
     if let Err(error) = repository.upsert_provider(&config, unix_seconds()) {
         let _ = state.credentials.delete(&credential_ref);
         return Err(CommandError::Storage(error));
@@ -2241,5 +2368,57 @@ mod tests {
         clone.release("account-a");
         assert!(gate.try_acquire("account-a"));
         assert!(!gate.try_acquire("account-a"));
+    }
+
+    #[test]
+    fn pending_cleanup_round_trips_and_deduplicates() {
+        let repository = LocalRepository::open_in_memory().expect("in-memory repository");
+        record_pending_cleanup(&repository, "account/one", "Store", 1_000).expect("record");
+        // A second failure for the same reference is a no-op, not a duplicate.
+        record_pending_cleanup(&repository, "account/one", "Store", 2_000).expect("record again");
+        record_pending_cleanup(&repository, "account/two", "StoreUnavailable", 3_000)
+            .expect("record two");
+        let queue = load_pending_cleanups(&repository).expect("load");
+        assert_eq!(queue.len(), 2);
+        assert_eq!(queue[0].credential_ref, "account/one");
+        assert_eq!(queue[0].error_code, "Store");
+        assert_eq!(queue[1].credential_ref, "account/two");
+        // Entries carry no secret-bearing payload by construction; the stored
+        // JSON must not grow extra fields either.
+        let raw = repository
+            .get_setting(CLEANUP_SETTING_KEY)
+            .expect("read setting")
+            .expect("present");
+        let text = raw.to_string();
+        assert!(text.contains("account/one"));
+        assert!(!text.contains("sk-"), "no secret material in the queue");
+    }
+
+    #[test]
+    fn cleanup_retry_drops_successes_and_keeps_failures() {
+        use crate::credentials::CredentialError;
+        let repository = LocalRepository::open_in_memory().expect("in-memory repository");
+        record_pending_cleanup(&repository, "account/ok", "Store", 1_000).expect("record ok");
+        record_pending_cleanup(&repository, "account/stuck", "StoreUnavailable", 1_000)
+            .expect("record stuck");
+
+        let still_pending = retry_pending_cleanups(&repository, |reference| {
+            if reference == "account/ok" {
+                Ok(())
+            } else {
+                Err(CredentialError::StoreUnavailable)
+            }
+        })
+        .expect("retry");
+        assert_eq!(still_pending, 1);
+        let queue = load_pending_cleanups(&repository).expect("load");
+        assert_eq!(queue.len(), 1);
+        assert_eq!(queue[0].credential_ref, "account/stuck");
+
+        // Once the store recovers, the last entry clears and the queue
+        // empties completely.
+        let still_pending = retry_pending_cleanups(&repository, |_| Ok(())).expect("retry again");
+        assert_eq!(still_pending, 0);
+        assert!(load_pending_cleanups(&repository).expect("load").is_empty());
     }
 }

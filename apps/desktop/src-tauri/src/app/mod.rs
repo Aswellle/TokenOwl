@@ -632,6 +632,9 @@ pub fn run() {
                 .join("tokenowl.sqlite3");
             let runtime =
                 commands::AppRuntime::new(database_path).map_err(std::io::Error::other)?;
+            // Retry credential deletions a previous run left queued before
+            // anything else touches the credential store.
+            runtime.run_startup_cleanup();
             app.manage(Arc::new(runtime));
             app.manage(Arc::new(Mutex::new(RuntimeState::default())));
             setup_tray(app)?;

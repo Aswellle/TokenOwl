@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion, useMotionValueEvent, useReducedMotion, useSpring } from "motion/react";
 import { listen } from "@tauri-apps/api/event";
 import "../../styles/App.css";
@@ -20,7 +20,6 @@ import {
   IconPlus,
   IconRefresh,
   IconShield,
-  IconTrash,
 } from "../../components/icons";
 import { StatusChip } from "./components/StatusChip";
 import { NotificationSection } from "./components/NotificationSection";
@@ -28,12 +27,11 @@ import { HistorySection } from "./components/HistorySection";
 import { ProviderView } from "./components/ProviderView";
 import { ProviderMatrix } from "./components/ProviderMatrix";
 import { SetupForm } from "./components/SetupForm";
-import { QuotaMetric } from "./components/QuotaMetric";
+import { AccountRow } from "./components/AccountRow";
+import { Notice } from "./components/Notice";
 import { ProviderIcon } from "../../components/ProviderIcon";
 import {
   accountResetAt,
-  displaySource,
-  formatRelative,
   formatResetShort,
   overallHealth,
   pressure,
@@ -61,20 +59,7 @@ const RAIL_MAX = 5;
 /* ---------- motion vocabulary (critically damped, Apple-style) ---------- */
 
 const springPanel = { type: "spring", bounce: 0, duration: 0.42 } as const;
-const springItem = { type: "spring", bounce: 0, duration: 0.36 } as const;
 
-const listVariants = {
-  hidden: { opacity: 0, y: 10, scale: 0.99 },
-  show: ({ index, reduce }: { index: number; reduce: boolean }) => ({
-    opacity: 1,
-    y: 0,
-    scale: 1,
-    transition: reduce
-      ? { duration: 0 }
-      : { ...springItem, delay: Math.min(index * 0.045, 0.24) },
-  }),
-  hide: { opacity: 0, scale: 0.96, transition: { duration: 0.14, ease: [0.23, 1, 0.32, 1] as const } },
-};
 
 const fadeVariants = {
   hidden: { opacity: 0, y: -6 },
@@ -99,34 +84,6 @@ function AnimatedNumber({ value, format }: { value: number; format?: (value: num
 }
 
 
-function Notice({
-  tone,
-  icon,
-  children,
-}: {
-  tone?: "warning" | "danger" | "accent";
-  icon?: boolean;
-  children: ReactNode;
-}) {
-  const Icon = tone === "danger" || tone === "warning" ? IconAlert : IconShield;
-  return (
-    <motion.p
-      className={`notice${tone ? ` notice--${tone}` : ""}`}
-      role="status"
-      variants={fadeVariants}
-      initial="hidden"
-      animate="show"
-      exit="hide"
-    >
-      {icon !== false && (
-        <span className="notice__icon">
-          <Icon size={14} />
-        </span>
-      )}
-      <span>{children}</span>
-    </motion.p>
-  );
-}
 
 function TrafficLights() {
   return (
@@ -209,158 +166,6 @@ function PressureRing({ ratio, tone }: { ratio: number | null; tone: "healthy" |
     </span>
   );
 }
-
-function AccountRow({
-  account,
-  index,
-  now,
-  refreshing,
-  deleting,
-  onRefresh,
-  onDelete,
-}: {
-  account: AccountViewModel;
-  index: number;
-  now: number;
-  refreshing: boolean;
-  deleting: boolean;
-  onRefresh: () => void;
-  onDelete: () => void;
-}) {
-  const [confirming, setConfirming] = useState(false);
-  const reduce = useReducedMotion();
-  const relative = formatRelative(account.lastUpdatedAt ?? account.snapshots[0]?.observedAt, now);
-  const source = displaySource(account.source ?? account.snapshots[0]?.source);
-  const hasSnapshots = account.snapshots.length > 0;
-  const freshness = copy.freshness[account.freshness] ?? copy.freshness.unknown;
-
-  return (
-    <motion.li
-      className={`account${deleting ? " account--busy" : ""}`}
-      custom={{ index, reduce }}
-      variants={listVariants}
-      initial={reduce ? false : "hidden"}
-      animate="show"
-      exit="hide"
-      layout={!confirming}
-    >
-      <div className="account__head">
-        <div className="account__identity">
-          <ProviderIcon providerId={account.providerId} size={32} />
-          <div className="account__names">
-            <h3 className="account__label" title={account.label}>
-              {account.label}
-            </h3>
-            <p className="account__provider">{account.providerName}</p>
-          </div>
-        </div>
-        <div className="account__tools">
-          <StatusChip status={account.status} />
-          <button
-            className="btn btn--icon"
-            type="button"
-            onClick={onRefresh}
-            disabled={refreshing || deleting}
-            aria-label={copy.a11y.refreshAccount(account.label)}
-            title={copy.actions.refresh}
-          >
-            <IconRefresh size={18} className={refreshing ? "is-spinning" : undefined} />
-          </button>
-          <button
-            className="btn btn--icon"
-            type="button"
-            onClick={() => setConfirming(true)}
-            disabled={refreshing || deleting}
-            aria-label={copy.a11y.removeAccount(account.label)}
-            title={copy.actions.remove}
-          >
-            <IconTrash size={18} />
-          </button>
-        </div>
-      </div>
-
-      {account.status === "error" && hasSnapshots && (
-        <Notice tone="danger">{copy.notices.accountError}</Notice>
-      )}
-      {account.status === "stale" && hasSnapshots && (
-        <Notice tone="warning">{copy.notices.accountStale}</Notice>
-      )}
-
-      {hasSnapshots ? (
-        <ul className="quotas">
-          {account.snapshots.map((quota) => (
-            <QuotaMetric key={quota.id} quota={quota} now={now} />
-          ))}
-        </ul>
-      ) : (
-        <div className="notice notice--inline">
-          <span className="notice__icon">
-            <IconAlert size={14} />
-          </span>
-          <span>
-            {account.status === "unavailable" ? copy.quota.emptyUnavailable : copy.quota.emptyBody}
-          </span>
-        </div>
-      )}
-
-      <div className="account__foot">
-        <span>
-          {freshness}
-          {relative ? ` · ${copy.time.updated(relative)}` : ` · ${copy.freshness.neverSynced}`}
-          {source ? ` · ${source}` : ""}
-        </span>
-        <button className="btn btn--quiet" type="button" onClick={onRefresh} disabled={refreshing || deleting}>
-          <IconRefresh size={14} className={refreshing ? "is-spinning" : undefined} />
-          {refreshing ? copy.actions.refreshing : copy.actions.refresh}
-        </button>
-      </div>
-
-      <AnimatePresence initial={false}>
-        {confirming && (
-          <motion.div
-            className="confirm"
-            role="alertdialog"
-            aria-label={copy.actions.confirmRemove}
-            initial={{ opacity: 0, y: -4, scale: 0.98 }}
-            animate={{ opacity: 1, y: 0, scale: 1, transition: springPanel }}
-            exit={{ opacity: 0, scale: 0.98, transition: { duration: 0.14 } }}
-            onKeyDown={(event) => {
-              if (event.key === "Escape") {
-                event.stopPropagation();
-                setConfirming(false);
-              }
-            }}
-          >
-            <p className="confirm__text">{copy.removeConfirm(account.label)}</p>
-            <div className="confirm__actions">
-              {/* Focus lands on the non-destructive action first: a stray
-                  Enter must cancel the removal, not confirm it. */}
-              <button
-                className="btn btn--quiet"
-                type="button"
-                autoFocus
-                onClick={() => setConfirming(false)}
-              >
-                {copy.actions.cancel}
-              </button>
-              <button
-                className="btn btn--danger"
-                type="button"
-                onClick={() => {
-                  setConfirming(false);
-                  onDelete();
-                }}
-              >
-                {copy.actions.confirmRemove}
-              </button>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </motion.li>
-  );
-}
-
 
 function EmptyState({
   offline,

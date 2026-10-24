@@ -82,7 +82,7 @@ describe("AccountRow", () => {
     expect(onRefresh).toHaveBeenCalledOnce();
   });
 
-  it("calls onDelete when delete button clicked", () => {
+  it("deletes only after the inline confirm, and cancel aborts", () => {
     const onDelete = vi.fn();
     render(
       <AccountRow
@@ -95,8 +95,17 @@ describe("AccountRow", () => {
         onDelete={onDelete}
       />,
     );
-    const buttons = screen.getAllByRole("button");
-    fireEvent.click(buttons[1]);
+    // The removal button opens an inline confirm instead of deleting
+    // outright; a stray click must not lose the account.
+    const remove = screen.getByRole("button", { name: /移除账户/ });
+    fireEvent.click(remove);
+    expect(onDelete).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: /取消/ }));
+    expect(onDelete).not.toHaveBeenCalled();
+
+    fireEvent.click(remove);
+    fireEvent.click(screen.getByRole("button", { name: /确认移除/ }));
     expect(onDelete).toHaveBeenCalledOnce();
   });
 

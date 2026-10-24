@@ -226,7 +226,7 @@ impl From<CommandError> for String {
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GenericOpenAiAccountInput {
     pub provider_id: String,
@@ -240,6 +240,28 @@ pub struct GenericOpenAiAccountInput {
     /// exactly when Rust classifies the target as local-network.
     #[serde(default)]
     pub lan_consent_token: Option<String>,
+}
+
+impl std::fmt::Debug for GenericOpenAiAccountInput {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // This DTO carries the raw API key across IPC; a derived `Debug`
+        // would print it into any log or error path that formats the input.
+        // Only field presence is safe to show.
+        formatter
+            .debug_struct("GenericOpenAiAccountInput")
+            .field("provider_id", &self.provider_id)
+            .field("label", &self.label)
+            .field("base_url", &self.base_url)
+            .field("quota_endpoint", &self.quota_endpoint)
+            .field("usage_endpoint", &self.usage_endpoint)
+            .field("balance_endpoint", &self.balance_endpoint)
+            .field(
+                "lan_consent_token",
+                &self.lan_consent_token.as_ref().map(|_| "<present>"),
+            )
+            .field("api_key", &"<redacted>")
+            .finish()
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]

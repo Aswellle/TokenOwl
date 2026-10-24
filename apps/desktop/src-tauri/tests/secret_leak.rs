@@ -156,6 +156,63 @@ fn telemetry_masks_key_shaped_secrets() {
         "***"
     );
     assert_eq!(redact_value("token", SECRET), "***");
+    // Canonical-form variants the normalizer must collapse (R-23): a key
+    // spelled `auth_token`, `api_token`, `client_secret`, or `cookie` is the
+    // same secret-bearing field after punctuation is stripped.
+    assert_eq!(redact_value("auth_token", SECRET), "***");
+    assert_eq!(redact_value("api-token", SECRET), "***");
+    assert_eq!(redact_value("sessionCookie", SECRET), "***");
+    assert_eq!(redact_value("client_secret", SECRET), "***");
+    assert_eq!(redact_value("cookie", SECRET), "***");
     // Non-sensitive fields pass through untouched.
     assert_eq!(redact_value("provider", "openai"), "openai");
+    assert_eq!(redact_value("token_type", "bearer"), "bearer");
+}
+
+/// The IPC input DTO carries the raw API key; its `Debug` output (error
+/// context, logs) must never print it (R-22).
+#[test]
+fn account_input_debug_never_prints_the_api_key() {
+    let input = tokenowl_lib::commands::GenericOpenAiAccountInput {
+        provider_id: "generic.openai_compatible".to_owned(),
+        label: "Leak Probe".to_owned(),
+        base_url: "https://api.openai.com/v1".to_owned(),
+        api_key: SECRET.to_owned(),
+        quota_endpoint: None,
+        usage_endpoint: None,
+        balance_endpoint: None,
+        lan_consent_token: Some("consent-token".to_owned()),
+    };
+    let rendered = format!("{input:?}");
+    assert!(
+        !rendered.contains(SECRET),
+        "Debug leaked the key: {rendered}"
+    );
+    assert!(
+        rendered.contains("redacted"),
+        "api_key must be visibly redacted"
+    );
+    assert!(
+        !rendered.contains("consent-token"),
+        "token must not print either"
+    );
+    // Positive control: non-secret fields stay visible so the impl is a
+    // redaction, not a blank.
+    assert!(rendered.contains("generic.openai_compatible"));
+}
+
+/// The transport response body is raw provider payload; its `Debug` output
+/// must carry only status and size metadata (R-22).
+#[test]
+fn provider_response_debug_never_prints_the_body() {
+    let response = tokenowl_lib::domain::provider::ProviderResponse::new(
+        200,
+        format!(r#"{{"api_key": "{SECRET}"}}"#),
+    );
+    let rendered = format!("{response:?}");
+    assert!(
+        !rendered.contains(SECRET),
+        "Debug leaked the body: {rendered}"
+    );
+    assert!(rendered.contains("200"), "status remains visible");
 }

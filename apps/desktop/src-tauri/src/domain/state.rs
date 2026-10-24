@@ -8,35 +8,11 @@ use std::collections::HashMap;
 use std::time::Duration;
 
 fn is_sensitive_metadata_key(key: &str) -> bool {
-    let normalized = key
-        .bytes()
-        .filter(u8::is_ascii_alphanumeric)
-        .map(|byte| byte.to_ascii_lowercase())
-        .collect::<Vec<_>>();
-    matches!(
-        normalized.as_slice(),
-        b"apikey"
-            | b"apisecretkey"
-            | b"secretkey"
-            | b"auth_token"
-            | b"accesstoken"
-            | b"accesstokenkey"
-            | b"refreshtoken"
-            | b"refreshtokenkey"
-            | b"clientsecret"
-            | b"password"
-            | b"secret"
-            | b"sessiontoken"
-            | b"sessiontokenkey"
-            | b"privatekey"
-            | b"api_token"
-            | b"authorization"
-            | b"bearer"
-            | b"cookie"
-            | b"setcookie"
-            | b"token"
-            | b"credential"
-    )
+    // Single authority: the telemetry module's canonical normalizer and key
+    // set. The historical list here spelled `auth_token` / `api_token` with
+    // underscores, which could never match its own punctuation-stripped
+    // comparison — a silently dead rule until it was delegated.
+    crate::telemetry::is_sensitive_field(key)
 }
 
 fn sanitize_metadata(mut metadata: HashMap<String, String>) -> HashMap<String, String> {
@@ -270,6 +246,37 @@ impl BackoffPolicy {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn metadata_sanitizer_covers_key_spelling_variants() {
+        let metadata = HashMap::from([
+            ("auth_token".to_owned(), "x".to_owned()),
+            ("api-token".to_owned(), "x".to_owned()),
+            ("apiToken".to_owned(), "x".to_owned()),
+            ("sessionCookie".to_owned(), "x".to_owned()),
+            ("client_secret".to_owned(), "x".to_owned()),
+            ("cookie".to_owned(), "x".to_owned()),
+            ("model".to_owned(), "gpt-x".to_owned()),
+            ("region".to_owned(), "cn".to_owned()),
+        ]);
+        let sanitized = sanitize_metadata(metadata);
+        for removed in [
+            "auth_token",
+            "api-token",
+            "apiToken",
+            "sessionCookie",
+            "client_secret",
+            "cookie",
+        ] {
+            assert!(
+                !sanitized.contains_key(removed),
+                "`{removed}` survived sanitizing"
+            );
+        }
+        for kept in ["model", "region"] {
+            assert!(sanitized.contains_key(kept), "`{kept}` must survive");
+        }
+    }
 
     fn policy() -> FreshnessPolicy {
         FreshnessPolicy {

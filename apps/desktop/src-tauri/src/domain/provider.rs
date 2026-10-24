@@ -553,13 +553,28 @@ pub type OpenAiCompatibleProviderDescriptor = OpenAiCompatibleDescriptor;
 pub type OpenAICompatibleProviderDescriptor = OpenAiCompatibleDescriptor;
 
 /// A transport-neutral response passed to a provider parser.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+///
+/// Deliberately neither `Serialize` nor `Deserialize`: nothing crosses the
+/// IPC boundary as a raw response — parsers consume it by reference inside
+/// Rust — and keeping serde off the type prevents a future DTO from
+/// accidentally embedding provider payloads.
+#[derive(Clone, PartialEq, Eq)]
 pub struct ProviderResponse {
     pub status: u16,
     pub body: String,
-    #[serde(default)]
     pub headers: BTreeMap<String, String>,
+}
+
+impl std::fmt::Debug for ProviderResponse {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // The body is the raw provider payload; `Debug` reaches logs and
+        // error context, so only size metadata may appear.
+        formatter
+            .debug_struct("ProviderResponse")
+            .field("status", &self.status)
+            .field("body", &format!("<{} bytes redacted>", self.body.len()))
+            .finish_non_exhaustive()
+    }
 }
 
 impl ProviderResponse {

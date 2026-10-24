@@ -78,21 +78,37 @@ impl TelemetryEvent {
 }
 
 /// Check if a field key contains sensitive data.
+///
+/// Canonical authority for secret-shaped key names: the comparison runs on a
+/// normalized form (lowercase, punctuation stripped) so `api_key`, `apiKey`,
+/// and `api-key` all collapse to `apikey`. Every list entry is written in
+/// that punctuation-free form — an underscored entry could never match,
+/// which is exactly the historical bug this centralization fixes. Metadata
+/// sanitizing delegates here so the two lists can never drift apart.
 pub fn is_sensitive_field(key: &str) -> bool {
     let lower = key.to_lowercase();
     let normalized: String = lower.chars().filter(char::is_ascii_alphanumeric).collect();
     matches!(
         normalized.as_str(),
         "authorization"
+            | "bearer"
+            | "cookie"
+            | "setcookie"
             | "apikey"
+            | "apitoken"
             | "apisecretkey"
             | "secretkey"
+            | "authtoken"
             | "accesstoken"
+            | "accesstokenkey"
             | "refreshtoken"
+            | "refreshtokenkey"
             | "clientsecret"
             | "password"
             | "secret"
             | "sessiontoken"
+            | "sessioncookie"
+            | "sessiontokenkey"
             | "privatekey"
             | "token"
             | "credential"

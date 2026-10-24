@@ -2419,6 +2419,7 @@ mod tests {
         // empties completely.
         let still_pending = retry_pending_cleanups(&repository, |_| Ok(())).expect("retry again");
         assert_eq!(still_pending, 0);
-        assert!(load_pending_cleanups(&repository).expect("load").is_empty());
+        let queue = load_pending_cleanups(&repository).expect("load");
+        assert_eq!(queue.len(), 0, "the queue must be fully drained");
     }
 }

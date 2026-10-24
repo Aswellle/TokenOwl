@@ -655,6 +655,7 @@ pub fn run() {
             commands::account_target_is_lan,
             commands::accounts_delete,
             commands::accounts_refresh,
+            commands::manifest_profiles,
             commands::notifications_list,
             commands::notifications_mark_read,
             commands::notification_preferences_get,

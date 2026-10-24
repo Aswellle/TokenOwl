@@ -69,6 +69,9 @@ export interface GenericOpenAiAccountInput {
   quotaEndpoint?: string;
   usageEndpoint?: string;
   balanceEndpoint?: string;
+  /** One-time LAN confirmation token from `lanConsentBegin`; Rust decides
+   * whether it is required, the frontend never assumes. */
+  lanConsentToken?: string;
 }
 
 export interface UpdateInfo {
@@ -216,6 +219,10 @@ export interface DashboardBridge {
   createAccount(input: GenericOpenAiAccountInput): Promise<AccountViewModel>;
   /** Whether this base URL would talk to the LAN (blocked by default, docs/06). */
   accountTargetIsLan(baseUrl: string): Promise<boolean>;
+  /** First half of the LAN consent flow: returns `null` when the target is
+   * not LAN, or a short-lived one-time token the confirm dialog presents
+   * back through `createAccount`. Rust re-validates on creation. */
+  lanConsentBegin(baseUrl: string): Promise<string | null>;
   deleteAccount(accountId: string): Promise<void>;
   refresh(accountId?: string): Promise<AccountViewModel[]>;
   checkForUpdate(): Promise<UpdateInfo | null>;

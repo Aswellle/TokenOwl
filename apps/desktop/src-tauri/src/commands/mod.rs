@@ -35,6 +35,113 @@ pub struct AppRuntime {
     pub freshness_policy: FreshnessPolicy,
     /// Application data directory; hosts the community-provider pack folder.
     pub data_dir: PathBuf,
+    /// Session-scoped LAN confirmation tokens (see [`LanConsentLedger`]).
+    pub(crate) lan_consents: LanConsentLedger,
+}
+
+/// Session-scoped, one-time LAN consent tokens.
+///
+/// A token binds one confirmation to one normalized target URL: it expires
+/// quickly, is consumed by the first account created with it, and a changed
+/// URL invalidates it. The ledger is deliberately in-memory — consent is a
+/// per-session UI contract, not persisted state. What the token proves is
+/// that the frontend ran the confirmation flow before `accounts_create`; it
+/// is not a defense against a compromised renderer, which could call
+/// `lan_consent_begin` itself. The real boundary stays in Rust: creation
+/// re-classifies the target and refuses LAN targets without a valid token.
+///
+/// The inner map sits behind an `Arc` so clones of [`AppRuntime`] share one
+/// ledger instead of splitting it into parallel token spaces.
+#[derive(Default, Clone)]
+pub(crate) struct LanConsentLedger {
+    issued: std::sync::Arc<std::sync::Mutex<HashMap<String, LanConsentRecord>>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct LanConsentRecord {
+    target: String,
+    granted_at: u64,
+    consumed: bool,
+}
+
+/// How long a confirmation stays valid before the account is created.
+const LAN_CONSENT_TTL_SECS: u64 = 600;
+
+impl LanConsentLedger {
+    /// Issues a one-time token for `target`, pruning stale entries first so
+    /// the session map stays bounded.
+    fn begin(&self, target: &str, now: u64) -> String {
+        let mut issued = self.issued.lock().expect("consent ledger lock");
+        issued.retain(|_, record| {
+            !record.consumed && now.saturating_sub(record.granted_at) <= LAN_CONSENT_TTL_SECS
+        });
+        let token = nanoid::nanoid!();
+        issued.insert(
+            token.clone(),
+            LanConsentRecord {
+                target: target.to_owned(),
+                granted_at: now,
+                consumed: false,
+            },
+        );
+        token
+    }
+
+    /// Consumes the token issued for exactly `target`, or explains why the
+    /// creation must not proceed. Every failure keeps the record untouched,
+    /// so a rejected attempt never burns a still-valid confirmation.
+    fn authorize(&self, target: &str, token: Option<&str>, now: u64) -> Result<(), CommandError> {
+        let Some(token) = token else {
+            return Err(CommandError::InvalidInput(
+                "this target is on the local network; confirm the LAN notice before creating the account"
+                    .to_owned(),
+            ));
+        };
+        let mut issued = self.issued.lock().expect("consent ledger lock");
+        match issued.get_mut(token) {
+            Some(record) if record.target != target => Err(CommandError::InvalidInput(
+                "the LAN confirmation was issued for a different URL; confirm again".to_owned(),
+            )),
+            Some(record) if record.consumed => Err(CommandError::InvalidInput(
+                "the LAN confirmation was already used; confirm again".to_owned(),
+            )),
+            Some(record) if now.saturating_sub(record.granted_at) > LAN_CONSENT_TTL_SECS => {
+                Err(CommandError::InvalidInput(
+                    "the LAN confirmation expired; confirm again".to_owned(),
+                ))
+            }
+            Some(record) => {
+                record.consumed = true;
+                Ok(())
+            }
+            None => Err(CommandError::InvalidInput(
+                "no LAN confirmation on record for this target; confirm the notice first"
+                    .to_owned(),
+            )),
+        }
+    }
+
+    /// Test-only view of the ledger size (used by the pruning test).
+    #[cfg(test)]
+    fn len(&self) -> usize {
+        self.issued.lock().expect("consent ledger lock").len()
+    }
+}
+
+/// Fails closed when `target` is on the local network and no valid, unused
+/// confirmation token was presented. Classification re-runs here — not in
+/// the frontend — so a UI bug or a stale dialog can never substitute for
+/// consent, and a classifier outage surfaces as a rejected creation instead
+/// of a silently public-looking LAN account.
+fn authorize_lan_target(
+    ledger: &LanConsentLedger,
+    target: &str,
+    token: Option<&str>,
+) -> Result<(), CommandError> {
+    if !resolves_to_lan(target) {
+        return Ok(());
+    }
+    ledger.authorize(target, token, unix_seconds())
 }
 
 impl AppRuntime {
@@ -61,6 +168,7 @@ impl AppRuntime {
             anthropic,
             google,
             data_dir,
+            lan_consents: LanConsentLedger::default(),
             freshness_policy: FreshnessPolicy {
                 fresh_for: std::time::Duration::from_secs(600),
                 stale_after: std::time::Duration::from_secs(1800),
@@ -128,6 +236,10 @@ pub struct GenericOpenAiAccountInput {
     pub quota_endpoint: Option<String>,
     pub usage_endpoint: Option<String>,
     pub balance_endpoint: Option<String>,
+    /// One-time LAN confirmation token from `lan_consent_begin`; required
+    /// exactly when Rust classifies the target as local-network.
+    #[serde(default)]
+    pub lan_consent_token: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -220,6 +332,24 @@ pub async fn account_target_is_lan(base_url: String) -> bool {
     tauri::async_runtime::spawn_blocking(move || resolves_to_lan(&trimmed))
         .await
         .unwrap_or(false)
+}
+
+#[tauri::command]
+pub async fn lan_consent_begin(
+    base_url: String,
+    state: State<'_, Arc<AppRuntime>>,
+) -> Result<Option<String>, String> {
+    let trimmed = base_url.trim().to_owned();
+    // Classification can hit DNS, so keep the blocking work off the async
+    // runtime's workers.
+    let target = trimmed.clone();
+    let needs_consent = tauri::async_runtime::spawn_blocking(move || resolves_to_lan(&target))
+        .await
+        .map_err(|error| error.to_string())?;
+    if !needs_consent {
+        return Ok(None);
+    }
+    Ok(Some(state.lan_consents.begin(&trimmed, unix_seconds())))
 }
 
 #[tauri::command]
@@ -1159,6 +1289,13 @@ fn create_account(
     input: GenericOpenAiAccountInput,
 ) -> Result<AccountViewModel, CommandError> {
     let resolved = resolve_new_account(&input, Some(&state.data_dir))?;
+    // The consent gate runs on the validated target the account will really
+    // use — never on a frontend-supplied boolean.
+    authorize_lan_target(
+        &state.lan_consents,
+        &resolved.base_url,
+        input.lan_consent_token.as_deref(),
+    )?;
     let label = input.label.trim().to_owned();
     let account = persist_new_account(state, &label, &resolved, &input.api_key)?;
     let view = state
@@ -1542,6 +1679,7 @@ mod tests {
             quota_endpoint: None,
             usage_endpoint: None,
             balance_endpoint: Some("/should-not-be-used".to_owned()),
+            lan_consent_token: None,
         };
         let resolved = resolve_new_account(&input, None).expect("builtin profile");
         assert_eq!(resolved.provider_prefix, "deepseek");
@@ -1564,6 +1702,7 @@ mod tests {
             quota_endpoint: None,
             usage_endpoint: None,
             balance_endpoint: None,
+            lan_consent_token: None,
         };
         let error = resolve_new_account(&input, None).expect_err("unknown brand");
         assert!(matches!(error, CommandError::InvalidInput(_)));
@@ -1579,6 +1718,7 @@ mod tests {
             quota_endpoint: None,
             usage_endpoint: None,
             balance_endpoint: None,
+            lan_consent_token: None,
         };
         let error = resolve_new_account(&input, None).expect_err("non-http base url");
         assert!(matches!(error, CommandError::InvalidInput(_)));
@@ -1595,6 +1735,7 @@ mod tests {
                 quota_endpoint: quota.map(ToOwned::to_owned),
                 usage_endpoint: usage.map(ToOwned::to_owned),
                 balance_endpoint: balance.map(ToOwned::to_owned),
+                lan_consent_token: None,
             }
         };
         let resolved = resolve_new_account(&input(None, None, None), None).expect("defaults");
@@ -1630,6 +1771,7 @@ mod tests {
             quota_endpoint: None,
             usage_endpoint: None,
             balance_endpoint: None,
+            lan_consent_token: None,
         };
         let resolved = resolve_new_account(&input, None).expect("gateway resolves");
         assert_eq!(
@@ -1654,6 +1796,7 @@ mod tests {
             quota_endpoint: None,
             usage_endpoint: None,
             balance_endpoint: None,
+            lan_consent_token: None,
         };
         let resolved = resolve_new_account(&input, None).expect("built-in resolves");
         assert_eq!(resolved.base_url, "https://api.deepseek.com/v1");
@@ -1672,6 +1815,7 @@ mod tests {
                 quota_endpoint: None,
                 usage_endpoint: None,
                 balance_endpoint: None,
+                lan_consent_token: None,
             };
             let error = resolve_new_account(&input, None)
                 .expect_err("a gateway profile needs a real base URL");
@@ -1701,6 +1845,7 @@ mod tests {
                 quota_endpoint: None,
                 usage_endpoint: None,
                 balance_endpoint: None,
+                lan_consent_token: None,
             };
             let error = resolve_new_account(&input, None)
                 .expect_err("a reserved placeholder host must be rejected");
@@ -1729,6 +1874,7 @@ mod tests {
                 quota_endpoint: None,
                 usage_endpoint: None,
                 balance_endpoint: None,
+                lan_consent_token: None,
             };
             let resolved = resolve_new_account(&input, None)
                 .unwrap_or_else(|error| panic!("`{base_url}` should resolve: {error:?}"));
@@ -1755,6 +1901,7 @@ mod tests {
                 quota_endpoint: None,
                 usage_endpoint: None,
                 balance_endpoint: None,
+                lan_consent_token: None,
             };
             let error = resolve_new_account(&input, None)
                 .expect_err("credentials embedded in the URL must be rejected");
@@ -1884,7 +2031,83 @@ mod tests {
     fn base_url_classification_parses_the_host() {
         assert!(resolves_to_lan("http://localhost:4000/v1"));
         assert!(resolves_to_lan("https://192.168.0.20:8443/api"));
-        assert!(!resolves_to_lan("https://api.deepseek.com/v1"));
+        // Literal IPs keep this test offline-deterministic; a DNS name would
+        // make the outcome depend on the resolver.
+        assert!(!resolves_to_lan("https://8.8.8.8/v1"));
         assert!(!resolves_to_lan("not a url"));
+    }
+
+    #[test]
+    fn lan_consent_tokens_are_single_use_and_target_bound() {
+        let ledger = LanConsentLedger::default();
+        let now = 1_000_u64;
+        let target = "https://192.168.0.20:8443/api";
+        let token = ledger.begin(target, now);
+
+        // Missing token, wrong target: refused, and the valid token survives.
+        assert!(ledger.authorize(target, None, now + 1).is_err());
+        assert!(
+            ledger
+                .authorize("https://192.168.0.20:8443/other", Some(&token), now + 1)
+                .is_err()
+        );
+        // Correct target: authorized exactly once.
+        assert!(ledger.authorize(target, Some(&token), now + 1).is_ok());
+        assert!(ledger.authorize(target, Some(&token), now + 2).is_err());
+        // Unknown token is refused without side effects.
+        assert!(
+            ledger
+                .authorize(target, Some("not-a-token"), now + 1)
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn lan_consent_tokens_expire() {
+        let ledger = LanConsentLedger::default();
+        let now = 1_000_u64;
+        let target = "https://10.0.0.5/v1";
+        let token = ledger.begin(target, now);
+        assert!(
+            ledger
+                .authorize(target, Some(&token), now + LAN_CONSENT_TTL_SECS)
+                .is_ok()
+        );
+        let token = ledger.begin(target, now);
+        assert!(
+            ledger
+                .authorize(target, Some(&token), now + LAN_CONSENT_TTL_SECS + 1)
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn lan_consent_begin_prunes_stale_entries() {
+        let ledger = LanConsentLedger::default();
+        let now = 1_000_u64;
+        ledger.begin("https://10.0.0.5/v1", now);
+        ledger.begin("https://10.0.0.6/v1", now);
+        assert_eq!(ledger.len(), 2);
+        // Well past the TTL both entries are stale; a new begin sweeps them.
+        ledger.begin("https://10.0.0.7/v1", now + LAN_CONSENT_TTL_SECS + 1);
+        assert_eq!(ledger.len(), 1);
+    }
+
+    /// The creation gate classifies in Rust: public targets pass with no
+    /// token at all, LAN targets never do (R-19). Literal IPs keep this
+    /// test offline-deterministic.
+    #[test]
+    fn authorize_lan_target_fails_closed_for_local_targets() {
+        let ledger = LanConsentLedger::default();
+        assert!(
+            authorize_lan_target(&ledger, "https://8.8.8.8/v1", None).is_ok(),
+            "public targets never need a token"
+        );
+        assert!(
+            authorize_lan_target(&ledger, "https://192.168.0.20/v1", None).is_err(),
+            "LAN targets without a confirmation are refused"
+        );
+        let token = ledger.begin("https://192.168.0.20/v1", unix_seconds());
+        assert!(authorize_lan_target(&ledger, "https://192.168.0.20/v1", Some(&token)).is_ok());
     }
 }

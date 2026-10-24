@@ -313,6 +313,12 @@ export function createMockBridge(): DashboardBridge {
         /\.local(\/|:|$)/.test(host)
       );
     },
+    async lanConsentBegin(baseUrl: string) {
+      // Preview mirror of the consent flow: LAN targets get a one-time demo
+      // token, everything else needs no consent.
+      const lan = await this.accountTargetIsLan(baseUrl);
+      return lan ? `demo-consent-${Date.now()}` : null;
+    },
     async createAccount(input: GenericOpenAiAccountInput) {
       await new Promise((resolve) => setTimeout(resolve, latency()));
       const account: AccountViewModel = {

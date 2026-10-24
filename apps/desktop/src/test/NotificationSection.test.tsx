@@ -50,6 +50,7 @@ function makeBridge(overrides: Partial<DashboardBridge> = {}): DashboardBridge {
   return {
     listAccounts: vi.fn(async () => []),
     accountTargetIsLan: vi.fn(async () => false),
+    lanConsentBegin: vi.fn().mockResolvedValue(null),
     createAccount: vi.fn(
       async (input: GenericOpenAiAccountInput): Promise<AccountViewModel> => ({
         id: "created",

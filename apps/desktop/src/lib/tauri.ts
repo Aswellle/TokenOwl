@@ -24,6 +24,8 @@ export const tauriBridge: DashboardBridge = {
     invoke<AccountViewModel>("accounts_create", { input }),
   accountTargetIsLan: (baseUrl: string) =>
     invoke<boolean>("account_target_is_lan", { baseUrl }),
+  lanConsentBegin: (baseUrl: string) =>
+    invoke<string | null>("lan_consent_begin", { baseUrl }),
   deleteAccount: (accountId: string) => invoke<void>("accounts_delete", { accountId }),
   refresh: (accountId?: string) =>
     invoke<AccountViewModel[]>("accounts_refresh", accountId ? { accountId } : undefined),

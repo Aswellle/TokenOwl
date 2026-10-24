@@ -416,12 +416,19 @@ function SetupForm({
         .map(([kind]) => copy.form.endpointLabels[kind] ?? kind)
     : [];
 
-  // LAN consent (docs/06 + docs/03 §12): the first submit against a private
-  // address is intercepted and the same submit is replayed after confirmation.
-  const [lanPrompt, setLanPrompt] = useState(false);
-  const pendingSubmit = useRef(false);
+  // LAN consent (docs/06 + docs/03 §12): a submit against a private address
+  // asks Rust for a one-time token bound to that exact URL, and only the
+  // dialog's confirm button ever creates the account — a repeat submit while
+  // the dialog is open does nothing. Classification failures fail closed:
+  // an unclassifiable target is never treated as public.
+  const [lanConsent, setLanConsent] = useState<{ token: string } | null>(null);
+  const [consentBusy, setConsentBusy] = useState(false);
+  const [classifyError, setClassifyError] = useState<string | null>(null);
+  const cancelRef = useRef<HTMLButtonElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const submitTriggerRef = useRef<HTMLButtonElement>(null);
 
-  const sendAccount = async () => {
+  const sendAccount = async (lanConsentToken?: string) => {
     const apiKeyInput = apiKeyRef.current;
     if (!apiKeyInput || !apiKeyInput.value.trim()) return;
     await onSubmit({
@@ -431,29 +438,47 @@ function SetupForm({
       quotaEndpoint: profile ? undefined : quotaEndpoint.trim() || undefined,
       usageEndpoint: profile ? undefined : usageEndpoint.trim() || undefined,
       balanceEndpoint: profile ? undefined : balanceEndpoint.trim() || undefined,
+      lanConsentToken,
       apiKeyInput,
     });
   };
 
+  const closeConsent = () => {
+    setLanConsent(null);
+    submitTriggerRef.current?.focus();
+  };
+
+  const confirmConsent = () => {
+    const token = lanConsent?.token;
+    setLanConsent(null);
+    submitTriggerRef.current?.focus();
+    if (token) void sendAccount(token);
+  };
+
   const submit = async (event: { preventDefault(): void }) => {
     event.preventDefault();
-    if (pendingSubmit.current) {
-      pendingSubmit.current = false;
-      setLanPrompt(false);
+    // The dialog is the only confirmation path: while it is open (or a
+    // classification is in flight) form submits are inert.
+    if (lanConsent || consentBusy) return;
+    setClassifyError(null);
+    setConsentBusy(true);
+    let token: string | null;
+    try {
+      token = await bridge.lanConsentBegin(effectiveBaseUrl.trim());
+    } catch {
+      // Fail closed: show a recoverable error instead of guessing "public".
+      setClassifyError(copy.form.lanClassifyFailed);
+      setConsentBusy(false);
+      return;
+    }
+    setConsentBusy(false);
+    if (token === null) {
       await sendAccount();
       return;
     }
-    // Ask Rust whether this target is private before the account is created;
-    // a failed probe must not block account creation, so it reads as public.
-    const isLan = await bridge
-      .accountTargetIsLan(effectiveBaseUrl.trim())
-      .catch(() => false);
-    if (isLan) {
-      pendingSubmit.current = true;
-      setLanPrompt(true);
-      return;
-    }
-    await sendAccount();
+    setLanConsent({ token });
+    // Focus the non-destructive action once the dialog has mounted.
+    requestAnimationFrame(() => cancelRef.current?.focus());
   };
 
   return (
@@ -480,36 +505,67 @@ function SetupForm({
           {error}
         </p>
       )}
+      {classifyError && (
+        <p className="form__error" role="alert">
+          {classifyError}
+        </p>
+      )}
       {packSkipped.length > 0 && (
         <p className="form__error" role="status">
           {copy.form.communitySkipped}: {packSkipped.join("；")}
         </p>
       )}
-      {lanPrompt && (
-        <div className="lan-consent" role="alertdialog" aria-labelledby="lan-consent-title">
+      {lanConsent && (
+        <div
+          className="lan-consent"
+          role="alertdialog"
+          aria-modal="true"
+          aria-labelledby="lan-consent-title"
+          aria-describedby="lan-consent-body"
+          ref={dialogRef}
+          onKeyDown={(event) => {
+            if (event.key === "Escape") {
+              event.preventDefault();
+              closeConsent();
+              return;
+            }
+            if (event.key === "Tab") {
+              // Two actions only: keep Tab (and Shift+Tab) cycling inside the
+              // dialog so background controls stay out of reach.
+              const buttons = Array.from(
+                dialogRef.current?.querySelectorAll<HTMLButtonElement>("button") ?? [],
+              );
+              if (buttons.length === 0) return;
+              event.preventDefault();
+              const active = buttons.indexOf(
+                document.activeElement as HTMLButtonElement,
+              );
+              const next = event.shiftKey
+                ? (active + buttons.length - 1) % buttons.length
+                : (active + 1) % buttons.length;
+              buttons[next]?.focus();
+            }
+          }}
+        >
           <h3 className="lan-consent__title" id="lan-consent-title">
             {copy.form.lanTitle}
           </h3>
-          <p className="lan-consent__body">{copy.form.lanBody}</p>
+          <p className="lan-consent__body" id="lan-consent-body">
+            {copy.form.lanBody}
+          </p>
           <div className="lan-consent__actions">
             <button
               className="btn btn--quiet"
               type="button"
-              onClick={() => {
-                pendingSubmit.current = false;
-                setLanPrompt(false);
-              }}
+              ref={cancelRef}
+              onClick={closeConsent}
             >
               {copy.actions.cancel}
             </button>
             <button
               className="btn btn--primary"
               type="button"
-              onClick={() => {
-                pendingSubmit.current = false;
-                setLanPrompt(false);
-                void sendAccount();
-              }}
+              onClick={confirmConsent}
             >
               {copy.form.lanConfirm}
             </button>
@@ -713,7 +769,12 @@ function SetupForm({
           <IconKey size={14} />
           {copy.form.credentialsNote}
         </span>
-        <button className="btn btn--primary" type="submit" disabled={submitting}>
+        <button
+          className="btn btn--primary"
+          type="submit"
+          disabled={submitting || consentBusy}
+          ref={submitTriggerRef}
+        >
           {submitting ? copy.actions.submitting : copy.actions.submit}
         </button>
       </div>
@@ -966,6 +1027,7 @@ export function App({ bridge = tauriBridge }: AppProps = {}) {
         quotaEndpoint: input.quotaEndpoint,
         usageEndpoint: input.usageEndpoint,
         balanceEndpoint: input.balanceEndpoint,
+        lanConsentToken: input.lanConsentToken,
         apiKey: secret,
       });
       setAccounts((current) => [...current.filter((item) => item.id !== account.id), account]);

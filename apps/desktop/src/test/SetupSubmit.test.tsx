@@ -21,6 +21,7 @@ vi.mock("../lib/tauri", () => ({
   tauriBridge: {
     listAccounts: mockListAccounts,
     accountTargetIsLan: vi.fn(async () => false),
+    lanConsentBegin: vi.fn().mockResolvedValue(null),
     createAccount: mockCreateAccount,
     deleteAccount: vi.fn(),
     refresh: vi.fn(),

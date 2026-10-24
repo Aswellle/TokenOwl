@@ -245,6 +245,7 @@ export const copy = {
     lanBody:
       "此供应商指向局域网地址。仅在你确认该地址属于自己的网关或可信网络时继续。",
     lanConfirm: "我确认，继续",
+    lanClassifyFailed: "无法确认该地址是否属于局域网，已取消本次创建。请检查网络后重试。",
   },
 
   removeConfirm: (label: string) => `移除「${label}」？本机凭据引用与快照会一起删除。`,

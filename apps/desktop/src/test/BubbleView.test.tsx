@@ -3,7 +3,10 @@ import { render, screen, fireEvent, act } from "@testing-library/react";
 
 const { mockStartDragging, mockOnMoved, mockOpenDashboard, mockPersistPosition } = vi.hoisted(() => ({
   mockStartDragging: vi.fn().mockResolvedValue(undefined),
-  mockOnMoved: vi.fn().mockResolvedValue({ unlisten: vi.fn().mockResolvedValue(undefined) }),
+  // The real `onMoved` resolves directly to the unlisten FUNCTION (unlike
+// `listen`, whose promise resolves to `{ unlisten }`); resolving to an
+// object makes the effect cleanup call a non-function.
+  mockOnMoved: vi.fn(() => Promise.resolve(vi.fn())),
   mockOpenDashboard: vi.fn().mockResolvedValue(undefined),
   mockPersistPosition: vi.fn().mockResolvedValue(undefined),
 }));

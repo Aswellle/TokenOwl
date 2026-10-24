@@ -2,7 +2,7 @@
 
 use crate::credentials::CredentialStore;
 use crate::domain::provider::{ProviderError, ProviderErrorKind};
-use crate::domain::state::{BackoffPolicy, RefreshState};
+use crate::domain::state::{BackoffPolicy, RefreshState, retry_after_delay};
 use crate::providers::builtin::openai::OpenAiCompatibleAdapter;
 use crate::storage::{LocalRepository, StorageError};
 
@@ -66,7 +66,15 @@ pub async fn refresh_account(
             // Failures BEFORE this one: storage increments its own counter,
             // so the pre-increment value is exactly what the policy expects.
             let prior_failures = state.consecutive_failures;
-            let delay = BackoffPolicy::default().delay_for_attempt(prior_failures);
+            // A provider's `Retry-After` (429) names the moment the rate
+            // window lifts, which beats our own guess when present; anything
+            // unparsable falls back to the exponential backoff.
+            let policy = BackoffPolicy::default();
+            let provider_wait = error
+                .retry_at
+                .as_deref()
+                .and_then(|value| retry_after_delay(value, started_at, policy.cap));
+            let delay = provider_wait.unwrap_or_else(|| policy.delay_for_attempt(prior_failures));
             repository.mark_refresh_failed(
                 account_id,
                 started_at,

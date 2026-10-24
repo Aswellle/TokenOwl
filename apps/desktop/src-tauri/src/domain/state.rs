@@ -264,6 +264,37 @@ impl BackoffPolicy {
     }
 }
 
+/// Parses a `Retry-After` value into a bounded delay.
+///
+/// Accepts the two legal forms — delta-seconds and an HTTP-date (RFC 7231)
+/// — and refuses everything else (zero, negative, garbage, or a date
+/// already in the past) by returning `None` so the caller falls back to the
+/// backoff policy. Whatever parses is clamped to `cap`: a hostile or
+/// misconfigured header cannot pin an account out for hours.
+pub fn retry_after_delay(value: &str, now: u64, cap: Duration) -> Option<Duration> {
+    let trimmed = value.trim();
+    if let Ok(seconds) = trimmed.parse::<u64>() {
+        if seconds == 0 {
+            return None;
+        }
+        return Some(Duration::from_secs(seconds).min(cap));
+    }
+    // HTTP dates are always GMT; parsing as a naive UTC timestamp matches
+    // the format exactly without dragging timezone machinery in.
+    if let Ok(datetime) =
+        chrono::NaiveDateTime::parse_from_str(trimmed, "%a, %d %b %Y %H:%M:%S GMT")
+    {
+        let until = datetime
+            .and_utc()
+            .timestamp()
+            .saturating_sub(i64::try_from(now).unwrap_or(0));
+        if until > 0 {
+            return Some(Duration::from_secs(u64::try_from(until).unwrap_or(u64::MAX)).min(cap));
+        }
+    }
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -379,6 +410,62 @@ mod tests {
             policy.delay(1, 1.0) > policy.delay(1, 0.0),
             "jitter must add spread"
         );
+    }
+
+    #[test]
+    fn retry_after_accepts_seconds_within_the_cap() {
+        let cap = Duration::from_secs(15 * 60);
+        assert_eq!(
+            retry_after_delay("30", 1_000, cap),
+            Some(Duration::from_secs(30))
+        );
+        assert_eq!(
+            retry_after_delay(" 120 ", 1_000, cap),
+            Some(Duration::from_secs(120))
+        );
+        // A hostile or misconfigured header cannot pin the account out
+        // beyond the policy cap.
+        assert_eq!(retry_after_delay("99999999", 1_000, cap), Some(cap));
+    }
+
+    #[test]
+    fn retry_after_rejects_unusable_values() {
+        let cap = Duration::from_secs(15 * 60);
+        for value in ["", "0", "-5", "soon", "1.5", "١٢"] {
+            assert_eq!(
+                retry_after_delay(value, 1_000, cap),
+                None,
+                "`{value}` must fall back to backoff"
+            );
+        }
+    }
+
+    #[test]
+    fn retry_after_accepts_future_http_dates_and_rejects_past_ones() {
+        let cap = Duration::from_secs(15 * 60);
+        let now = 1_700_000_000_u64;
+        let now_ts = i64::try_from(now).expect("test timestamp fits");
+        let future = chrono::DateTime::from_timestamp(now_ts + 120, 0)
+            .expect("future timestamp")
+            .format("%a, %d %b %Y %H:%M:%S GMT")
+            .to_string();
+        assert_eq!(
+            retry_after_delay(&future, now, cap),
+            Some(Duration::from_secs(120))
+        );
+        // A date already in the past means the wait is over — fall back to
+        // the backoff policy rather than treating it as zero-second success.
+        let past = chrono::DateTime::from_timestamp(now_ts - 600, 0)
+            .expect("past timestamp")
+            .format("%a, %d %b %Y %H:%M:%S GMT")
+            .to_string();
+        assert_eq!(retry_after_delay(&past, now, cap), None);
+        // Even a far-future date is capped.
+        let far = chrono::DateTime::from_timestamp(now_ts + 86_400, 0)
+            .expect("far timestamp")
+            .format("%a, %d %b %Y %H:%M:%S GMT")
+            .to_string();
+        assert_eq!(retry_after_delay(&far, now, cap), Some(cap));
     }
 
     #[test]

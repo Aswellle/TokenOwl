@@ -212,10 +212,14 @@ pub fn accounts_list(state: State<'_, Arc<AppRuntime>>) -> Result<Vec<AccountVie
 ///
 /// The form calls this before submitting so it can show the `docs/03` §12
 /// consent prompt. Classification lives in Rust because the webview has no
-/// network stack and must not grow one just to parse a host.
+/// network stack and must not grow one just to parse a host. DNS resolution
+/// is blocking, so it runs off the main thread via `spawn_blocking`.
 #[tauri::command]
-pub fn account_target_is_lan(base_url: String) -> bool {
-    resolves_to_lan(base_url.trim())
+pub async fn account_target_is_lan(base_url: String) -> bool {
+    let trimmed = base_url.trim().to_owned();
+    tauri::async_runtime::spawn_blocking(move || resolves_to_lan(&trimmed))
+        .await
+        .unwrap_or(false)
 }
 
 #[tauri::command]
@@ -873,7 +877,9 @@ struct ResolvedNewAccount {
 ///
 /// Loopback and link-local ranges are always local. Private ranges are
 /// detected numerically rather than by prefix matching, so `172.16.0.1` is
-/// private while `172.32.0.1` (public) is not.
+/// private while `172.32.0.1` (public) is not. IPv6 unique-local addresses
+/// (`fc00::/7`) and IPv4-mapped IPv6 addresses are classified by the same
+/// rules — the v6 form must not bypass the v4 classification.
 pub(crate) fn is_lan_host(host: &str) -> bool {
     let host = host.trim().trim_start_matches('[').trim_end_matches(']');
     if host.eq_ignore_ascii_case("localhost") || host.eq_ignore_ascii_case("localhost.localdomain")
@@ -887,22 +893,82 @@ pub(crate) fn is_lan_host(host: &str) -> bool {
     let Ok(address) = host.parse::<std::net::IpAddr>() else {
         return false;
     };
+    ip_is_lan(&address)
+}
+
+/// Numeric LAN classification of one address, shared by literal hosts and
+/// DNS answers so both sides follow identical rules.
+fn ip_is_lan(address: &std::net::IpAddr) -> bool {
     match address {
         std::net::IpAddr::V4(v4) => {
             v4.is_loopback() || v4.is_private() || v4.is_link_local() || v4.is_unspecified()
         }
         std::net::IpAddr::V6(v6) => {
-            v6.is_loopback() || v6.is_unspecified() || (v6.segments()[0] & 0xffc0) == 0xfe80
+            // `::ffff:a.b.c.d` carries an IPv4 address; classify by it so the
+            // mapped form cannot sidestep the IPv4 private-range rules.
+            if let Some(mapped) = v6.to_ipv4_mapped() {
+                return ip_is_lan(&std::net::IpAddr::V4(mapped));
+            }
+            v6.is_loopback()
+                || v6.is_unspecified()
+                // fe80::/10 link-local
+                || (v6.segments()[0] & 0xffc0) == 0xfe80
+                // fc00::/7 unique-local (fd00::/8 in practice)
+                || (v6.segments()[0] & 0xfe00) == 0xfc00
         }
     }
 }
 
+/// Whether a host is this machine only (loopback), not the wider LAN. Used
+/// for the plaintext-HTTP exception: `http` is tolerated for local
+/// development proxies, never for remote or LAN targets.
+fn is_loopback_host(host: &str) -> bool {
+    let host = host.trim().trim_start_matches('[').trim_end_matches(']');
+    if host.eq_ignore_ascii_case("localhost") || host.eq_ignore_ascii_case("localhost.localdomain")
+    {
+        return true;
+    }
+    match host.parse::<std::net::IpAddr>() {
+        Ok(std::net::IpAddr::V4(v4)) => v4.is_loopback(),
+        Ok(std::net::IpAddr::V6(v6)) => v6.is_loopback(),
+        Err(_) => false,
+    }
+}
+
+/// One private answer among the DNS results is enough to classify the name
+/// as LAN: split-horizon setups routinely mix public and private records.
+fn host_resolves_to_lan(addresses: &[std::net::IpAddr]) -> bool {
+    addresses.iter().any(ip_is_lan)
+}
+
 /// True when the resolved account would talk to the LAN or this machine.
+///
+/// Classification is layered: literal hosts are checked numerically, and a
+/// plain DNS name is resolved once so a public-looking name that points
+/// inside the network still triggers the consent prompt. This is a
+/// best-effort classification for the consent UX — not a connect-time
+/// guarantee against DNS rebinding (the resolver answer and the later
+/// connection are not pinned together); the transport's URL policy remains
+/// the enforcement layer.
 fn resolves_to_lan(base_url: &str) -> bool {
-    url::Url::parse(base_url)
+    use std::net::ToSocketAddrs as _;
+
+    let Some(host) = url::Url::parse(base_url)
         .ok()
-        .and_then(|parsed| parsed.host_str().map(is_lan_host))
-        .unwrap_or(false)
+        .and_then(|parsed| parsed.host_str().map(str::to_owned))
+    else {
+        return false;
+    };
+    if is_lan_host(&host) {
+        return true;
+    }
+    // `ToSocketAddrs` needs a port; only the addresses matter here, so the
+    // port is a placeholder and never dialed.
+    let host_for_lookup = host.trim_start_matches('[').trim_end_matches(']');
+    match (host_for_lookup, 0).to_socket_addrs() {
+        Ok(addresses) => host_resolves_to_lan(&addresses.map(|addr| addr.ip()).collect::<Vec<_>>()),
+        Err(_) => false,
+    }
 }
 
 fn resolve_new_account(
@@ -1002,6 +1068,22 @@ fn validate_user_base_url(base_url: &str) -> Result<String, CommandError> {
     if !parsed.username().is_empty() || parsed.password().is_some() {
         return Err(CommandError::InvalidInput(
             "base URL must not embed credentials".to_owned(),
+        ));
+    }
+    // The base URL is persisted and shown in logs and error paths; a query or
+    // fragment could carry a token into all of them. Endpoint paths belong in
+    // their own form fields.
+    if parsed.query().is_some() || parsed.fragment().is_some() {
+        return Err(CommandError::InvalidInput(
+            "base URL must not include a query or fragment".to_owned(),
+        ));
+    }
+    // Plaintext HTTP exposes the API key to everyone on the path. It stays
+    // available for loopback development proxies only; remote and LAN hosts
+    // must use https.
+    if parsed.scheme() == "http" && !is_loopback_host(parsed.host_str().unwrap_or_default()) {
+        return Err(CommandError::InvalidInput(
+            "plaintext http is only allowed for localhost; use https for this host".to_owned(),
         ));
     }
     // The gateway form prefills the manifest placeholder, so an unedited
@@ -1703,6 +1785,14 @@ mod tests {
             "172.31.255.254",
             "169.254.1.1",
             "fe80::1",
+            // IPv6 unique-local addresses (fc00::/7, e.g. fd00::/8) sit on a
+            // private network even though they are neither loopback nor
+            // link-local.
+            "fd12:3456:789a::1",
+            "fc00::1",
+            // IPv4-mapped IPv6 must not bypass the IPv4 classification.
+            "::ffff:192.168.1.10",
+            "::ffff:10.0.0.5",
         ] {
             assert!(is_lan_host(host), "`{host}` should count as LAN");
         }
@@ -1718,8 +1808,75 @@ mod tests {
             "172.15.255.255",
             "1.1.1.1",
             "2606:4700:4700::1111",
+            "::ffff:8.8.8.8",
         ] {
             assert!(!is_lan_host(host), "`{host}` should not count as LAN");
+        }
+    }
+
+    /// Resolution-level classification: one private address among the DNS
+    /// answers is enough — a public-looking name that points inside the LAN
+    /// must trigger the consent prompt (R-16/R-17).
+    #[test]
+    fn resolved_addresses_are_lan_when_any_answer_is_private() {
+        use std::net::IpAddr;
+        let parse = |values: &[&str]| -> Vec<IpAddr> {
+            values
+                .iter()
+                .map(|value| value.parse().expect("valid address"))
+                .collect()
+        };
+        assert!(host_resolves_to_lan(&parse(&[
+            "203.0.113.10",
+            "192.168.1.20"
+        ])));
+        assert!(host_resolves_to_lan(&parse(&["fdab::1", "2001:db8::9"])));
+        assert!(!host_resolves_to_lan(&parse(&["203.0.113.10", "8.8.8.8"])));
+        assert!(!host_resolves_to_lan(&[]));
+    }
+
+    /// Plaintext HTTP is loopback-only: anything else would send the API key
+    /// unencrypted (R-13).
+    #[test]
+    fn plaintext_http_is_rejected_outside_loopback() {
+        for base_url in [
+            "http://203.0.113.9/v1",
+            "http://192.168.1.5/v1",
+            "http://gateway.internal.test/v1",
+            "http://api.openai.com/v1",
+        ] {
+            assert!(
+                validate_user_base_url(base_url).is_err(),
+                "`{base_url}` must be rejected: plaintext HTTP off loopback"
+            );
+        }
+        for base_url in [
+            "http://localhost:4000/v1",
+            "http://127.0.0.1:4000/v1",
+            "http://[::1]:9000/v1",
+            "https://gateway.internal.test/v1",
+            "https://api.openai.com/v1",
+        ] {
+            assert!(
+                validate_user_base_url(base_url).is_ok(),
+                "`{base_url}` must stay usable (loopback http or https)"
+            );
+        }
+    }
+
+    /// A base URL is persisted to `SQLite`; query or fragment must never ride
+    /// along into storage or logs (R-18-adjacent).
+    #[test]
+    fn base_urls_with_query_or_fragment_are_rejected() {
+        for base_url in [
+            "https://gateway.test/v1?token=secret",
+            "https://gateway.test/v1#section",
+            "https://gateway.test/v1?a=1&b=2",
+        ] {
+            assert!(
+                validate_user_base_url(base_url).is_err(),
+                "`{base_url}` must be rejected: no query or fragment on base URLs"
+            );
         }
     }
 

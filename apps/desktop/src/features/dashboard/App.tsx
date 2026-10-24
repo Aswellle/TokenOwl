@@ -335,13 +335,19 @@ function AccountRow({
           >
             <p className="confirm__text">{copy.removeConfirm(account.label)}</p>
             <div className="confirm__actions">
-              <button className="btn btn--quiet" type="button" onClick={() => setConfirming(false)}>
+              {/* Focus lands on the non-destructive action first: a stray
+                  Enter must cancel the removal, not confirm it. */}
+              <button
+                className="btn btn--quiet"
+                type="button"
+                autoFocus
+                onClick={() => setConfirming(false)}
+              >
                 {copy.actions.cancel}
               </button>
               <button
                 className="btn btn--danger"
                 type="button"
-                autoFocus
                 onClick={() => {
                   setConfirming(false);
                   onDelete();

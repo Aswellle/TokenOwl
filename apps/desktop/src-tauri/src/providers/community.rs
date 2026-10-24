@@ -30,25 +30,58 @@ pub struct CommunityScan {
     pub skipped: Vec<String>,
 }
 
+/// Upper bound on manifest files read in one scan. A directory stuffed with
+/// packs must not slow startup or grow the skip list without limit.
+const MAX_MANIFEST_FILES: usize = 32;
+/// Upper bound on one manifest file, checked before reading. Legitimate
+/// packs are a few KiB; anything near this size is data, not configuration.
+const MAX_MANIFEST_BYTES: u64 = 256 * 1024;
+/// Upper bound on reported skip reasons, so a directory full of broken packs
+/// stays a summary instead of a wall of text in the UI.
+const MAX_SKIPPED_REASONS: usize = 8;
+
 /// Scans `directory` for `*.yaml` / `*.yml` manifests and validates each.
-/// Missing directories are not an error — community packs are optional.
+/// Missing directories are not an error — community packs are optional — but
+/// an unreadable directory is reported instead of silently swallowed.
 pub fn scan_community_manifests(directory: &Path) -> CommunityScan {
     let mut scan = CommunityScan::default();
-    let Ok(entries) = std::fs::read_dir(directory) else {
-        return scan;
+    let entries = match std::fs::read_dir(directory) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return scan,
+        Err(error) => {
+            scan.skipped.push(format!(
+                "{}: directory unreadable ({error})",
+                directory.display()
+            ));
+            return scan;
+        }
     };
-
-    let mut files: Vec<PathBuf> = entries
-        .flatten()
-        .map(|entry| entry.path())
-        .filter(|path| {
-            matches!(
-                path.extension().and_then(|ext| ext.to_str()),
-                Some("yaml" | "yml")
-            )
-        })
-        .collect();
+    let mut files: Vec<PathBuf> = Vec::new();
+    for entry in entries {
+        match entry {
+            Ok(entry) => {
+                let path = entry.path();
+                if matches!(
+                    path.extension().and_then(|ext| ext.to_str()),
+                    Some("yaml" | "yml")
+                ) {
+                    files.push(path);
+                }
+            }
+            Err(error) => {
+                scan.skipped
+                    .push(format!("directory entry unreadable ({error})"));
+            }
+        }
+    }
     files.sort();
+    if files.len() > MAX_MANIFEST_FILES {
+        let overflow = files.len() - MAX_MANIFEST_FILES;
+        files.truncate(MAX_MANIFEST_FILES);
+        scan.skipped.push(format!(
+            "{overflow} more files skipped beyond the {MAX_MANIFEST_FILES}-file pack limit"
+        ));
+    }
 
     for path in files {
         let name = path
@@ -61,11 +94,33 @@ pub fn scan_community_manifests(directory: &Path) -> CommunityScan {
             Err(reason) => scan.skipped.push(format!("{name}: {reason}")),
         }
     }
+    if scan.skipped.len() > MAX_SKIPPED_REASONS {
+        // Truncate to one below the cap so the summary line itself stays
+        // within the bound.
+        let overflow = scan.skipped.len() - (MAX_SKIPPED_REASONS - 1);
+        scan.skipped.truncate(MAX_SKIPPED_REASONS - 1);
+        scan.skipped
+            .push(format!("{overflow} more files skipped (details omitted)"));
+    }
     scan
 }
 
 /// Loads and validates one community manifest file.
 fn load_community_manifest(path: &Path) -> Result<CommunityManifest, String> {
+    // `symlink_metadata` does not follow links: a symlink wearing a `.yaml`
+    // name is not a regular file and must be refused rather than followed to
+    // an arbitrary target.
+    let metadata =
+        std::fs::symlink_metadata(path).map_err(|error| format!("unreadable ({error})"))?;
+    if !metadata.is_file() {
+        return Err("not a regular file, skipped".to_owned());
+    }
+    if metadata.len() > MAX_MANIFEST_BYTES {
+        return Err(format!(
+            "file exceeds the {} KiB manifest limit",
+            MAX_MANIFEST_BYTES / 1024
+        ));
+    }
     let yaml = std::fs::read_to_string(path).map_err(|error| format!("unreadable ({error})"))?;
     let manifest = ProviderManifest::from_yaml(&yaml)
         .map_err(|error| format!("invalid manifest ({error})"))?;
@@ -229,6 +284,76 @@ apiFormat: openai-compatible
         assert_eq!(deduped.len(), 1);
         assert_eq!(deduped[0].source_path, first);
         assert_ne!(deduped[0].source_path, second);
+    }
+
+    /// A single oversized manifest must be skipped by size, never read into
+    /// memory wholesale.
+    #[test]
+    fn oversized_manifest_is_skipped_by_size() {
+        let dir = std::env::temp_dir().join("tokenowl-community-oversize");
+        let _ = std::fs::remove_dir_all(&dir);
+        let mut pack = String::from(
+            "# padding\nid: big\nversion: 1\nname: Big\nauth: [api_key]\nbaseUrl: https://big.test\n",
+        );
+        while pack.len() < 300 * 1024 {
+            pack.push_str(
+                "# aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n",
+            );
+        }
+        write_pack(&dir, "big.yaml", &pack);
+        let scan = scan_community_manifests(&dir);
+        assert_eq!(scan.loaded.len(), 0);
+        assert!(
+            scan.skipped[0].contains("exceeds"),
+            "size limit reason expected, got: {}",
+            scan.skipped[0]
+        );
+    }
+
+    /// Something that is not a regular file (a directory wearing a `.yaml`
+    /// name, or a symlink) must be refused, not read.
+    #[test]
+    fn non_regular_files_are_refused() {
+        let dir = std::env::temp_dir().join("tokenowl-community-nonfile");
+        let _ = std::fs::remove_dir_all(&dir);
+        write_pack(&dir, "good.yaml", VALID_PACK);
+        std::fs::create_dir_all(dir.join("trap.yaml")).expect("create trap dir");
+        let scan = scan_community_manifests(&dir);
+        assert_eq!(scan.loaded.len(), 1, "the good pack still loads");
+        assert!(
+            scan.skipped.iter().any(|reason| reason.contains("trap.yaml") && reason.contains("not a regular file")),
+            "trap must be refused as non-regular, got {:?}",
+            scan.skipped
+        );
+    }
+
+    /// The scan cost is bounded: beyond the file cap the rest is not even
+    /// read, and the skip list itself is truncated with a summary line.
+    #[test]
+    fn file_count_is_capped_and_skip_list_is_truncated() {
+        let dir = std::env::temp_dir().join("tokenowl-community-many");
+        let _ = std::fs::remove_dir_all(&dir);
+        for index in 0..(MAX_MANIFEST_FILES + 4) {
+            write_pack(&dir, &format!("m{index:03}.yaml"), "id: [unclosed");
+        }
+        let scan = scan_community_manifests(&dir);
+        assert_eq!(
+            scan.loaded.len(),
+            0,
+            "every file here is invalid; none may load"
+        );
+        assert!(
+            scan.skipped.len() <= MAX_SKIPPED_REASONS,
+            "skip list must be truncated, got {} entries",
+            scan.skipped.len()
+        );
+        assert!(
+            scan.skipped
+                .iter()
+                .any(|reason| reason.contains("more files skipped")),
+            "truncation must be summarized, got {:?}",
+            scan.skipped
+        );
     }
 
     #[test]

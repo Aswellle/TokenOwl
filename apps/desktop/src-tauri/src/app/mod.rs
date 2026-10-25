@@ -646,6 +646,17 @@ pub fn run() {
             runtime.run_startup_cleanup();
             app.manage(Arc::new(runtime));
             app.manage(Arc::new(Mutex::new(RuntimeState::default())));
+            // tao registers only a 16px ICON_SMALL from the embedded resource
+            // and never an ICON_BIG, so the taskbar (and Alt-Tab) upscale the
+            // 16px bitmap and render the app icon blurry on any scaled display.
+            // Handing every window a high-resolution icon makes each shell
+            // surface downscale from real pixels instead.
+            let window_icon = tauri::include_image!("icons/128x128@2x.png");
+            for label in ["main", "bubble"] {
+                if let Some(window) = app.get_webview_window(label) {
+                    let _ = window.set_icon(window_icon.clone());
+                }
+            }
             setup_tray(app)?;
             setup_shortcuts(app.handle());
             start_background_tasks(app.handle());

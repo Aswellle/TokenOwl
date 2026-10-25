@@ -181,10 +181,17 @@ body[data-window="browser"] .window {
 body[data-window="bubble"] {
   margin: 0;
   height: 100%;
+  /* The 56px window is narrower than the 320px body floor and the empty-state
+     owl paints past the 48px button, so both would raise scrollbars that read
+     as a browser frame around the circle. Contain both; the dashboard keeps
+     its own scrolling. */
+  min-width: 0;
+  overflow: hidden;
 }
 
 html:has(body[data-window="bubble"]) {
   height: 100%;
+  overflow: hidden;
 }
 
 body[data-window="bubble"][data-preview] {
@@ -1370,6 +1377,10 @@ button:disabled {
     0 2px 8px rgba(0, 0, 0, 0.42),
     0 0 18px -6px color-mix(in srgb, var(--bubble-accent) 80%, transparent);
   transition: transform 160ms var(--ease-out), box-shadow 160ms var(--ease-out);
+  /* Clip the scaled empty-state owl to the circle: its transform extends
+     beyond the button box, which would otherwise widen the window's
+     scrollable area. border-radius shapes the clip. */
+  overflow: hidden;
   touch-action: none;
 }
 

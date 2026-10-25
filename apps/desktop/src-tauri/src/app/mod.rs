@@ -457,9 +457,13 @@ fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
     let quit = MenuItemBuilder::with_id("quit", "Quit TokenOwl").build(app)?;
     let menu = MenuBuilder::new(app).items(&[&open, &quit]).build()?;
 
-    TrayIconBuilder::new()
+    let mut tray = TrayIconBuilder::new()
         .menu(&menu)
         .tooltip("TokenOwl")
+        // Left click opens the dashboard through the handler below; popping
+        // the menu over it (the builder's default) would fight that action.
+        // Right click keeps the menu.
+        .show_menu_on_left_click(false)
         .on_menu_event(
             |app: &AppHandle, event: MenuEvent| match event.id().as_ref() {
                 "open" => {
@@ -478,8 +482,13 @@ fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
             {
                 let _ = open_dashboard(tray.app_handle().clone());
             }
-        })
-        .build(app)?;
+        });
+    // Without an icon the tray entry renders as an empty slot on Windows and
+    // is effectively invisible; the app icon is the tray icon.
+    if let Some(icon) = app.default_window_icon().cloned() {
+        tray = tray.icon(icon);
+    }
+    tray.build(app)?;
 
     Ok(())
 }

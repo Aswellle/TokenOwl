@@ -2,6 +2,7 @@
 use crate::domain::provider::{OpenAiCompatibleConfig, ProviderCapabilities, ProviderRegion};
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
+use url::Url;
 
 /// YAML manifest for OpenAI-compatible providers.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -171,6 +172,41 @@ impl ProviderManifest {
         Ok(())
     }
 
+    /// The complete registration contract, checked in one place at every
+    /// load boundary: schema bounds, transport policy, wire protocol,
+    /// endpoint paths, auth header name, and base URL. A manifest that fails
+    /// here never reaches the provider picker, so a malformed pack cannot
+    /// survive until account creation or the first request to fail.
+    ///
+    /// Errors name the file's field and never echo secret material (the
+    /// header *value* is the secret and is not part of a manifest).
+    pub fn validate_for_registration(&self) -> Result<(), String> {
+        self.validate_schema_bounds()?;
+        if let Some(reason) = self.unsupported_network_request() {
+            return Err(reason);
+        }
+        let format = self.api_format.as_deref().unwrap_or("openai-compatible");
+        if !matches!(format, "openai-compatible" | "anthropic" | "google-ai") {
+            return Err(format!("unsupported wire protocol `{format}`"));
+        }
+        for (name, path) in [
+            ("endpoints.models", self.endpoints.models.as_deref()),
+            ("endpoints.quota", self.endpoints.quota.as_deref()),
+            ("endpoints.usage", self.endpoints.usage.as_deref()),
+            ("endpoints.balance", self.endpoints.balance.as_deref()),
+            ("endpoints.reset", self.endpoints.reset.as_deref()),
+        ] {
+            if let Some(path) = path {
+                crate::domain::provider::validate_relative_endpoint_path(name, path)?;
+            }
+        }
+        if let Some(header) = self.api_key_header.as_deref() {
+            crate::domain::provider::validate_header_name("apiKeyHeader", header)?;
+        }
+        validate_registration_base_url(&self.base_url)?;
+        Ok(())
+    }
+
     /// Convert the manifest to an `OpenAiCompatibleConfig`.
     pub fn to_config(&self) -> OpenAiCompatibleConfig {
         let region = self
@@ -245,6 +281,33 @@ impl ProviderManifest {
     }
 }
 
+/// A registered manifest's base URL must be an absolute `https` URL with a
+/// host and no embedded credentials.
+///
+/// Unlike a hand-typed account, a manifest arrives as data from outside the
+/// running app, so a plaintext or scheme-less URL would silently downgrade
+/// the credential-bearing request path. Gateways that legitimately need a
+/// user-supplied host (`customBaseUrl`) are built-ins: their URL comes from
+/// the account form, not from the data file.
+fn validate_registration_base_url(base_url: &str) -> Result<(), String> {
+    let parsed = Url::parse(base_url.trim())
+        .map_err(|error| format!("base URL is not a valid absolute URL ({error})"))?;
+    if parsed.scheme() != "https" {
+        return Err(format!(
+            "base URL must use https (found `{}`)",
+            parsed.scheme()
+        ));
+    }
+    if parsed.host_str().is_none() {
+        return Err("base URL has no host".to_owned());
+    }
+    if !parsed.username().is_empty() || parsed.password().is_some() {
+        // The base URL is persisted to SQLite, which must never hold secrets.
+        return Err("base URL must not embed credentials".to_owned());
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -273,6 +336,94 @@ capability:
   targetWindows: [monthly, custom]
   priority: P0
 ";
+
+    /// The complete registration contract accepts the OpenAI-shaped fixture.
+    #[test]
+    fn registration_validation_accepts_a_well_formed_manifest() {
+        let manifest = ProviderManifest::from_yaml(OPENAI_MANIFEST).expect("valid YAML");
+        assert_eq!(manifest.validate_for_registration(), Ok(()));
+    }
+
+    /// Every bundled manifest must clear the full registration contract —
+    /// the tightened rules are worthless if the shipped set cannot.
+    #[test]
+    fn every_builtin_manifest_passes_registration_validation() {
+        assert!(
+            crate::providers::builtin::BUILTIN_MANIFESTS.len() >= 20,
+            "the built-in set should be present, found {}",
+            crate::providers::builtin::BUILTIN_MANIFESTS.len()
+        );
+        for (id, yaml) in crate::providers::builtin::BUILTIN_MANIFESTS {
+            let manifest = ProviderManifest::from_yaml(yaml)
+                .unwrap_or_else(|error| panic!("builtin {id} must parse: {error}"));
+            assert_eq!(
+                manifest.validate_for_registration(),
+                Ok(()),
+                "builtin {id} must pass registration validation"
+            );
+        }
+    }
+
+    /// Endpoint paths that are not honest relative paths are refused at the
+    /// registration boundary, with the offending field named.
+    #[test]
+    fn registration_validation_rejects_malformed_endpoint_paths() {
+        let base = OPENAI_MANIFEST;
+        let cases: &[(&str, &str, &str)] = &[
+            (
+                "absolute-url",
+                "https://evil.test/v1/usage",
+                "relative path",
+            ),
+            ("protocol-relative", "//evil.test/usage", "relative path"),
+            ("backslash", r"/v1\usage", "backslashes"),
+            ("query", "/v1/usage?key=1", "query or fragment"),
+            ("fragment", "/v1/usage#frag", "query or fragment"),
+            ("traversal", "/v1/../admin", "traverse"),
+        ];
+        for (name, endpoint, expected) in cases {
+            let yaml = base.replace("/v1/usage", endpoint);
+            let manifest =
+                ProviderManifest::from_yaml(&yaml).expect("endpoint text must still parse");
+            let error = manifest
+                .validate_for_registration()
+                .expect_err(&format!("{name} must be rejected"));
+            assert!(
+                error.contains("endpoints.") && error.contains(expected),
+                "{name}: unexpected reason `{error}`"
+            );
+        }
+    }
+
+    /// A header name with whitespace is refused; valid built-in style names
+    /// stay accepted.
+    #[test]
+    fn registration_validation_rejects_bad_header_names() {
+        let manifest = ProviderManifest::from_yaml(
+            &OPENAI_MANIFEST.replace("apiKeyHeader: Authorization", "apiKeyHeader: Bad Header"),
+        )
+        .expect("valid YAML");
+        let error = manifest
+            .validate_for_registration()
+            .expect_err("space-bearing header must be rejected");
+        assert!(error.contains("apiKeyHeader"), "got `{error}`");
+    }
+
+    /// An unknown wire protocol is refused at registration, not silently
+    /// registered to fail later.
+    #[test]
+    fn registration_validation_rejects_unknown_protocols() {
+        let manifest = ProviderManifest::from_yaml(&OPENAI_MANIFEST.replace(
+            "region: global",
+            "region: global
+apiFormat: soap",
+        ))
+        .expect("valid YAML");
+        let error = manifest
+            .validate_for_registration()
+            .expect_err("unknown protocol must be rejected");
+        assert!(error.contains("unsupported wire protocol"), "got `{error}`");
+    }
 
     #[test]
     fn parse_openai_manifest() {

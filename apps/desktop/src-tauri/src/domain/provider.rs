@@ -499,21 +499,17 @@ impl OpenAiCompatibleConfig {
                 "provider id and display name are required",
             ));
         }
-        for endpoint in [
-            self.models_endpoint.as_deref(),
-            self.balance_endpoint.as_deref(),
-            self.usage_endpoint.as_deref(),
-            self.quota_endpoint.as_deref(),
-            self.reset_endpoint.as_deref(),
-        ]
-        .into_iter()
-        .flatten()
-        {
-            if !endpoint.starts_with('/') || endpoint.starts_with("//") {
-                return Err(ProviderError::new(
-                    ProviderErrorKind::ConfigInvalid,
-                    "endpoint paths must be relative to base_url",
-                ));
+        for (field, endpoint) in [
+            ("models", self.models_endpoint.as_deref()),
+            ("balance", self.balance_endpoint.as_deref()),
+            ("usage", self.usage_endpoint.as_deref()),
+            ("quota", self.quota_endpoint.as_deref()),
+            ("reset", self.reset_endpoint.as_deref()),
+        ] {
+            if let Some(endpoint) = endpoint {
+                return validate_relative_endpoint_path(field, endpoint).map_err(|reason| {
+                    ProviderError::new(ProviderErrorKind::ConfigInvalid, reason)
+                });
             }
         }
         Ok(())
@@ -551,6 +547,55 @@ pub type OpenAiCompatibleProviderConfig = OpenAiCompatibleConfig;
 pub type OpenAICompatibleProviderConfig = OpenAiCompatibleConfig;
 pub type OpenAiCompatibleProviderDescriptor = OpenAiCompatibleDescriptor;
 pub type OpenAICompatibleProviderDescriptor = OpenAiCompatibleDescriptor;
+
+/// The one set of relative-endpoint rules, shared by manifest registration
+/// and saved account configs so the two boundaries can never disagree.
+///
+/// A valid endpoint is a non-empty relative path rooted at the base URL:
+/// it must start with a single `/`, and must not escape upward (`..`),
+/// hide an absolute target (`//host`), smuggle a second URL component
+/// (backslash, query, or fragment).
+pub(crate) fn validate_relative_endpoint_path(field: &str, value: &str) -> Result<(), String> {
+    let value = value.trim();
+    if value.is_empty() {
+        return Err(format!("{field} must not be empty"));
+    }
+    if !value.starts_with('/') || value.starts_with("//") {
+        return Err(format!(
+            "{field} must be a relative path such as /usage (found `{value}`)"
+        ));
+    }
+    if value.contains('\\') {
+        return Err(format!("{field} must not contain backslashes"));
+    }
+    if value.contains('?') || value.contains('#') {
+        return Err(format!("{field} must not contain a query or fragment"));
+    }
+    if value.split('/').any(|segment| segment == "..") {
+        return Err(format!(
+            "{field} must not traverse outside the base URL (`..`)"
+        ));
+    }
+    Ok(())
+}
+
+/// Header-name rules shared by manifest registration: a bare token with no
+/// whitespace, colon, or control characters. The header VALUE is the
+/// secret and never passes through here.
+pub(crate) fn validate_header_name(field: &str, value: &str) -> Result<(), String> {
+    let valid = !value.is_empty()
+        && value.len() <= 128
+        && value
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'));
+    if valid {
+        Ok(())
+    } else {
+        Err(format!(
+            "{field} must be 1-128 header-name characters (letters, digits, `-` `_` `.`)"
+        ))
+    }
+}
 
 /// A transport-neutral response passed to a provider parser.
 ///

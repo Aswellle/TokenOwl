@@ -13,7 +13,6 @@
 
 use crate::providers::manifest::ProviderManifest;
 use std::path::{Path, PathBuf};
-use url::Url;
 
 /// One community manifest, validated and ready to register.
 #[derive(Debug, Clone)]
@@ -124,6 +123,8 @@ fn load_community_manifest(path: &Path) -> Result<CommunityManifest, String> {
     let yaml = std::fs::read_to_string(path).map_err(|error| format!("unreadable ({error})"))?;
     let manifest = ProviderManifest::from_yaml(&yaml)
         .map_err(|error| format!("invalid manifest ({error})"))?;
+    // Community packs are limited to the one wire protocol a data file can
+    // safely request; the other adapters exist only for audited built-ins.
     let format = manifest
         .api_format
         .as_deref()
@@ -142,44 +143,15 @@ fn load_community_manifest(path: &Path) -> Result<CommunityManifest, String> {
             manifest.id
         ));
     }
-    // The shared transport denies redirects unconditionally; a pack asking to
-    // follow them is rejected with a clear reason rather than registering
-    // with different network behavior than it declares.
-    if let Some(reason) = manifest.unsupported_network_request() {
-        return Err(reason);
-    }
-    manifest.validate_schema_bounds()?;
-    validate_base_url(&manifest.base_url)?;
+    // The full registration contract — schema bounds, transport policy,
+    // endpoint paths, header names, base URL — in one check, so a malformed
+    // pack is skipped here instead of surfacing at account creation or the
+    // first request.
+    manifest.validate_for_registration()?;
     Ok(CommunityManifest {
         manifest,
         source_path: path.to_path_buf(),
     })
-}
-
-/// Community packs must declare an absolute `https` base URL.
-///
-/// Unlike a hand-typed account, a pack arrives as a file from outside the
-/// application, so a plaintext or scheme-less URL would silently downgrade
-/// the credential-bearing request path. Gateways that legitimately need a
-/// user-supplied host (`customBaseUrl`) are built-ins: their URL comes from
-/// the account form, not from the data file.
-fn validate_base_url(base_url: &str) -> Result<(), String> {
-    let parsed = Url::parse(base_url.trim())
-        .map_err(|error| format!("base URL is not a valid absolute URL ({error})"))?;
-    if parsed.scheme() != "https" {
-        return Err(format!(
-            "base URL must use https (found `{}`)",
-            parsed.scheme()
-        ));
-    }
-    if parsed.host_str().is_none() {
-        return Err("base URL has no host".to_owned());
-    }
-    if !parsed.username().is_empty() || parsed.password().is_some() {
-        // The base URL is persisted to SQLite, which must never hold secrets.
-        return Err("base URL must not embed credentials".to_owned());
-    }
-    Ok(())
 }
 
 /// Deduplicates community manifests by id and against the built-in set.

@@ -1469,15 +1469,34 @@ fn validate_user_base_url(base_url: &str) -> Result<String, CommandError> {
     Ok(trimmed.to_owned())
 }
 
+/// Unpredictable, collision-free account identifier.
+///
+/// The wall clock is not a uniqueness source: two concurrent creates inside
+/// the same millisecond used to produce identical ids — and therefore
+/// identical provider ids and credential references, racing each other in
+/// the keyring and the database. A nanoid gives every creation its own
+/// namespace without depending on timing.
+fn generate_account_id() -> String {
+    format!("account-{}", nanoid::nanoid!(12))
+}
+
+/// The three names a new account registers under — the account id and the
+/// provider id and credential reference derived from it, so they cannot
+/// drift apart.
+fn new_account_identity(provider_prefix: &str) -> (String, String, String) {
+    let account_id = generate_account_id();
+    let provider_id = format!("{provider_prefix}:{account_id}");
+    let credential_ref = format!("account/{account_id}");
+    (account_id, provider_id, credential_ref)
+}
+
 fn persist_new_account(
     state: &AppRuntime,
     label: &str,
     resolved: &ResolvedNewAccount,
     api_key: &str,
 ) -> Result<AccountMetadata, CommandError> {
-    let account_id = format!("account-{}", unix_millis());
-    let provider_id = format!("{}:{account_id}", resolved.provider_prefix);
-    let credential_ref = format!("account/{account_id}");
+    let (account_id, provider_id, credential_ref) = new_account_identity(&resolved.provider_prefix);
     let mut config = OpenAiCompatibleConfig::new(
         provider_id,
         resolved.display_name.clone(),
@@ -1711,12 +1730,6 @@ fn unix_seconds() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(0, |duration| duration.as_secs())
-}
-
-fn unix_millis() -> u128 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |duration| duration.as_millis())
 }
 
 #[cfg(test)]
@@ -2368,6 +2381,48 @@ mod tests {
         clone.release("account-a");
         assert!(gate.try_acquire("account-a"));
         assert!(!gate.try_acquire("account-a"));
+    }
+
+    /// Rapid successive creations must never collide: the wall clock is not
+    /// a uniqueness source (two creates inside one millisecond used to share
+    /// an id, a provider id, and a credential reference). A regression back
+    /// to a millisecond timestamp fails this test almost immediately — a
+    /// tight loop of ten thousand calls spans only a few dozen
+    /// milliseconds.
+    #[test]
+    fn rapid_account_id_generation_never_collides() {
+        let count = 10_000;
+        let mut ids = std::collections::HashSet::with_capacity(count);
+        let mut provider_ids = std::collections::HashSet::with_capacity(count);
+        let mut credential_refs = std::collections::HashSet::with_capacity(count);
+        for _ in 0..count {
+            let (account_id, provider_id, credential_ref) = new_account_identity("gateway");
+            assert!(
+                ids.insert(account_id.clone()),
+                "duplicate account id {account_id}"
+            );
+            assert!(
+                provider_ids.insert(provider_id.clone()),
+                "duplicate provider id {provider_id}"
+            );
+            assert!(
+                credential_refs.insert(credential_ref.clone()),
+                "duplicate credential reference {credential_ref}"
+            );
+            // All three names derive from the one id, so they cannot drift.
+            assert!(provider_id.ends_with(&account_id));
+            assert_eq!(credential_ref, format!("account/{account_id}"));
+            // The id is opaque and secret-free by construction: a fixed
+            // prefix plus nanoid's `[A-Za-z0-9_-]` alphabet.
+            let local = account_id.strip_prefix("account-").expect("prefix");
+            assert!(
+                !local.is_empty()
+                    && local
+                        .chars()
+                        .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_'),
+                "id `{account_id}` left the nanoid alphabet"
+            );
+        }
     }
 
     #[test]

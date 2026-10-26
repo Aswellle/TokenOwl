@@ -514,6 +514,52 @@ pub(crate) fn record_pending_cleanup(
     repository.set_setting(CLEANUP_SETTING_KEY, &value)
 }
 
+/// Rolls a just-written credential back after its account could not be
+/// persisted (the create path's compensation half).
+///
+/// A successful delete ends the lifecycle. A failed delete is recorded in
+/// the persistent cleanup queue when a repository is available, and only
+/// logged — with the reference, the failed stage, and a stable error code,
+/// never any secret — when it is not. Logging "deleted" here without proof
+/// would orphan the secret silently; the queue is what makes the startup
+/// sweep able to finish the job.
+///
+/// The delete operation is injected so tests can exercise every outcome
+/// without touching a real OS credential store.
+fn compensate_credential_failure(
+    delete: impl FnOnce(&str) -> Result<(), crate::credentials::CredentialError>,
+    repository: Option<&LocalRepository>,
+    credential_ref: &str,
+    stage: &'static str,
+) {
+    if let Err(error) = delete(credential_ref) {
+        let code = cleanup_error_code(&error);
+        match repository {
+            Some(repository) => {
+                if let Err(record_error) =
+                    record_pending_cleanup(repository, credential_ref, code, unix_seconds())
+                {
+                    tracing::warn!(
+                        reference = %credential_ref,
+                        stage,
+                        code,
+                        record_error = %record_error,
+                        "credential rollback delete failed and the cleanup queue rejected the entry"
+                    );
+                }
+            }
+            None => {
+                tracing::warn!(
+                    reference = %credential_ref,
+                    stage,
+                    code,
+                    "credential rollback delete failed and no writable storage exists to queue it"
+                );
+            }
+        }
+    }
+}
+
 fn load_pending_cleanups(
     repository: &LocalRepository,
 ) -> Result<Vec<PendingCredentialCleanup>, StorageError> {
@@ -1514,17 +1560,26 @@ fn persist_new_account(
     config.auth_method = AuthMethod::ApiKey;
     config.validate()?;
     state.credentials.set(&credential_ref, api_key)?;
+    // From here on the secret exists in the OS store, so every failure path
+    // must attempt a rollback and, when the rollback itself fails, leave a
+    // durable trace the startup sweep can act on.
+    let rollback = |reference: &str| state.credentials.delete(reference);
     let repository = match state.repository() {
         Ok(repository) => repository,
         Err(error) => {
-            // The secret was just written; without this compensation a failed
-            // database open would orphan it in the OS store with no record.
-            let _ = state.credentials.delete(&credential_ref);
+            // Without a database there is nowhere to queue a failed delete;
+            // the limitation is logged, not claimed as cleaned.
+            compensate_credential_failure(rollback, None, &credential_ref, "repository_open");
             return Err(error);
         }
     };
     if let Err(error) = repository.upsert_provider(&config, unix_seconds()) {
-        let _ = state.credentials.delete(&credential_ref);
+        compensate_credential_failure(
+            rollback,
+            Some(&repository),
+            &credential_ref,
+            "provider_upsert",
+        );
         return Err(CommandError::Storage(error));
     }
     let account = AccountMetadata::from_auth_input(
@@ -1532,15 +1587,18 @@ fn persist_new_account(
         config.id.clone(),
         label.to_owned(),
         "api_key",
-        Some(credential_ref),
+        Some(credential_ref.clone()),
         HashMap::new(),
         true,
         None,
     );
     if let Err(error) = repository.upsert_account(&account, unix_seconds()) {
-        if let Some(reference) = account.credential_ref.as_deref() {
-            let _ = state.credentials.delete(reference);
-        }
+        compensate_credential_failure(
+            rollback,
+            Some(&repository),
+            &credential_ref,
+            "account_upsert",
+        );
         return Err(CommandError::Storage(error));
     }
     Ok(account)
@@ -2423,6 +2481,70 @@ mod tests {
                 "id `{account_id}` left the nanoid alphabet"
             );
         }
+    }
+
+    /// Create-path compensation: when the rollback delete fails and storage
+    /// is available, the reference lands in the durable queue with a stable
+    /// error code — and never any secret material.
+    #[test]
+    fn failed_create_rollback_delete_is_queued_when_storage_exists() {
+        use crate::credentials::CredentialError;
+        let repository = LocalRepository::open_in_memory().expect("in-memory repository");
+        let secret = "sk-synthetic-compensation-key";
+        compensate_credential_failure(
+            |_reference| Err(CredentialError::StoreUnavailable),
+            Some(&repository),
+            "account/orphaned",
+            "provider_upsert",
+        );
+        let queue = load_pending_cleanups(&repository).expect("load queue");
+        assert_eq!(queue.len(), 1);
+        assert_eq!(queue[0].credential_ref, "account/orphaned");
+        assert_eq!(queue[0].error_code, "StoreUnavailable");
+        // The queue payload is reference + stable code + timestamp only.
+        let raw = repository
+            .get_setting(CLEANUP_SETTING_KEY)
+            .expect("read setting")
+            .expect("present");
+        let text = raw.to_string();
+        assert!(
+            !text.contains(secret),
+            "secret leaked into the cleanup queue"
+        );
+        assert!(!text.contains("StoreUnavailable("), "raw error text leaked");
+    }
+
+    /// A successful rollback delete leaves no queue entry behind.
+    #[test]
+    fn successful_create_rollback_does_not_queue() {
+        let repository = LocalRepository::open_in_memory().expect("in-memory repository");
+        compensate_credential_failure(
+            |_reference| Ok(()),
+            Some(&repository),
+            "account/cleaned",
+            "account_upsert",
+        );
+        let queue = load_pending_cleanups(&repository).expect("load queue");
+        assert!(queue.is_empty(), "a completed rollback must not be queued");
+    }
+
+    /// When the repository itself is unavailable the failed delete cannot be
+    /// persisted; the compensation must not panic and must not pretend the
+    /// credential was removed (the limitation is what gets logged).
+    #[test]
+    fn failed_rollback_without_storage_is_reported_not_claimed() {
+        use crate::credentials::CredentialError;
+        let mut delete_calls = 0;
+        compensate_credential_failure(
+            |_reference| {
+                delete_calls += 1;
+                Err(CredentialError::Store("synthetic store outage".to_owned()))
+            },
+            None,
+            "account/unqueueable",
+            "repository_open",
+        );
+        assert_eq!(delete_calls, 1, "the rollback delete is still attempted");
     }
 
     #[test]

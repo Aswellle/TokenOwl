@@ -7,6 +7,25 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Release notes are also published on the
 [GitHub Releases page](https://github.com/Aswellle/TokenOwl/releases).
 
+## [Unreleased]
+
+### Security
+
+- Upgraded `rustls` to 0.23.46 (four advisories: debug-secret redaction, Brotli
+  certificate-decompression allocation, ServerHello downgrade, ECH rejection
+  buffering), `rustls-webpki` to 0.103.16 (distrusted-intermediate acceptance),
+  `webpki-root-certs` to 1.0.11 (emSign intermediates), `time` to 0.3.47
+  (parsing stack exhaustion), and `tokio` to 1.54.1 (AsyncFd I/O-safety
+  soundness). The minimum Rust version moves to 1.88 — the patched `time`
+  chain requires it — and nested conditionals collapse to let-chains as the
+  compiler now suggests.
+- The dependency audit allows five advisories that are blocked upstream, each
+  with a written justification in `.cargo/audit.toml`: quick-xml (via
+  tauri → plist, which only handles the app's own build-time configuration)
+  and zip (via tauri-plugin-updater, whose archive is minisign-verified before
+  extraction). Remove each entry as soon as `cargo update` can reach the
+  patched versions.
+
 ## [1.3.0] — 2026-10-24
 
 ### Security

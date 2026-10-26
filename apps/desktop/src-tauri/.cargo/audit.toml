@@ -1,0 +1,30 @@
+# cargo-audit configuration: advisory IDs that are allowed to stay in the
+# lockfile, each with the reason it is not reachable or not yet fixable.
+#
+# All ignored IDs below are blocked upstream: the vulnerable crate is pulled
+# in by a parent whose latest release does not accept the patched version
+# yet. Re-evaluate whenever `tauri`, `plist`, or `tauri-plugin-updater`
+# publish a new release, and remove the matching ignore as soon as
+# `cargo update` can reach the fixed version.
+
+[advisories]
+ignore = [
+  # quick-xml 0.38.4 <- plist 1.8.0 (latest) <- tauri 2.11.6 (latest 2.x).
+  # plist is used by tauri-utils to generate and read the app's own build-time
+  # Info.plist content; no remote or attacker-controlled XML is parsed, so the
+  # namespace-allocation (RUSTSEC-2026-0195) and duplicate-attribute
+  # (RUSTSEC-2026-0194) DoS vectors are unreachable. The fix needs a plist
+  # release accepting quick-xml >= 0.41 and a tauri release picking it up.
+  "RUSTSEC-2026-0194",
+  "RUSTSEC-2026-0195",
+
+  # zip 4.6.1 <- tauri-plugin-updater 2.12.0 (latest 2.x, Windows target).
+  # The updater extracts the downloaded update archive, but only AFTER
+  # minisign verification of the download (verify_signature runs inside
+  # download() before install()/extract()); forging a malicious archive with
+  # symlink or SUID entries would require the release signing key. The fix
+  # needs a tauri-plugin-updater release depending on zip >= 9.
+  "RUSTSEC-2026-0367",
+  "RUSTSEC-2026-0368",
+  "RUSTSEC-2026-0369",
+]

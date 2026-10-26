@@ -190,10 +190,10 @@ fn configured_quota_endpoints(config: &OpenAiCompatibleConfig) -> Vec<(EndpointK
         ("usage", config.usage_endpoint.as_deref()),
         ("balance", config.balance_endpoint.as_deref()),
     ] {
-        if let Some(path) = path {
-            if !endpoints.iter().any(|(_, existing)| *existing == path) {
-                endpoints.push((kind, path));
-            }
+        if let Some(path) = path
+            && !endpoints.iter().any(|(_, existing)| *existing == path)
+        {
+            endpoints.push((kind, path));
         }
     }
     endpoints
@@ -233,10 +233,9 @@ fn merge_endpoint_outcomes(
     if snapshots
         .iter()
         .all(|snapshot| snapshot.status == SnapshotStatus::Error)
+        && let Some(error) = first_error
     {
-        if let Some(error) = first_error {
-            return Err(error);
-        }
+        return Err(error);
     }
     if snapshots.is_empty() {
         return Err(ProviderError::invalid_response(

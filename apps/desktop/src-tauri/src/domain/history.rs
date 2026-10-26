@@ -194,15 +194,14 @@ pub fn range_usage(samples: &[DailySample], from: u64, to: u64) -> RangeUsage {
                             _ => {}
                         }
                     }
-                } else if sample.unit == "currency" {
-                    if let (Some(prev_remaining), Some(remaining)) =
+                } else if sample.unit == "currency"
+                    && let (Some(prev_remaining), Some(remaining)) =
                         (previous.remaining, sample.remaining)
-                    {
-                        let delta = prev_remaining - remaining;
-                        if positive(delta) {
-                            let key = sample.currency.clone().unwrap_or_default();
-                            *costs.entry(key).or_insert(0.0) += delta;
-                        }
+                {
+                    let delta = prev_remaining - remaining;
+                    if positive(delta) {
+                        let key = sample.currency.clone().unwrap_or_default();
+                        *costs.entry(key).or_insert(0.0) += delta;
                     }
                 }
             }

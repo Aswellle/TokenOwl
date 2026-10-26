@@ -168,7 +168,7 @@ Design decisions worth knowing about:
 ### Prerequisites
 
 - Node.js 22+ and pnpm 10.33.2 (`corepack enable`)
-- Rust stable 1.85+ (2024 edition)
+- Rust stable 1.88+ (2024 edition)
 - Tauri 2 prerequisites per [platform](https://v2.tauri.app/start/prerequisites/)
 
 ```bash

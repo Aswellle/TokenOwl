@@ -448,17 +448,16 @@ pub fn accounts_delete(
     // A failed keyring delete is recorded for startup retry instead of being
     // silently dropped — otherwise the secret would linger in the OS store
     // with nothing left pointing at it.
-    if let Some(reference) = account.credential_ref.as_deref() {
-        if let Err(error) = state.credentials.delete(reference) {
-            if let Err(record_error) = record_pending_cleanup(
-                &repository,
-                reference,
-                cleanup_error_code(&error),
-                unix_seconds(),
-            ) {
-                tracing::warn!("could not record pending credential cleanup: {record_error}");
-            }
-        }
+    if let Some(reference) = account.credential_ref.as_deref()
+        && let Err(error) = state.credentials.delete(reference)
+        && let Err(record_error) = record_pending_cleanup(
+            &repository,
+            reference,
+            cleanup_error_code(&error),
+            unix_seconds(),
+        )
+    {
+        tracing::warn!("could not record pending credential cleanup: {record_error}");
     }
     repository
         .delete_account(&account_id)

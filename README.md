@@ -168,7 +168,7 @@ TokenOwl 是一个小小的桌面伴侣，它回答一个问题 —— 而且**�
 ### 环境要求
 
 - Node.js 22+ 与 pnpm 10.33.2（`corepack enable`）
-- Rust stable 1.85+（2024 edition）
+- Rust stable 1.88+（2024 edition）
 - 各平台 [Tauri 2 前置依赖](https://v2.tauri.app/start/prerequisites/)
 
 ```bash

@@ -148,24 +148,23 @@ impl ProviderManifest {
         if self.name.trim().is_empty() || self.name.chars().count() > 64 {
             return Err("name must be 1-64 characters".to_owned());
         }
-        if let Some(timeout_ms) = self.network.as_ref().and_then(|n| n.timeout_ms) {
-            if !(1_000..=120_000).contains(&timeout_ms) {
-                return Err(format!(
-                    "network.timeoutMs {timeout_ms} must be between 1000 and 120000"
-                ));
-            }
+        if let Some(timeout_ms) = self.network.as_ref().and_then(|n| n.timeout_ms)
+            && !(1_000..=120_000).contains(&timeout_ms)
+        {
+            return Err(format!(
+                "network.timeoutMs {timeout_ms} must be between 1000 and 120000"
+            ));
         }
         if let Some(mapping) = self.mapping.as_ref() {
             for (kind, field) in [("balance", &mapping.balance), ("usage", &mapping.usage)] {
-                if let Some(field) = field {
-                    if field.value.trim().is_empty()
+                if let Some(field) = field
+                    && (field.value.trim().is_empty()
                         || field.value.chars().count() > 128
-                        || field.value.chars().any(char::is_whitespace)
-                    {
-                        return Err(format!(
-                            "mapping.{kind}.value must be 1-128 characters without whitespace"
-                        ));
-                    }
+                        || field.value.chars().any(char::is_whitespace))
+                {
+                    return Err(format!(
+                        "mapping.{kind}.value must be 1-128 characters without whitespace"
+                    ));
                 }
             }
         }

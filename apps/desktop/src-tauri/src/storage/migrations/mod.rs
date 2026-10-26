@@ -90,10 +90,10 @@ pub fn apply_migrations_with(
         return Ok(());
     }
     integrity_check(connection)?;
-    if let Some(path) = database_path {
-        if has_user_tables(connection)? {
-            create_backup(connection, path)?;
-        }
+    if let Some(path) = database_path
+        && has_user_tables(connection)?
+    {
+        create_backup(connection, path)?;
     }
     for migration in migrations
         .iter()

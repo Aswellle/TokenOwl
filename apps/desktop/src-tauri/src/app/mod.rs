@@ -116,10 +116,8 @@ fn open_dashboard(app: AppHandle) -> Result<(), String> {
         .ok_or_else(|| "dashboard window unavailable".to_string())?;
     dashboard.show().map_err(|error| error.to_string())?;
     dashboard.set_focus().map_err(|error| error.to_string())?;
-    if from_bubble {
-        if let Some(anchor) = anchor {
-            let _ = app.emit("window:morph-from-bubble", anchor);
-        }
+    if from_bubble && let Some(anchor) = anchor {
+        let _ = app.emit("window:morph-from-bubble", anchor);
     }
     Ok(())
 }

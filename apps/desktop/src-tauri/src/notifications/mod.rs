@@ -153,12 +153,12 @@ fn window_class(snapshot: &QuotaSnapshot) -> Option<WindowClass> {
         }
         let start = window.starts_at.as_deref().and_then(parse_unix_seconds);
         let end = window.ends_at.as_deref().and_then(parse_unix_seconds);
-        if let (Some(start), Some(end)) = (start, end) {
-            if end > start {
-                #[allow(clippy::cast_precision_loss)] // window spans are small integers
-                let hours = (end - start) as f64 / 3_600.0;
-                return Some(classify_hours(hours));
-            }
+        if let (Some(start), Some(end)) = (start, end)
+            && end > start
+        {
+            #[allow(clippy::cast_precision_loss)] // window spans are small integers
+            let hours = (end - start) as f64 / 3_600.0;
+            return Some(classify_hours(hours));
         }
     }
     // No span reported (or no window at all): fall back to the provider's own
@@ -346,10 +346,10 @@ impl NotificationPreferences {
         {
             return Err("低额度阈值需在 1–99 之间。".to_owned());
         }
-        if let Some(threshold) = self.balance_threshold {
-            if !threshold.is_finite() || threshold < 0.0 {
-                return Err("余额下限不能为负数。".to_owned());
-            }
+        if let Some(threshold) = self.balance_threshold
+            && (!threshold.is_finite() || threshold < 0.0)
+        {
+            return Err("余额下限不能为负数。".to_owned());
         }
         if !(300..=86_400).contains(&self.reset_soon_window) {
             return Err("重置提醒需在 5 分钟到 24 小时之间。".to_owned());
@@ -612,10 +612,10 @@ fn projected_exhaustion_draft(context: &TriggerContext<'_>) -> Option<Notificati
         .map(|(reset_at, view)| (reset_at, view, window_class(&view.snapshot)));
     // If the window resets before the projected exhaustion, there is nothing
     // to act on — that is the normal shape of a healthy rolling window.
-    if let Some((reset_at, _, _)) = resets_in {
-        if reset_at.saturating_sub(context.now) < projected_secs {
-            return None;
-        }
+    if let Some((reset_at, _, _)) = resets_in
+        && reset_at.saturating_sub(context.now) < projected_secs
+    {
+        return None;
     }
     let window_name = resets_in
         .and_then(|(_, view, class)| {

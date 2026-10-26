@@ -178,16 +178,16 @@ impl HttpClient {
 
     /// Check if a response exceeds the maximum size limit.
     pub fn check_response_size(&self, content_length: Option<u64>) -> Result<(), ProviderError> {
-        if let Some(length) = content_length {
-            if length > self.config.max_response_bytes as u64 {
-                return Err(ProviderError::new(
-                    ProviderErrorKind::InvalidResponse,
-                    format!(
-                        "response size {} exceeds limit {}",
-                        length, self.config.max_response_bytes
-                    ),
-                ));
-            }
+        if let Some(length) = content_length
+            && length > self.config.max_response_bytes as u64
+        {
+            return Err(ProviderError::new(
+                ProviderErrorKind::InvalidResponse,
+                format!(
+                    "response size {} exceeds limit {}",
+                    length, self.config.max_response_bytes
+                ),
+            ));
         }
         Ok(())
     }

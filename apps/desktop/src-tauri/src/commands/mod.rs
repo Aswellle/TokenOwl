@@ -70,6 +70,35 @@ impl InFlightGate {
     }
 }
 
+/// Holds one account's refresh slot for the refresh task's whole lifetime.
+///
+/// Releasing is bound to scope instead of to a call at the end of the happy
+/// path: dropping the lease — on success, on error, or through the unwind
+/// of a panicking task — always frees the account, so one crashed refresh
+/// can never wedge that account's gate shut forever. The lease carries only
+/// the account id; no mutex guard ever lives across an `await`.
+struct RefreshLease<'a> {
+    gate: &'a InFlightGate,
+    account_id: String,
+}
+
+impl RefreshLease<'_> {
+    /// Acquires the account's refresh slot, or `None` when a refresh is
+    /// already in flight. The returned lease releases the slot on drop.
+    fn acquire<'a>(gate: &'a InFlightGate, account_id: &str) -> Option<RefreshLease<'a>> {
+        gate.try_acquire(account_id).then(|| RefreshLease {
+            gate,
+            account_id: account_id.to_owned(),
+        })
+    }
+}
+
+impl Drop for RefreshLease<'_> {
+    fn drop(&mut self) {
+        self.gate.release(&self.account_id);
+    }
+}
+
 /// Session-scoped, one-time LAN consent tokens.
 ///
 /// A token binds one confirmation to one normalized target URL: it expires
@@ -659,10 +688,12 @@ pub(crate) async fn refresh_accounts(
             let account_id = account_id.to_owned();
             let handle = handle.cloned();
             tasks.push(tauri::async_runtime::spawn(async move {
-                if !runtime.refresh_gate.try_acquire(&account_id) {
+                // The lease owns the slot from acquisition to the end of the
+                // task — success, error, or panic all release it on drop.
+                let Some(_lease) = RefreshLease::acquire(&runtime.refresh_gate, &account_id) else {
                     // Merged into an in-flight refresh; its outcome applies.
                     return Ok(account_id);
-                }
+                };
                 let started_at = unix_seconds();
                 let outcome: Result<(), CommandError> = async {
                     let repository = runtime.repository()?;
@@ -691,7 +722,8 @@ pub(crate) async fn refresh_accounts(
                 if let Some(handle) = handle.as_ref() {
                     notify_account_events(runtime.as_ref(), handle, &account_id);
                 }
-                runtime.refresh_gate.release(&account_id);
+                // The lease releases the gate when it drops at task end —
+                // no explicit release to forget on a new early-return path.
                 let failed_id = account_id.clone();
                 outcome.map(|()| account_id).map_err(|error| {
                     // Only the stable error code crosses the task boundary;
@@ -2545,6 +2577,40 @@ mod tests {
             "repository_open",
         );
         assert_eq!(delete_calls, 1, "the rollback delete is still attempted");
+    }
+
+    /// The lease must hold the single-flight slot until it is dropped —
+    /// no earlier, no later.
+    #[test]
+    fn refresh_lease_holds_the_slot_until_dropped() {
+        let gate = InFlightGate::default();
+        let lease = RefreshLease::acquire(&gate, "account-a").expect("first acquire wins");
+        assert!(
+            !gate.try_acquire("account-a"),
+            "the lease must hold the slot"
+        );
+        drop(lease);
+        assert!(gate.try_acquire("account-a"), "drop must release the slot");
+    }
+
+    /// A refresh task that exits abnormally — a panic unwind, or any future
+    /// early return that skips an explicit release — must still free the
+    /// account's gate slot, or one crash would silence that account's
+    /// refreshes forever.
+    #[test]
+    fn refresh_lease_releases_through_a_panicking_task() {
+        let gate = InFlightGate::default();
+        let task_gate = gate.clone();
+        let task = tauri::async_runtime::spawn(async move {
+            let _lease = RefreshLease::acquire(&task_gate, "account-b");
+            panic!("synthetic refresh crash");
+        });
+        let joined = tauri::async_runtime::block_on(task);
+        assert!(joined.is_err(), "the task joined with the panic");
+        assert!(
+            gate.try_acquire("account-b"),
+            "the panic must not wedge the account's gate shut"
+        );
     }
 
     #[test]

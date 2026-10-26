@@ -578,19 +578,14 @@ fn start_background_tasks(app: &AppHandle) {
             if result.is_ok() {
                 let _ = handle.emit("quota:updated", ());
             }
-            let sleep_duration = handle.try_state::<Arc<commands::AppRuntime>>().map_or(
-                std::time::Duration::from_secs(600),
-                |runtime| {
-                    let policy = &runtime.freshness_policy;
-                    let stale_after = policy.stale_after.as_secs();
-                    let fresh_for = policy.fresh_for.as_secs();
-                    if stale_after > 0 {
-                        std::time::Duration::from_secs(stale_after)
-                    } else {
-                        std::time::Duration::from_secs(fresh_for)
-                    }
-                },
-            );
+            // The freshness policy's `stale_after` is the refresh cadence
+            // target: refreshing this often keeps data younger than the
+            // stale boundary unless a refresh fails.
+            let sleep_duration = handle
+                .try_state::<Arc<commands::AppRuntime>>()
+                .map_or(std::time::Duration::from_secs(600), |runtime| {
+                    runtime.freshness_policy.refresh_cadence()
+                });
             tokio::time::timeout(sleep_duration, shutdown_rx.changed())
                 .await
                 .ok();

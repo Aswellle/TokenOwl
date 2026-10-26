@@ -205,7 +205,8 @@ impl AppRuntime {
                 fresh_for: std::time::Duration::from_secs(600),
                 stale_after: std::time::Duration::from_secs(1800),
                 hard_expire_after: std::time::Duration::from_secs(86_400),
-            },
+            }
+            .normalized(),
         })
     }
 

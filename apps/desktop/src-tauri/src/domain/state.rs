@@ -83,12 +83,24 @@ pub enum Freshness {
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct FreshnessPolicy {
+    /// How long an observation is presented as fresh. The fresh→stale
+    /// boundary of [`Self::classify`].
     pub fresh_for: Duration,
+    /// How often the background loop refreshes so data normally stays
+    /// younger than the stale boundary. Not a classify input: with no
+    /// failures, refreshes land before data ages out of fresh; only failed
+    /// refreshes let data drift into the stale band. This is the role the
+    /// background loop already gave the field — documented and tested here
+    /// so it is configuration with an effect, not a dead knob.
     pub stale_after: Duration,
+    /// When the observation is too old to show at all. The stale→expired
+    /// boundary of [`Self::classify`]; [`SnapshotStore::view`] drops expired
+    /// snapshots.
     pub hard_expire_after: Duration,
 }
 
 impl FreshnessPolicy {
+    /// Classifies an observation's age against the two classify boundaries.
     pub fn classify(&self, observed_at: u64, now: u64) -> Freshness {
         let age = Duration::from_secs(now.saturating_sub(observed_at));
         if age < self.fresh_for {
@@ -98,6 +110,36 @@ impl FreshnessPolicy {
         } else {
             Freshness::Expired
         }
+    }
+
+    /// How long the background refresh loop waits between waves.
+    ///
+    /// `stale_after` is that cadence target; a zero value falls back to
+    /// `fresh_for` so a misconfigured policy can never schedule a
+    /// zero-delay hot loop.
+    pub fn refresh_cadence(&self) -> Duration {
+        if self.stale_after.is_zero() {
+            self.fresh_for
+        } else {
+            self.stale_after
+        }
+    }
+
+    /// Clamps the three thresholds into a sane order
+    /// (`fresh_for <= stale_after <= hard_expire_after`), so a misconfigured
+    /// or hand-edited policy degrades gracefully instead of producing a
+    /// fresh band that outlives expiry.
+    pub fn normalized(mut self) -> Self {
+        if self.hard_expire_after < self.fresh_for {
+            self.hard_expire_after = self.fresh_for;
+        }
+        if self.stale_after < self.fresh_for {
+            self.stale_after = self.fresh_for;
+        }
+        if self.stale_after > self.hard_expire_after {
+            self.stale_after = self.hard_expire_after;
+        }
+        self
     }
 }
 
@@ -361,6 +403,70 @@ mod tests {
         assert_eq!(policy().classify(1_000, 1_600), Freshness::Stale);
         assert_eq!(policy().classify(1_000, 2_800), Freshness::Stale);
         assert_eq!(policy().classify(1_000, 87_400), Freshness::Expired);
+    }
+
+    /// Table over every classify boundary: before, at, and after each of the
+    /// two thresholds that drive the three states.
+    #[test]
+    fn freshness_classification_table() {
+        let p = policy(); // fresh 600s, stale_after 1800s (cadence), expire 86_400s
+        let observed = 10_000_u64;
+        let cases: &[(u64, Freshness)] = &[
+            (observed, Freshness::Fresh),
+            (observed + 599, Freshness::Fresh),
+            (observed + 600, Freshness::Stale),
+            (observed + 86_399, Freshness::Stale),
+            (observed + 86_400, Freshness::Expired),
+            (observed + 86_401, Freshness::Expired),
+        ];
+        for (now, expected) in cases {
+            assert_eq!(
+                p.classify(observed, *now),
+                *expected,
+                "age {}s at now {now}",
+                now - observed
+            );
+        }
+    }
+
+    /// `stale_after` is the background refresh cadence; a zero value falls
+    /// back to `fresh_for` rather than scheduling a hot loop.
+    #[test]
+    fn refresh_cadence_uses_stale_after_and_falls_back() {
+        assert_eq!(policy().refresh_cadence(), Duration::from_secs(1_800));
+        let zero_stale = FreshnessPolicy {
+            stale_after: Duration::ZERO,
+            ..policy()
+        };
+        assert_eq!(zero_stale.refresh_cadence(), zero_stale.fresh_for);
+    }
+
+    /// A misordered policy is normalized into
+    /// `fresh_for <= stale_after <= hard_expire_after` instead of producing
+    /// a fresh band that outlives expiry.
+    #[test]
+    fn freshness_policy_normalization_orders_thresholds() {
+        let ordered = policy().normalized();
+        assert_eq!(ordered, policy(), "already-ordered policies pass through");
+
+        let inverted = FreshnessPolicy {
+            fresh_for: Duration::from_secs(90_000),
+            stale_after: Duration::from_secs(60),
+            hard_expire_after: Duration::from_secs(1_200),
+        }
+        .normalized();
+        assert!(inverted.fresh_for <= inverted.stale_after);
+        assert!(inverted.stale_after <= inverted.hard_expire_after);
+        assert_eq!(inverted.hard_expire_after, Duration::from_secs(90_000));
+        assert_eq!(inverted.stale_after, Duration::from_secs(90_000));
+
+        // The normalized policy keeps coherent boundary semantics. With all
+        // three thresholds clamped together the stale band is empty by
+        // construction: data is fresh until the shared threshold, then
+        // immediately expired — the misordered input cannot produce a fresh
+        // band that outlives expiry.
+        assert_eq!(inverted.classify(0, 89_999), Freshness::Fresh);
+        assert_eq!(inverted.classify(0, 90_000), Freshness::Expired);
     }
 
     #[test]

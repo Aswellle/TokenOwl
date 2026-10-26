@@ -818,4 +818,125 @@ mod tests {
         assert_eq!(usage.currency.as_deref(), Some("¥"));
         assert!((usage.cost.unwrap() - 15.0).abs() < 1e-9);
     }
+
+    // ---- boundary regression matrix (TO-008 contract) ----
+
+    /// A mid-series UTC-offset change — what a DST transition produces —
+    /// must move the local day boundary with it: the sample observed before
+    /// the transition belongs to the pre-transition calendar day, the ones
+    /// after it to the post-transition day, and each bucket carries the
+    /// day-start instant its own offset implies.
+    #[test]
+    fn aggregate_follows_an_offset_transition_like_dst() {
+        // "Spring forward" at UTC 163_000: +2h before it, +3h from it on.
+        let offset = |ts: i64| if ts < 163_000 { 2 * 3_600 } else { 3 * 3_600 };
+        let days = aggregate_daily_usage(
+            &[
+                // Before the transition: (160_000 + 7_200) / 86_400 = day 1.
+                sample("a", "m", 160_000, Some(10.0), None, "token", None),
+                // At the transition: (163_000 + 10_800) / 86_400 = day 2 —
+                // the first sample of the new local day.
+                sample("a", "m", 163_000, Some(30.0), None, "token", None),
+                sample("a", "m", 170_000, Some(70.0), None, "token", None),
+            ],
+            offset,
+        );
+        assert_eq!(days.len(), 2, "exactly the two local days with data");
+
+        let day_one = days
+            .iter()
+            .find(|day| day.day_start == 86_400 - 2 * 3_600)
+            .expect("pre-transition day");
+        assert!(day_one.has_data);
+        assert!(
+            day_one.tokens_used.abs() < f64::EPSILON,
+            "the first sample is baseline only"
+        );
+
+        let day_two = days
+            .iter()
+            .find(|day| day.day_start == 2 * 86_400 - 3 * 3_600)
+            .expect("post-transition day");
+        assert!(day_two.has_data);
+        assert!(
+            (day_two.tokens_used - 60.0).abs() < 1e-9,
+            "both deltas land here"
+        );
+    }
+
+    /// Two observations sharing one timestamp have a zero delta: the day is
+    /// marked as measured, but no usage or cost may be invented.
+    #[test]
+    fn repeated_timestamps_mark_the_day_without_usage() {
+        let days = aggregate(&[
+            sample("a", "m", 1_000, Some(100.0), None, "token", None),
+            sample("a", "m", 1_000, Some(100.0), None, "token", None),
+        ]);
+        assert_eq!(days.len(), 1);
+        assert!(days[0].has_data);
+        assert!(days[0].tokens_used.abs() < f64::EPSILON);
+        assert_eq!(days[0].cost, None);
+    }
+
+    /// A series whose first observation already has `used` but whose
+    /// predecessor is missing (or unknown) cannot produce a delta from
+    /// nothing: the day is measured, the total stays zero, not fabricated.
+    #[test]
+    fn missing_baseline_contributes_no_usage() {
+        let days = aggregate(&[
+            sample("a", "m", 1_000, None, None, "token", None),
+            sample("a", "m", 2_000, Some(50.0), None, "token", None),
+        ]);
+        assert_eq!(days.len(), 1);
+        assert!(days[0].has_data);
+        assert!(
+            days[0].tokens_used.abs() < f64::EPSILON,
+            "no baseline, no invented delta"
+        );
+        assert_eq!(days[0].cost, None);
+    }
+
+    /// Sparse sampling leaves the uncovered local days out entirely — they
+    /// are unknown, never zero-filled.
+    #[test]
+    fn sparse_samples_do_not_zero_fill_missing_days() {
+        let days = aggregate(&[
+            sample("a", "m", 1_000, Some(0.0), None, "token", None),
+            sample(
+                "a",
+                "m",
+                1_000 + 3 * 86_400,
+                Some(30.0),
+                None,
+                "token",
+                None,
+            ),
+        ]);
+        assert_eq!(days.len(), 2, "only the observed days exist");
+        let gap = days[0].day_start + 86_400;
+        assert!(
+            !days.iter().any(|day| day.day_start == gap),
+            "the unobserved day must not appear as a zero day"
+        );
+    }
+
+    /// The daily aggregation and the range summary are two views of the same
+    /// rule set: over one full window their token totals agree.
+    #[test]
+    fn daily_buckets_and_range_summary_agree_on_totals() {
+        let samples = [
+            sample("a", "m", 1_000, Some(10.0), None, "token", None),
+            sample("a", "m", 5_000, Some(40.0), None, "token", None),
+            sample("a", "m", 90_000, Some(60.0), None, "token", None),
+            sample("a", "m", 95_000, Some(120.0), None, "token", None),
+        ];
+        let days = aggregate(&samples);
+        let daily_total: f64 = days.iter().map(|day| day.tokens_used).sum();
+        let range = range_usage(&samples, 0, u64::MAX);
+        assert!((daily_total - range.tokens).abs() < 1e-9);
+        // Deltas: 30 on day one, then the boundary-crossing 20 and the 60
+        // both land on day two — 110 in total on both views.
+        assert!((range.tokens - 110.0).abs() < 1e-9);
+        assert!(range.has_data);
+    }
 }

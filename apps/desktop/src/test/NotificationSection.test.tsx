@@ -122,7 +122,7 @@ describe("NotificationSection", () => {
   it("renders the empty state when there are no notifications", async () => {
     const bridge = makeBridge({ listNotifications: vi.fn(async () => []) });
     render(<NotificationSection bridge={bridge} reloadSignal={0} />);
-    expect(await screen.findByText("暂无通知，一切正常。")).toBeInTheDocument();
+    expect(await screen.findByText("一切正常，暂无需要处理的事项。额度告警、预测耗尽与恢复通知会出现在这里。")).toBeInTheDocument();
   });
 
   it("persists preference toggles immediately", async () => {

@@ -558,7 +558,7 @@ export function App({ bridge = tauriBridge }: AppProps = {}) {
                   />
                 ) : visibleAccounts.length === 0 ? (
                   <motion.p key="filtered-empty" className="section__empty" variants={fadeVariants} initial="hidden" animate="show">
-                    {copy.filter.attention}：{copy.summary.none}
+                    {copy.filter.attentionEmpty}
                   </motion.p>
                 ) : (
                   <ul className="accounts">

@@ -20,6 +20,7 @@ export const copy = {
   filter: {
     all: "全部",
     attention: "需处理",
+    attentionEmpty: "没有需要关注的账户——所有供应商都在正常上报。",
   },
 
   views: {
@@ -53,7 +54,7 @@ export const copy = {
     openDashboard: "展开 TokenOwl 面板",
     loading: "正在获取额度",
     rings: (parts: string) => `额度剩余：${parts}`,
-    noWindow: "暂无窗口额度",
+    noWindow: "该账户未上报按窗口计的额度",
     windowTag: (label: string) => `${label}窗口`,
   },
 
@@ -102,7 +103,7 @@ export const copy = {
     error: "同步失败",
     offline: "本地服务不可用",
     syncing: "正在同步",
-    unavailable: "暂无数据",
+    unavailable: "暂无数据，等待首次刷新",
   } as Record<string, string>,
 
   quota: {
@@ -262,7 +263,7 @@ export const copy = {
   history: {
     title: "历史趋势",
     intro: "从本机开始记录后逐日积累；没有记录的日期不代表零消耗。",
-    empty: "还没有历史记录。连接账户并保持刷新后，这里会逐日累积用量。",
+    empty: "历史从每次自动刷新开始逐日累积。添加一个账户并等待下一次刷新，这里就会出现第一天的用量。",
     tokens30: "近 30 天 Tokens",
     cost30: "近 30 天计费",
     activeDays: "活跃天数",
@@ -294,7 +295,7 @@ export const copy = {
 
   notifications: {
     title: "通知",
-    empty: "暂无通知，一切正常。",
+    empty: "一切正常，暂无需要处理的事项。额度告警、预测耗尽与恢复通知会出现在这里。",
     markAllRead: "全部已读",
     markRead: "标为已读",
     unreadSuffix: (count: number) => `${count} 条未读`,

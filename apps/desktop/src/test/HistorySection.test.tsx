@@ -120,7 +120,7 @@ describe("HistorySection", () => {
 
   it("shows the empty state when nothing has been recorded", async () => {
     render(<HistorySection bridge={makeBridge(summaryEmpty)} accounts={[]} reloadSignal={0} />);
-    expect(await screen.findByText("还没有历史记录。连接账户并保持刷新后，这里会逐日累积用量。")).toBeInTheDocument();
+    expect(await screen.findByText("历史从每次自动刷新开始逐日累积。添加一个账户并等待下一次刷新，这里就会出现第一天的用量。")).toBeInTheDocument();
   });
 
   it("moves cell focus with arrow keys inside the heatmap", async () => {

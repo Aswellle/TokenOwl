@@ -40,6 +40,14 @@ pub const BUILTIN_MANIFESTS: &[(&str, &str)] = &[
         include_str!("../../../../../../providers/builtin/kimi.yaml"),
     ),
     (
+        "kimi-international",
+        include_str!("../../../../../../providers/builtin/kimi-international.yaml"),
+    ),
+    (
+        "zhipu-international",
+        include_str!("../../../../../../providers/builtin/zhipu-international.yaml"),
+    ),
+    (
         "minimax",
         include_str!("../../../../../../providers/builtin/minimax.yaml"),
     ),
@@ -239,6 +247,8 @@ pub struct ManifestProfile {
     pub base_url: String,
     pub api_format: String,
     pub custom_base_url: bool,
+    pub brand: Option<String>,
+    pub variant: Option<String>,
     pub level: String,
     pub account_types: Vec<String>,
     pub quota_units: Vec<String>,
@@ -282,6 +292,8 @@ fn profile_from_manifest(
             .clone()
             .unwrap_or_else(|| "openai-compatible".to_owned()),
         custom_base_url: manifest.custom_base_url.unwrap_or(false),
+        brand: manifest.brand,
+        variant: manifest.variant,
         level: capability.level_id().to_owned(),
         account_types: capability.account_types,
         quota_units: capability.quota_units,
@@ -370,7 +382,7 @@ mod tests {
         assert_eq!(registry.len(), BUILTIN_MANIFESTS.len());
         assert_eq!(
             registry.len(),
-            29,
+            31,
             "all manifests except the custom gateway row register an adapter"
         );
     }
@@ -397,11 +409,11 @@ mod tests {
     #[test]
     fn matrix_lists_full_catalog_with_implemented_levels() {
         let rows = provider_matrix();
-        assert_eq!(rows.len(), 30);
+        assert_eq!(rows.len(), 32);
         let implemented: Vec<_> = rows.iter().filter(|row| row.implemented).collect();
         assert_eq!(
             implemented.len(),
-            29,
+            31,
             "every manifest except the custom gateway row is implemented"
         );
         let level_of = |id: &str| {

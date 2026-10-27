@@ -52,6 +52,9 @@ export const PROVIDER_PREFIXES: Record<string, string> = {
   // OpenAI-shaped relays of a native brand read as that brand.
   "anthropic-openai": "anthropic",
   "gemini-openai": "gemini",
+  // Platform-variant manifests inherit their brand's icon.
+  "zhipu-international": "zhipu",
+  "kimi-international": "moonshot",
 };
 
 /**

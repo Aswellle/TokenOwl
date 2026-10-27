@@ -400,7 +400,10 @@ export function createMockBridge(): DashboardBridge {
         level: string,
         endpoints: ManifestProfileViewModel["endpoints"],
         options: Partial<
-          Pick<ManifestProfileViewModel, "apiFormat" | "customBaseUrl" | "accountTypes">
+          Pick<
+            ManifestProfileViewModel,
+            "apiFormat" | "customBaseUrl" | "accountTypes" | "brand" | "variant"
+          >
         > = {},
       ): ManifestProfileViewModel => ({
         id,
@@ -424,10 +427,10 @@ export function createMockBridge(): DashboardBridge {
         profile("anthropic", "Anthropic", "https://api.anthropic.com/v1", "L4", {
           models: "/v1/models",
           usage: "/v1/usage",
-        }, { apiFormat: "anthropic", accountTypes: ["subscription", "api"] }),
+        }, { apiFormat: "anthropic", accountTypes: ["subscription", "api"], brand: "anthropic" }),
         profile("gemini", "Google Gemini", "https://generativelanguage.googleapis.com/v1beta", "L2", {
           models: "/v1beta/models",
-        }, { apiFormat: "google-ai", accountTypes: ["api"] }),
+        }, { apiFormat: "google-ai", accountTypes: ["api"], brand: "gemini" }),
         profile("openrouter", "OpenRouter", "https://openrouter.ai/api/v1", "L4", {
           models: "/models",
           usage: "/api/v1/key",
@@ -443,13 +446,19 @@ export function createMockBridge(): DashboardBridge {
         profile("kimi", "Kimi / Moonshot", "https://api.moonshot.cn/v1", "L3", {
           models: "/models",
           usage: "/users/me/balance",
-        }),
+        }, { brand: "kimi", variant: "国内版" }),
         profile("minimax", "MiniMax", "https://api.minimax.chat/v1", "L2", {
           models: "/models",
         }),
         profile("zhipu", "Zhipu / GLM", "https://open.bigmodel.cn/api/paas/v4", "L2", {
           models: "/models",
-        }),
+        }, { brand: "zhipu", variant: "国内版" }),
+        profile("zhipu-international", "Zhipu / GLM 国际版", "https://api.z.ai/api/paas/v4", "L2", {
+          models: "/models",
+        }, { brand: "zhipu", variant: "国际版" }),
+        profile("kimi-international", "Kimi 国际版", "https://api.moonshot.ai/v1", "L2", {
+          models: "/models",
+        }, { brand: "kimi", variant: "国际版" }),
         profile("doubao", "Doubao / Volcengine", "https://ark.cn-beijing.volces.com/api/v3", "L2", {}),
         profile("mistral", "Mistral", "https://api.mistral.ai/v1", "L2", {
           models: "/v1/models",
@@ -486,10 +495,10 @@ export function createMockBridge(): DashboardBridge {
         // /models on the compatibility base; Anthropic documents chat only).
         profile("gemini-openai", "Google Gemini (OpenAI 兼容)", "https://generativelanguage.googleapis.com/v1beta/openai", "L2", {
           models: "/models",
-        }),
+        }, { brand: "gemini", variant: "OpenAI 兼容" }),
         profile("anthropic-openai", "Anthropic (OpenAI 兼容)", "https://api.anthropic.com/v1", "L2", {
           models: "/v1/models",
-        }),
+        }, { brand: "anthropic", variant: "OpenAI 兼容" }),
       ];
       return { profiles, skipped: [] };
     },

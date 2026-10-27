@@ -30,6 +30,15 @@ pub struct ProviderManifest {
     /// Gateways have no fixed base URL; the user supplies one at setup.
     #[serde(default)]
     pub custom_base_url: Option<bool>,
+    /// Groups platform variants of one brand under a single picker capsule
+    /// (`zhipu` covers the 国内版/国际版 pair). Absent = the manifest is
+    /// its own brand.
+    #[serde(default)]
+    pub brand: Option<String>,
+    /// The platform label shown in a brand's variant list (`国内版`,
+    /// `OpenAI 兼容`). Absent = this manifest is the brand's default face.
+    #[serde(default)]
+    pub variant: Option<String>,
 }
 
 /// `docs/09` capability-matrix metadata for one provider.
@@ -202,6 +211,28 @@ impl ProviderManifest {
         }
         if let Some(header) = self.api_key_header.as_deref() {
             crate::domain::provider::validate_header_name("apiKeyHeader", header)?;
+        }
+        if let Some(brand) = self.brand.as_deref() {
+            let valid = !brand.is_empty()
+                && brand.len() <= 64
+                && brand
+                    .chars()
+                    .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+                && !brand.starts_with('-')
+                && !brand.ends_with('-');
+            if !valid {
+                return Err(format!(
+                    "brand `{brand}` must be 1-64 characters of lowercase letters, digits, and hyphens"
+                ));
+            }
+        }
+        if let Some(variant) = self.variant.as_deref() {
+            let valid = !variant.trim().is_empty()
+                && variant.chars().count() <= 32
+                && !variant.chars().any(char::is_control);
+            if !valid {
+                return Err("variant must be 1-32 characters without control characters".to_owned());
+            }
         }
         validate_registration_base_url(&self.base_url)?;
         Ok(())

@@ -100,6 +100,69 @@ async function openSetupForm() {
   await waitFor(() => expect(screen.getByRole("button", { name: /DeepSeek/i })).toBeInTheDocument());
 }
 
+describe("setup form brand variant grouping", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  const zhipuProfile = {
+    id: "zhipu",
+    name: "Zhipu / GLM",
+    baseUrl: "https://open.bigmodel.cn/api/paas/v4",
+    apiFormat: "openai-compatible",
+    customBaseUrl: false,
+    level: "L2",
+    accountTypes: ["api"],
+    quotaUnits: ["quota"],
+    targetWindows: ["custom"],
+    endpoints: { models: "/models" },
+    brand: "zhipu",
+    variant: "国内版",
+  };
+  const zhipuIntlProfile = {
+    ...zhipuProfile,
+    id: "zhipu-international",
+    name: "Zhipu / GLM 国际版",
+    baseUrl: "https://api.z.ai/api/paas/v4",
+    variant: "国际版",
+  };
+
+  async function openWithZhipuPair() {
+    mockListAccounts.mockResolvedValue([]);
+    mockManifestProfiles.mockResolvedValue({
+      profiles: [zhipuProfile, zhipuIntlProfile],
+      skipped: [],
+    });
+    render(<App />);
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /添加账户|Add Provider/i })).toBeInTheDocument(),
+    );
+    fireEvent.click(screen.getByRole("button", { name: /添加账户|Add Provider/i }));
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Zhipu / GLM" })).toBeInTheDocument(),
+    );
+  }
+
+  it("collapses platform variants into one capsule with an ellipsis expander", async () => {
+    await openWithZhipuPair();
+    // Only ONE capsule for the brand: the two manifests share it, and the
+    // ellipsis expander is a separate control with its own label.
+    expect(screen.getByRole("button", { name: "Zhipu / GLM" })).toBeInTheDocument();
+    const more = screen.getByRole("button", { name: "Zhipu / GLM 的其他平台版本" });
+
+    fireEvent.click(more);
+    const option = screen.getByRole("option", { name: /国际版/ });
+    expect(option).toBeInTheDocument();
+
+    fireEvent.click(option);
+    await waitFor(() =>
+      expect(screen.getByLabelText(/接口地址|Base URL/i)).toHaveValue("https://api.z.ai/api/paas/v4"),
+    );
+    // The capsule face now names the selected platform variant.
+    expect(screen.getByRole("button", { name: "Zhipu / GLM 国际版" })).toBeInTheDocument();
+  });
+});
+
 describe("setup form API format categorization", () => {
   beforeEach(() => {
     vi.clearAllMocks();

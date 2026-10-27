@@ -1,6 +1,8 @@
 id: zhipu
 version: 1
 name: Zhipu / GLM
+brand: zhipu
+variant: 国内版
 category: official
 region: china
 auth:

@@ -209,6 +209,10 @@ export interface ManifestProfileViewModel {
   apiFormat: string;
   /** Gateways have no fixed base URL — the user supplies one. */
   customBaseUrl: boolean;
+  /** Platform variants of one brand share this key and one picker capsule. */
+  brand?: string;
+  /** The platform label inside a brand's variant list (国内版, OpenAI 兼容). */
+  variant?: string;
   level: string;
   accountTypes: string[];
   quotaUnits: string[];

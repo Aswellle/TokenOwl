@@ -1,0 +1,23 @@
+id: zhipu-international
+version: 1
+name: Zhipu / GLM 国际版
+brand: zhipu
+variant: 国际版
+category: official
+region: global
+auth:
+  - api_key
+baseUrl: https://api.z.ai/api/paas/v4
+apiKeyHeader: Authorization
+endpoints:
+  models: /models
+apiFormat: openai-compatible
+network:
+  timeoutMs: 15000
+  followRedirects: false
+capability:
+  level: L2
+  accountTypes: [subscription, api]
+  quotaUnits: [quota, token]
+  targetWindows: [provider-defined]
+  priority: P1

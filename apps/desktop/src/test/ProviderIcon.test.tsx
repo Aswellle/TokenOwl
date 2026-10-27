@@ -38,6 +38,8 @@ const BUILTIN_PROVIDER_IDS = [
   "xiaomi-mimo",
   "xai",
   "zhipu",
+  "zhipu-international",
+  "kimi-international",
 ] as const;
 
 const KNOWN_FALLBACKS = new Set(["one-api", "litellm"]);

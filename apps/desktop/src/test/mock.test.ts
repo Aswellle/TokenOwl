@@ -5,10 +5,17 @@ describe("mock manifestProfiles", () => {
   it("mirrors the full built-in catalog with wire-protocol classification", async () => {
     const { profiles } = await createMockBridge().manifestProfiles();
 
-    // The mock mirrors the built-in catalog plus the two OpenAI-compatible
-    // entries for native-protocol providers.
-    expect(profiles).toHaveLength(23);
-    expect(new Set(profiles.map((item) => item.id)).size).toBe(23);
+    // The mock mirrors the built-in catalog plus the OpenAI-compatible
+    // relays and the 国际版 platform variants of multi-platform brands.
+    expect(profiles).toHaveLength(25);
+    expect(new Set(profiles.map((item) => item.id)).size).toBe(25);
+
+    // Platform variants of one brand share the brand key and carry their
+    // platform label — the picker collapses them into one capsule.
+    const zhipu = profiles.filter((item) => item.brand === "zhipu");
+    expect(zhipu.map((item) => item.variant)).toEqual(["国内版", "国际版"]);
+    const kimi = profiles.filter((item) => item.brand === "kimi");
+    expect(kimi.map((item) => item.variant)).toEqual(["国内版", "国际版"]);
 
     const native = profiles.filter((item) => item.apiFormat !== "openai-compatible");
     expect(native.map((item) => item.id)).toEqual(["anthropic", "gemini"]);

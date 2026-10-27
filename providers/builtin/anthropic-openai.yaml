@@ -1,5 +1,7 @@
 id: anthropic-openai
 version: 1
+brand: anthropic
+variant: OpenAI 兼容
 name: Anthropic (OpenAI 兼容)
 category: official
 region: global

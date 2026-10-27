@@ -10,7 +10,9 @@ test.describe("TokenOwl dashboard smoke", () => {
     await page.goto("/");
     await expect(page.locator(".window")).toBeVisible();
     await expect(page.getByRole("navigation", { name: "功能导航" })).toBeVisible();
-    await expect(page.getByRole("heading", { name: /额度总览/ })).toBeVisible();
+    // The titlebar heading names the live page (概览 here) instead of a
+    // static product subtitle.
+    await expect(page.getByRole("heading", { name: "概览" })).toBeVisible();
   });
 
   test("navigates through the dock views", async ({ page }) => {
@@ -56,15 +58,17 @@ test.describe("settings view (phase-C UI)", () => {
     await expect(page.locator(".matrix__row").first()).toBeVisible();
   });
 
-  test("both protocol groups list the OpenAI-compatible entries", async ({ page }) => {
+  test("the anthropic brand collapses its format variants behind the ellipsis", async ({ page }) => {
     await page.goto("/");
     await page.getByRole("button", { name: "设置", exact: true }).click();
-    const compatGroup = page.locator(".picker__heading").first();
-    await expect(compatGroup).toHaveText("OpenAI 兼容格式");
-    // anthropic-openai and gemini-openai live in the compatible group.
-    const row = compatGroup.locator("xpath=following-sibling::div[1]");
-    await expect(row.getByRole("button", { name: /Anthropic \(OpenAI 兼容\)/ })).toBeVisible();
-    await expect(row.getByRole("button", { name: /Google Gemini \(OpenAI 兼容\)/ })).toBeVisible();
+    const anthropicGroup = page.locator(".picker__heading", { hasText: "Anthropic 格式" });
+    await expect(anthropicGroup).toBeVisible();
+    // The brand capsule carries the ellipsis expander; the OpenAI-compatible
+    // relay lives in its variant menu instead of a second capsule.
+    await expect(page.getByRole("button", { name: "Anthropic", exact: true })).toBeVisible();
+    const more = page.getByRole("button", { name: "Anthropic 的其他平台版本" });
+    await more.click();
+    await expect(page.getByRole("option", { name: /OpenAI 兼容/ })).toBeVisible();
   });
 });
 

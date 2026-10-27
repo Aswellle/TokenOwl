@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "motion/react";
 import { AlertDialog } from "../../../components/AlertDialog";
 import { copy } from "../../../styles/copy";
@@ -42,6 +42,8 @@ export function SetupForm({
   const [customFormat, setCustomFormat] = useState<"openai_compatible" | "anthropic" | "gemini">(
     "openai_compatible",
   );
+  // Which brand's variant menu is open (brand key), if any.
+  const [expandedBrand, setExpandedBrand] = useState<string | null>(null);
   const [quotaEndpoint, setQuotaEndpoint] = useState("");
   const [usageEndpoint, setUsageEndpoint] = useState("");
   const [balanceEndpoint, setBalanceEndpoint] = useState("");
@@ -89,6 +91,38 @@ export function SetupForm({
     setCustomFormat(format);
     setBaseUrl(CUSTOM_DEFAULT_BASE_URL[format]);
   };
+
+  // Platform variants of one brand (智谱 国内版/国际版, Anthropic 原生/OpenAI
+  // 兼容) collapse into a single capsule keyed by the brand; the capsule
+  // lives in the section of its default variant's wire format, and its
+  // variant list carries the rest. Groups keep manifest order.
+  const brandGroups = useMemo(() => {
+    const groups = new Map<string, ManifestProfileViewModel[]>();
+    for (const item of profiles) {
+      const key = item.brand ?? item.id;
+      const members = groups.get(key);
+      if (members) members.push(item);
+      else groups.set(key, [item]);
+    }
+    return Array.from(groups.values()).map((members) => {
+      const defaultMember = members.find((member) => !member.variant) ?? members[0];
+      const activeMember = members.find((member) => member.id === profileId) ?? defaultMember;
+      return {
+        key: defaultMember.brand ?? defaultMember.id,
+        members,
+        defaultMember,
+        activeMember,
+        format: defaultMember.apiFormat,
+      };
+    });
+  }, [profiles, profileId]);
+
+  const formatLabel = (apiFormat: string) =>
+    apiFormat === "anthropic"
+      ? copy.form.formatAnthropic
+      : apiFormat === "google-ai"
+        ? copy.form.formatGemini
+        : copy.form.formatOpenai;
   const endpointChips = profile
     ? Object.entries(profile.endpoints)
         .filter(([, path]) => path !== null && path !== undefined)
@@ -196,71 +230,75 @@ export function SetupForm({
         />
       )}
       <div className="picker" role="group" aria-label={copy.a11y.profilePicker}>
-        <span className="picker__heading" aria-hidden="true">
-          {copy.form.protocolOpenai}
-        </span>
-        <div className="picker__row">
-          {profiles
-            .filter((item) => item.apiFormat === "openai-compatible")
-            .map((item) => (
-              <button
-                key={item.id}
-                type="button"
-                className={`picker__btn${profileId === item.id ? " is-active" : ""}`}
-                aria-pressed={profileId === item.id}
-                onClick={() => selectProfile(item.id)}
-              >
-                <ProviderIcon providerId={item.id} size={18} />
-                <span>{item.name}</span>
-              </button>
-            ))}
-        </div>
-        {profiles.some((item) => item.apiFormat === "anthropic") && (
-          <>
-            <span className="picker__heading" aria-hidden="true">
-              {copy.form.protocolAnthropic}
-            </span>
-            <div className="picker__row">
-              {profiles
-                .filter((item) => item.apiFormat === "anthropic")
-                .map((item) => (
-                  <button
-                    key={item.id}
-                    type="button"
-                    className={`picker__btn${profileId === item.id ? " is-active" : ""}`}
-                    aria-pressed={profileId === item.id}
-                    onClick={() => selectProfile(item.id)}
-                  >
-                    <ProviderIcon providerId={item.id} size={18} />
-                    <span>{item.name}</span>
-                  </button>
-                ))}
-            </div>
-          </>
-        )}
-        {profiles.some((item) => item.apiFormat === "google-ai") && (
-          <>
-            <span className="picker__heading" aria-hidden="true">
-              {copy.form.protocolGemini}
-            </span>
-            <div className="picker__row">
-              {profiles
-                .filter((item) => item.apiFormat === "google-ai")
-                .map((item) => (
-                  <button
-                    key={item.id}
-                    type="button"
-                    className={`picker__btn${profileId === item.id ? " is-active" : ""}`}
-                    aria-pressed={profileId === item.id}
-                    onClick={() => selectProfile(item.id)}
-                  >
-                    <ProviderIcon providerId={item.id} size={18} />
-                    <span>{item.name}</span>
-                  </button>
-                ))}
-            </div>
-          </>
-        )}
+        {(
+          [
+            ["openai-compatible", copy.form.protocolOpenai],
+            ["anthropic", copy.form.protocolAnthropic],
+            ["google-ai", copy.form.protocolGemini],
+          ] as const
+        ).map(([format, heading]) => {
+          const groups = brandGroups.filter((group) => group.format === format);
+          if (groups.length === 0) return null;
+          return (
+            <Fragment key={format}>
+              <span className="picker__heading" aria-hidden="true">
+                {heading}
+              </span>
+              <div className="picker__row">
+                {groups.map((group) => {
+                  const active = group.members.some((member) => member.id === profileId);
+                  return (
+                    <div className="picker__group" key={group.key}>
+                      <button
+                        type="button"
+                        className={`picker__btn${active ? " is-active" : ""}${group.members.length > 1 ? " has-variants" : ""}`}
+                        aria-pressed={active}
+                        onClick={() => selectProfile(group.activeMember.id)}
+                      >
+                        <ProviderIcon providerId={group.key} size={18} />
+                        <span>{group.activeMember.name}</span>
+                      </button>
+                      {group.members.length > 1 && (
+                        <button
+                          type="button"
+                          className="picker__more"
+                          aria-expanded={expandedBrand === group.key}
+                          aria-label={copy.form.variantsOf(group.activeMember.name)}
+                          title={copy.form.variantsOf(group.activeMember.name)}
+                          onClick={() =>
+                            setExpandedBrand(expandedBrand === group.key ? null : group.key)
+                          }
+                        >
+                          ⋯
+                        </button>
+                      )}
+                      {group.members.length > 1 && expandedBrand === group.key && (
+                        <div className="picker__menu" role="listbox" aria-label={copy.form.variantsOf(group.activeMember.name)}>
+                          {group.members.map((member) => (
+                            <button
+                              key={member.id}
+                              type="button"
+                              role="option"
+                              aria-selected={member.id === profileId}
+                              className={`picker__option${member.id === profileId ? " is-active" : ""}`}
+                              onClick={() => {
+                                selectProfile(member.id);
+                                setExpandedBrand(null);
+                              }}
+                            >
+                              <span>{member.variant ?? member.name}</span>
+                              <span className="picker__option-meta">{formatLabel(member.apiFormat)}</span>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </Fragment>
+          );
+        })}
         <span className="picker__heading" aria-hidden="true">
           {copy.form.customSection}
         </span>

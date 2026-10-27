@@ -2635,6 +2635,88 @@ button:disabled {
   gap: 6px;
 }
 
+.picker__group {
+  position: relative;
+  display: inline-grid;
+}
+
+.picker__btn.has-variants {
+  padding-right: 34px;
+}
+
+/* The ellipsis sits visually inside the capsule's right edge but is a DOM
+   sibling: a button inside a button is invalid, and the two hit targets
+   (select brand / open variants) must stay separate. */
+.picker__more {
+  position: absolute;
+  top: 50%;
+  right: 6px;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--ink-3);
+  font-size: 15px;
+  line-height: 1;
+  letter-spacing: 0.05em;
+  cursor: pointer;
+}
+
+.picker__more:hover,
+.picker__more[aria-expanded="true"] {
+  background: var(--inset);
+  color: var(--ink);
+}
+
+.picker__menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 6;
+  display: grid;
+  min-width: 220px;
+  padding: 4px;
+  border: 1px solid var(--hairline);
+  border-radius: 12px;
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-card);
+}
+
+.picker__option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 7px 10px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--ink);
+  font-size: var(--step-1);
+  text-align: left;
+  cursor: pointer;
+}
+
+.picker__option:hover {
+  background: var(--inset);
+}
+
+.picker__option.is-active {
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+}
+
+.picker__option-meta {
+  color: var(--ink-3);
+  font-size: var(--step-0);
+}
+
 .picker__btn {
   display: inline-flex;
   align-items: center;

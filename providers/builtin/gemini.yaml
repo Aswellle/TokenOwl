@@ -1,6 +1,7 @@
 id: gemini
 version: 1
 name: Google Gemini
+brand: gemini
 category: official
 region: global
 auth:

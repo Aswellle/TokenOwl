@@ -1,5 +1,7 @@
 id: gemini-openai
 version: 1
+brand: gemini
+variant: OpenAI 兼容
 name: Google Gemini (OpenAI 兼容)
 category: official
 region: global

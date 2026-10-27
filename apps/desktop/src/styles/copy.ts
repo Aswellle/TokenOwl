@@ -240,6 +240,7 @@ export const copy = {
     protocolAnthropic: "Anthropic 格式",
     protocolGemini: "Gemini 格式",
     customSection: "自定义接入",
+    variantsOf: (name: string) => `${name} 的其他平台版本`,
     customFormatLabel: "接口请求格式",
     formatOpenai: "OpenAI 兼容",
     formatAnthropic: "Anthropic",

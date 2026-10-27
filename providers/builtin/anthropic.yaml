@@ -1,6 +1,7 @@
 id: anthropic
 version: 1
 name: Anthropic
+brand: anthropic
 category: official
 region: global
 auth:

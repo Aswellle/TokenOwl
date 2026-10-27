@@ -225,7 +225,7 @@ export function App({ bridge = tauriBridge }: AppProps = {}) {
     handleDelete,
     setNotice,
   } = useAccounts(bridge);
-  const { updateState, pendingUpdate, setPendingUpdate, handleUpdateCheck, handleInstallUpdate } =
+  const { updateState, banner, dismissBanner, handleUpdateCheck, handleInstallUpdate } =
     useUpdater(bridge, setNotice);
   const [now, setNow] = useState(() => Date.now());
   const [notificationTick, setNotificationTick] = useState(0);
@@ -432,40 +432,6 @@ export function App({ bridge = tauriBridge }: AppProps = {}) {
           )}
         </AnimatePresence>
 
-        <AnimatePresence initial={false}>
-          {pendingUpdate && updateState === "available" && (
-            <motion.div
-              key="update"
-              className="notice notice--accent"
-              role="status"
-              variants={fadeVariants}
-              initial="hidden"
-              animate="show"
-              exit="hide"
-            >
-              <span className="notice__icon">
-                <IconDownload size={14} />
-              </span>
-              <span>{copy.update.available(pendingUpdate.version)}</span>
-              <span className="notice__actions">
-                <button className="btn btn--accent-outline" type="button" onClick={() => void handleInstallUpdate()}>
-                  {copy.actions.installAndRestart}
-                </button>
-                <button
-                  className="btn btn--quiet"
-                  type="button"
-                  onClick={() => {
-                    setPendingUpdate(null);
-                    setNotice({ text: copy.update.deferred(pendingUpdate.version) });
-                  }}
-                >
-                  {copy.actions.later}
-                </button>
-              </span>
-            </motion.div>
-          )}
-        </AnimatePresence>
-
         <AnimatePresence initial={false} mode="wait" custom={direction}>
           <motion.div
             key={view + (view === "provider" ? selectedId ?? "" : "")}
@@ -639,6 +605,87 @@ export function App({ bridge = tauriBridge }: AppProps = {}) {
 
             {view === "settings" && (
               <section className="section" aria-label={copy.views.settings}>
+                {banner?.kind === "available" && (
+                  <motion.div
+                    className="notice notice--accent"
+                    role="status"
+                    variants={fadeVariants}
+                    initial="hidden"
+                    animate="show"
+                    exit="hide"
+                  >
+                    <span className="notice__icon">
+                      <IconDownload size={14} />
+                    </span>
+                    <span>{copy.update.available(banner.version)}</span>
+                    <span className="notice__actions">
+                      <button
+                        className="btn btn--accent-outline"
+                        type="button"
+                        onClick={() => void handleInstallUpdate()}
+                      >
+                        {copy.actions.downloadUpdate}
+                      </button>
+                      <button
+                        className="btn btn--quiet"
+                        type="button"
+                        aria-label={copy.actions.dismissBanner}
+                        title={copy.actions.dismissBanner}
+                        onClick={dismissBanner}
+                      >
+                        <IconClose size={14} />
+                      </button>
+                    </span>
+                  </motion.div>
+                )}
+                {banner?.kind === "current" && (
+                  <motion.div
+                    role="status"
+                    variants={fadeVariants}
+                    initial="hidden"
+                    animate="show"
+                    exit="hide"
+                  >
+                    <Notice>
+                      {copy.update.currentDetail}
+                      <span className="notice__actions">
+                        <button
+                          className="btn btn--quiet"
+                          type="button"
+                          aria-label={copy.actions.dismissBanner}
+                          title={copy.actions.dismissBanner}
+                          onClick={dismissBanner}
+                        >
+                          <IconClose size={14} />
+                        </button>
+                      </span>
+                    </Notice>
+                  </motion.div>
+                )}
+                {banner?.kind === "failed" && (
+                  <motion.div
+                    role="status"
+                    variants={fadeVariants}
+                    initial="hidden"
+                    animate="show"
+                    exit="hide"
+                  >
+                    <Notice tone="warning">
+                      {copy.update.unavailable}
+                      <span className="notice__actions">
+                        <button
+                          className="btn btn--quiet"
+                          type="button"
+                          aria-label={copy.actions.dismissBanner}
+                          title={copy.actions.dismissBanner}
+                          onClick={dismissBanner}
+                        >
+                          <IconClose size={14} />
+                        </button>
+                      </span>
+                    </Notice>
+                  </motion.div>
+                )}
                 <SetupForm
                   bridge={bridge}
                   submitting={formSubmitting}

@@ -87,6 +87,8 @@ export const copy = {
     checkUpdate: "检查更新",
     checkingUpdate: "正在检查更新",
     installAndRestart: "安装并重启",
+    downloadUpdate: "下载并安装",
+    dismissBanner: "关闭此通知",
     later: "稍后",
     openDashboard: "展开面板",
     collapseDashboard: "收起面板",
@@ -191,9 +193,9 @@ export const copy = {
   },
 
   update: {
-    current: "已是最新版本。",
     available: (version: string) => `发现新版本 ${version}，安装后会自动重启。`,
     deferred: (version: string) => `已跳过 ${version}，可随时再次检查。`,
+    currentDetail: "已是最新版本，当前无可用更新。",
     installed: "更新已安装，TokenOwl 即将重启。",
     unavailable: "当前无法检查或安装更新，本机数据未受影响。",
   },

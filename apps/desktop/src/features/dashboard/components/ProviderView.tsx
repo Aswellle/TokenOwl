@@ -160,7 +160,6 @@ export function ProviderView({
       <div className="pview__head">
         <ProviderIcon providerId={account.providerId} size={40} />
         <div className="pview__names">
-          <h2 className="pview__title">{account.label}</h2>
           <p className="pview__provider">{account.providerName}</p>
         </div>
         <StatusChip status={account.status} />

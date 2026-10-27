@@ -286,11 +286,6 @@ export function HistorySection({
 
   return (
     <section className="section history-section" aria-label={copy.a11y.historyRegion}>
-      <div className="section__head">
-        <div className="section__titlewrap">
-          <h2 className="section__title">{copy.history.title}</h2>
-        </div>
-      </div>
 
       {summary === null ? (
         <div className="skeleton" aria-hidden="true">

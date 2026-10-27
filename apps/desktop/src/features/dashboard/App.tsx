@@ -363,7 +363,9 @@ export function App({ bridge = tauriBridge }: AppProps = {}) {
             <IconOwl size={19} />
           </span>
           <span className="titlebar__name">{copy.brand}</span>
-          <h1 className="titlebar__title">{copy.appTitle}</h1>
+          <h1 className="titlebar__title" aria-live="polite">
+            {view === "provider" && selected ? selected.label : copy.views[view]}
+          </h1>
         </div>
         <div className="titlebar__spacer" data-tauri-drag-region />
         <div className="titlebar__actions">
@@ -510,7 +512,6 @@ export function App({ bridge = tauriBridge }: AppProps = {}) {
                 <section className="section" aria-label={copy.a11y.accountsRegion}>
                 <div className="section__head">
                   <div className="section__titlewrap">
-                    <h2 className="section__title">{copy.rail.allProviders}</h2>
                     {accounts.length > 0 && <span className="section__count num">{accounts.length}</span>}
                   </div>
                   <div className="section__actions">

@@ -380,7 +380,6 @@ export function NotificationSection({
     <section className="section notif-section" aria-label={copy.a11y.notificationsRegion}>
       <div className="section__head">
         <div className="section__titlewrap">
-          <h2 className="section__title">{copy.notifications.title}</h2>
           {items && items.length > 0 && (
             <span className="section__count num">{items.length}</span>
           )}

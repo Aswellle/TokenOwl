@@ -27,8 +27,10 @@ test.describe("TokenOwl dashboard smoke", () => {
   test("settings shows the protocol-grouped provider picker", async ({ page }) => {
     await page.goto("/?empty=1");
     await page.getByRole("button", { name: "添加账户" }).click();
-    await expect(page.getByText("OpenAI 兼容协议")).toBeVisible();
-    await expect(page.getByText("其他原生协议（适配逐步开放）")).toBeVisible();
+    await expect(page.getByText("OpenAI 兼容格式")).toBeVisible();
+    await expect(page.getByText("Anthropic 格式")).toBeVisible();
+    await expect(page.getByText("Gemini 格式")).toBeVisible();
+    await expect(page.getByText("自定义接入", { exact: true })).toBeVisible();
   });
 
   test("bubble preview renders and returns to the dashboard", async ({ page }) => {
@@ -58,7 +60,7 @@ test.describe("settings view (phase-C UI)", () => {
     await page.goto("/");
     await page.getByRole("button", { name: "设置", exact: true }).click();
     const compatGroup = page.locator(".picker__heading").first();
-    await expect(compatGroup).toHaveText("OpenAI 兼容协议");
+    await expect(compatGroup).toHaveText("OpenAI 兼容格式");
     // anthropic-openai and gemini-openai live in the compatible group.
     const row = compatGroup.locator("xpath=following-sibling::div[1]");
     await expect(row.getByRole("button", { name: /Anthropic \(OpenAI 兼容\)/ })).toBeVisible();

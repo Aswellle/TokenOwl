@@ -36,6 +36,12 @@ export function SetupForm({
   const [profileId, setProfileId] = useState("custom");
   const [label, setLabel] = useState("");
   const [baseUrl, setBaseUrl] = useState("https://api.openai.com/v1");
+  // A custom target speaks one of the three supported wire formats; the
+  // format decides the default host, whether probe endpoints apply, and
+  // which native adapter (if any) serves the account.
+  const [customFormat, setCustomFormat] = useState<"openai_compatible" | "anthropic" | "gemini">(
+    "openai_compatible",
+  );
   const [quotaEndpoint, setQuotaEndpoint] = useState("");
   const [usageEndpoint, setUsageEndpoint] = useState("");
   const [balanceEndpoint, setBalanceEndpoint] = useState("");
@@ -72,6 +78,17 @@ export function SetupForm({
     setProfileId(nextId);
     if (next?.customBaseUrl) setBaseUrl("");
   };
+
+  const CUSTOM_DEFAULT_BASE_URL = {
+    openai_compatible: "https://api.openai.com/v1",
+    anthropic: "https://api.anthropic.com/v1",
+    gemini: "https://generativelanguage.googleapis.com/v1beta",
+  } as const;
+
+  const selectCustomFormat = (format: "openai_compatible" | "anthropic" | "gemini") => {
+    setCustomFormat(format);
+    setBaseUrl(CUSTOM_DEFAULT_BASE_URL[format]);
+  };
   const endpointChips = profile
     ? Object.entries(profile.endpoints)
         .filter(([, path]) => path !== null && path !== undefined)
@@ -95,9 +112,10 @@ export function SetupForm({
       providerId: profile ? profile.id : "generic.openai_compatible",
       label: label.trim(),
       baseUrl: effectiveBaseUrl.trim(),
-      quotaEndpoint: profile ? undefined : quotaEndpoint.trim() || undefined,
-      usageEndpoint: profile ? undefined : usageEndpoint.trim() || undefined,
-      balanceEndpoint: profile ? undefined : balanceEndpoint.trim() || undefined,
+      quotaEndpoint: profile || customFormat !== "openai_compatible" ? undefined : quotaEndpoint.trim() || undefined,
+      usageEndpoint: profile || customFormat !== "openai_compatible" ? undefined : usageEndpoint.trim() || undefined,
+      balanceEndpoint: profile || customFormat !== "openai_compatible" ? undefined : balanceEndpoint.trim() || undefined,
+      apiFormat: profile ? undefined : customFormat,
       lanConsentToken,
       apiKeyInput,
     });
@@ -196,46 +214,70 @@ export function SetupForm({
                 <span>{item.name}</span>
               </button>
             ))}
+        </div>
+        {profiles.some((item) => item.apiFormat === "anthropic") && (
+          <>
+            <span className="picker__heading" aria-hidden="true">
+              {copy.form.protocolAnthropic}
+            </span>
+            <div className="picker__row">
+              {profiles
+                .filter((item) => item.apiFormat === "anthropic")
+                .map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    className={`picker__btn${profileId === item.id ? " is-active" : ""}`}
+                    aria-pressed={profileId === item.id}
+                    onClick={() => selectProfile(item.id)}
+                  >
+                    <ProviderIcon providerId={item.id} size={18} />
+                    <span>{item.name}</span>
+                  </button>
+                ))}
+            </div>
+          </>
+        )}
+        {profiles.some((item) => item.apiFormat === "google-ai") && (
+          <>
+            <span className="picker__heading" aria-hidden="true">
+              {copy.form.protocolGemini}
+            </span>
+            <div className="picker__row">
+              {profiles
+                .filter((item) => item.apiFormat === "google-ai")
+                .map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    className={`picker__btn${profileId === item.id ? " is-active" : ""}`}
+                    aria-pressed={profileId === item.id}
+                    onClick={() => selectProfile(item.id)}
+                  >
+                    <ProviderIcon providerId={item.id} size={18} />
+                    <span>{item.name}</span>
+                  </button>
+                ))}
+            </div>
+          </>
+        )}
+        <span className="picker__heading" aria-hidden="true">
+          {copy.form.customSection}
+        </span>
+        <div className="picker__row">
           <button
             type="button"
             className={`picker__btn${isCustom ? " is-active" : ""}`}
             aria-pressed={isCustom}
             onClick={() => selectProfile("custom")}
           >
-            <ProviderIcon providerId="generic.openai_compatible" size={18} />
+            <ProviderIcon
+              providerId={isCustom ? customFormat : "generic.openai_compatible"}
+              size={18}
+            />
             <span>{copy.form.customOption}</span>
           </button>
         </div>
-        {profiles.some((item) => item.apiFormat !== "openai-compatible") && (
-          <>
-            <span className="picker__heading" aria-hidden="true">
-              {copy.form.protocolOther}
-            </span>
-            <div className="picker__row">
-              {profiles
-                .filter((item) => item.apiFormat !== "openai-compatible")
-                .map((item) => {
-                  // Native protocols whose adapter has landed are selectable;
-                  // the rest stay visible but disabled until theirs exists.
-                  const native = item.apiFormat === "anthropic" || item.apiFormat === "google-ai";
-                  return (
-                    <button
-                      key={item.id}
-                      type="button"
-                      className={`picker__btn${profileId === item.id ? " is-active" : ""}`}
-                      aria-pressed={profileId === item.id}
-                      disabled={!native}
-                      title={native ? undefined : copy.form.protocolOther}
-                      onClick={() => selectProfile(item.id)}
-                    >
-                      <ProviderIcon providerId={item.id} size={18} />
-                      <span>{item.name}</span>
-                    </button>
-                  );
-                })}
-            </div>
-          </>
-        )}
       </div>
       <div className="form__grid">
         <div className="field field--wide">
@@ -279,6 +321,40 @@ export function SetupForm({
           </span>
         </div>
         {isCustom && (
+          <>
+            <div className="field field--wide" role="radiogroup" aria-label={copy.form.customFormatLabel}>
+              <span className="field__label" id="custom-format-label">
+                {copy.form.customFormatLabel}
+              </span>
+              <div className="picker__row">
+                {(
+                  [
+                    ["openai_compatible", copy.form.formatOpenai],
+                    ["anthropic", copy.form.formatAnthropic],
+                    ["gemini", copy.form.formatGemini],
+                  ] as const
+                ).map(([value, label]) => (
+                  <button
+                    key={value}
+                    type="button"
+                    role="radio"
+                    aria-checked={customFormat === value}
+                    className={`picker__btn${customFormat === value ? " is-active" : ""}`}
+                    onClick={() => selectCustomFormat(value)}
+                  >
+                    <span>{label}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+        </>
+        )}
+        {isCustom && customFormat !== "openai_compatible" && (
+          <div className="field field--wide">
+            <span className="field__help">{copy.form.nativeFormatHelp}</span>
+          </div>
+        )}
+        {isCustom && customFormat === "openai_compatible" && (
           <>
             <div className="field field--wide">
               <label className="field__label" htmlFor="quota-endpoint">

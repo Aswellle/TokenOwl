@@ -72,6 +72,8 @@ export interface GenericOpenAiAccountInput {
   /** One-time LAN confirmation token from `lanConsentBegin`; Rust decides
    * whether it is required, the frontend never assumes. */
   lanConsentToken?: string;
+  /** Wire format of a CUSTOM provider target; built-in ids ignore this. */
+  apiFormat?: "openai_compatible" | "anthropic" | "gemini";
 }
 
 export interface UpdateInfo {

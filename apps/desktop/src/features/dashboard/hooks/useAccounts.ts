@@ -131,6 +131,7 @@ export function useAccounts(bridge: DashboardBridge) {
           quotaEndpoint: input.quotaEndpoint,
           usageEndpoint: input.usageEndpoint,
           balanceEndpoint: input.balanceEndpoint,
+          apiFormat: input.apiFormat,
           lanConsentToken: input.lanConsentToken,
           apiKey: secret,
         });

@@ -174,6 +174,7 @@ fn telemetry_masks_key_shaped_secrets() {
 #[test]
 fn account_input_debug_never_prints_the_api_key() {
     let input = tokenowl_lib::commands::GenericOpenAiAccountInput {
+        api_format: None,
         provider_id: "generic.openai_compatible".to_owned(),
         label: "Leak Probe".to_owned(),
         base_url: "https://api.openai.com/v1".to_owned(),

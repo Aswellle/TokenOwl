@@ -308,6 +308,11 @@ pub struct GenericOpenAiAccountInput {
     /// exactly when Rust classifies the target as local-network.
     #[serde(default)]
     pub lan_consent_token: Option<String>,
+    /// Wire format of a CUSTOM provider target: `openai_compatible` (the
+    /// default), `anthropic`, or `gemini`. Built-in provider ids carry
+    /// their format in the manifest and ignore this field.
+    #[serde(default)]
+    pub api_format: Option<String>,
 }
 
 impl std::fmt::Debug for GenericOpenAiAccountInput {
@@ -318,6 +323,7 @@ impl std::fmt::Debug for GenericOpenAiAccountInput {
         formatter
             .debug_struct("GenericOpenAiAccountInput")
             .field("provider_id", &self.provider_id)
+            .field("api_format", &self.api_format)
             .field("label", &self.label)
             .field("base_url", &self.base_url)
             .field("quota_endpoint", &self.quota_endpoint)
@@ -1310,6 +1316,17 @@ struct ResolvedNewAccount {
     display_name: String,
     base_url: String,
     endpoints: AccountEndpoints,
+    /// The credential header the resolved wire format authenticates with.
+    api_key_header: &'static str,
+}
+
+/// The credential header each supported wire format authenticates with.
+fn api_key_header_for_format(api_format: &str) -> &'static str {
+    match api_format {
+        "anthropic" => "x-api-key",
+        "google-ai" | "gemini" => "x-goog-api-key",
+        _ => "Authorization",
+    }
 }
 
 /// Whether a host targets the local machine or a private network.
@@ -1429,35 +1446,67 @@ fn resolve_new_account(
     }
 
     if input.provider_id == "generic.openai_compatible" {
-        let usage = input
-            .usage_endpoint
-            .as_deref()
-            .map(normalize_endpoint)
-            .transpose()?;
-        let balance = input
-            .balance_endpoint
-            .as_deref()
-            .map(normalize_endpoint)
-            .transpose()?;
-        let quota = match input.quota_endpoint.as_deref() {
-            Some(path) => Some(normalize_endpoint(path)?),
-            None if usage.is_none() && balance.is_none() => {
-                Some(normalize_endpoint(DEFAULT_QUOTA_ENDPOINT)?)
-            }
-            None => None,
-        };
         let base_url = validate_user_base_url(&input.base_url)?;
-        return Ok(ResolvedNewAccount {
-            provider_prefix: "generic.openai_compatible".to_owned(),
-            display_name: "OpenAI-compatible".to_owned(),
-            base_url,
-            endpoints: AccountEndpoints {
-                models: None,
-                quota,
-                usage,
-                balance,
-            },
-        });
+        let api_format = input.api_format.as_deref().unwrap_or("openai_compatible");
+        return match api_format {
+            // The probing format: optional user-named quota/usage/balance
+            // endpoints are honored alongside the default quota probe.
+            "openai_compatible" => {
+                let usage = input
+                    .usage_endpoint
+                    .as_deref()
+                    .map(normalize_endpoint)
+                    .transpose()?;
+                let balance = input
+                    .balance_endpoint
+                    .as_deref()
+                    .map(normalize_endpoint)
+                    .transpose()?;
+                let quota = match input.quota_endpoint.as_deref() {
+                    Some(path) => Some(normalize_endpoint(path)?),
+                    None if usage.is_none() && balance.is_none() => {
+                        Some(normalize_endpoint(DEFAULT_QUOTA_ENDPOINT)?)
+                    }
+                    None => None,
+                };
+                Ok(ResolvedNewAccount {
+                    provider_prefix: "generic.openai_compatible".to_owned(),
+                    display_name: "OpenAI-compatible".to_owned(),
+                    base_url,
+                    endpoints: AccountEndpoints {
+                        models: None,
+                        quota,
+                        usage,
+                        balance,
+                    },
+                    api_key_header: api_key_header_for_format(api_format),
+                })
+            }
+            // The native wire formats dispatch to their own adapters by the
+            // `anthropic:` / `gemini:` provider-id prefix. Their capability
+            // is the adapter's own (L2: key probe plus any rate-limit
+            // headers the gateway returns), so user-supplied probe
+            // endpoints are not applicable and are deliberately ignored.
+            "anthropic" | "gemini" => Ok(ResolvedNewAccount {
+                provider_prefix: api_format.to_owned(),
+                display_name: if api_format == "anthropic" {
+                    "Anthropic-compatible".to_owned()
+                } else {
+                    "Gemini-compatible".to_owned()
+                },
+                base_url,
+                endpoints: AccountEndpoints {
+                    models: None,
+                    quota: None,
+                    usage: None,
+                    balance: None,
+                },
+                api_key_header: api_key_header_for_format(api_format),
+            }),
+            other => Err(CommandError::InvalidInput(format!(
+                "unsupported API format `{other}` (openai_compatible, anthropic, gemini)"
+            ))),
+        };
     }
 
     // A built-in provider: the embedded manifest is authoritative for the
@@ -1486,6 +1535,7 @@ fn resolve_new_account(
             usage: profile.endpoints.usage,
             balance: profile.endpoints.balance,
         },
+        api_key_header: api_key_header_for_format(&profile.api_format),
     })
 }
 
@@ -1581,6 +1631,9 @@ fn persist_new_account(
         resolved.base_url.clone(),
     );
     config.credential_ref = Some(credential_ref.clone());
+    resolved
+        .api_key_header
+        .clone_into(&mut config.api_key_header);
     config
         .models_endpoint
         .clone_from(&resolved.endpoints.models);
@@ -2026,6 +2079,7 @@ mod tests {
             usage_endpoint: None,
             balance_endpoint: Some("/should-not-be-used".to_owned()),
             lan_consent_token: None,
+            api_format: None,
         };
         let resolved = resolve_new_account(&input, None).expect("builtin profile");
         assert_eq!(resolved.provider_prefix, "deepseek");
@@ -2049,6 +2103,7 @@ mod tests {
             usage_endpoint: None,
             balance_endpoint: None,
             lan_consent_token: None,
+            api_format: None,
         };
         let error = resolve_new_account(&input, None).expect_err("unknown brand");
         assert!(matches!(error, CommandError::InvalidInput(_)));
@@ -2065,6 +2120,7 @@ mod tests {
             usage_endpoint: None,
             balance_endpoint: None,
             lan_consent_token: None,
+            api_format: None,
         };
         let error = resolve_new_account(&input, None).expect_err("non-http base url");
         assert!(matches!(error, CommandError::InvalidInput(_)));
@@ -2082,6 +2138,7 @@ mod tests {
                 usage_endpoint: usage.map(ToOwned::to_owned),
                 balance_endpoint: balance.map(ToOwned::to_owned),
                 lan_consent_token: None,
+                api_format: None,
             }
         };
         let resolved = resolve_new_account(&input(None, None, None), None).expect("defaults");
@@ -2118,6 +2175,7 @@ mod tests {
             usage_endpoint: None,
             balance_endpoint: None,
             lan_consent_token: None,
+            api_format: None,
         };
         let resolved = resolve_new_account(&input, None).expect("gateway resolves");
         assert_eq!(
@@ -2143,6 +2201,7 @@ mod tests {
             usage_endpoint: None,
             balance_endpoint: None,
             lan_consent_token: None,
+            api_format: None,
         };
         let resolved = resolve_new_account(&input, None).expect("built-in resolves");
         assert_eq!(resolved.base_url, "https://api.deepseek.com/v1");
@@ -2162,6 +2221,7 @@ mod tests {
                 usage_endpoint: None,
                 balance_endpoint: None,
                 lan_consent_token: None,
+                api_format: None,
             };
             let error = resolve_new_account(&input, None)
                 .expect_err("a gateway profile needs a real base URL");
@@ -2192,6 +2252,7 @@ mod tests {
                 usage_endpoint: None,
                 balance_endpoint: None,
                 lan_consent_token: None,
+                api_format: None,
             };
             let error = resolve_new_account(&input, None)
                 .expect_err("a reserved placeholder host must be rejected");
@@ -2221,6 +2282,7 @@ mod tests {
                 usage_endpoint: None,
                 balance_endpoint: None,
                 lan_consent_token: None,
+                api_format: None,
             };
             let resolved = resolve_new_account(&input, None)
                 .unwrap_or_else(|error| panic!("`{base_url}` should resolve: {error:?}"));
@@ -2248,6 +2310,7 @@ mod tests {
                 usage_endpoint: None,
                 balance_endpoint: None,
                 lan_consent_token: None,
+                api_format: None,
             };
             let error = resolve_new_account(&input, None)
                 .expect_err("credentials embedded in the URL must be rejected");
@@ -2455,6 +2518,68 @@ mod tests {
         );
         let token = ledger.begin("https://192.168.0.20/v1", unix_seconds());
         assert!(authorize_lan_target(&ledger, "https://192.168.0.20/v1", Some(&token)).is_ok());
+    }
+
+    fn custom_input(api_format: Option<&str>) -> GenericOpenAiAccountInput {
+        GenericOpenAiAccountInput {
+            provider_id: "generic.openai_compatible".to_owned(),
+            label: "relay".to_owned(),
+            base_url: "https://relay.example.test/v1".to_owned(),
+            api_key: "sk-synthetic-format-key".to_owned(),
+            quota_endpoint: None,
+            usage_endpoint: None,
+            balance_endpoint: None,
+            lan_consent_token: None,
+            api_format: api_format.map(ToOwned::to_owned),
+        }
+    }
+
+    /// A custom Anthropic-format account rides the native adapter via the
+    /// `anthropic:` provider-id prefix and authenticates with its header.
+    #[test]
+    fn resolve_custom_anthropic_format_uses_the_native_prefix() {
+        let resolved = resolve_new_account(&custom_input(Some("anthropic")), None)
+            .expect("anthropic format resolves");
+        assert_eq!(resolved.provider_prefix, "anthropic");
+        assert_eq!(resolved.display_name, "Anthropic-compatible");
+        assert_eq!(resolved.api_key_header, "x-api-key");
+        assert_eq!(
+            resolved.endpoints.quota, None,
+            "native formats carry no probe endpoints"
+        );
+    }
+
+    #[test]
+    fn resolve_custom_gemini_format_uses_the_native_prefix() {
+        let resolved = resolve_new_account(&custom_input(Some("gemini")), None)
+            .expect("gemini format resolves");
+        assert_eq!(resolved.provider_prefix, "gemini");
+        assert_eq!(resolved.display_name, "Gemini-compatible");
+        assert_eq!(resolved.api_key_header, "x-goog-api-key");
+    }
+
+    /// Omitting the format keeps the historical OpenAI-compatible behavior,
+    /// including the default quota probe endpoint.
+    #[test]
+    fn resolve_custom_without_format_defaults_to_openai_compatible() {
+        let resolved = resolve_new_account(&custom_input(None), None).expect("default resolves");
+        assert_eq!(resolved.provider_prefix, "generic.openai_compatible");
+        assert_eq!(resolved.api_key_header, "Authorization");
+        assert!(
+            resolved.endpoints.quota.is_some(),
+            "default quota probe stays on"
+        );
+    }
+
+    #[test]
+    fn resolve_custom_unknown_format_names_the_supported_set() {
+        let error = resolve_new_account(&custom_input(Some("soap")), None)
+            .expect_err("unknown format must be rejected");
+        let text = error.to_string();
+        assert!(text.contains("unsupported API format"), "got `{text}`");
+        for supported in ["openai_compatible", "anthropic", "gemini"] {
+            assert!(text.contains(supported), "must name {supported}: {text}");
+        }
     }
 
     #[test]

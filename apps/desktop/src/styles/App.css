@@ -144,6 +144,16 @@ body,
   height: 100%;
 }
 
+/* The window is an app surface, not a document: the page itself never
+   scrolls or bounces — only a view's own content region does. Overscroll
+   chains are cut so dragging inside a scrolled region never drags the
+   whole window along. */
+html,
+body {
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
 /* The window material is painted by .window; the page itself stays transparent. */
 body {
   margin: 0;
@@ -559,7 +569,8 @@ button:disabled {
 .content {
   flex: 1 1 auto;
   min-height: 0;
-  overflow-y: auto;
+  overflow: hidden auto;
+  overscroll-behavior: contain;
   padding: 16px 20px 20px;
   scrollbar-width: thin;
   scrollbar-color: var(--hairline-strong) transparent;

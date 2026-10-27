@@ -3,47 +3,20 @@
  *
  * Provider ids carry their brand as the prefix before the colon
  * (`openai:account-1`), so the brand is matched on the prefix and unknown
- * prefixes — including `generic.openai_compatible` relays — fall back to a
- * neutral key glyph instead of guessing a brand.
+ * prefixes fall back to a neutral key glyph instead of guessing a brand.
+ * The mapping tables live in `providerIconMap.ts`; the only built-in
+ * providers still on the fallback are the `one-api` and `litellm` gateway
+ * projects — the icon catalog does not carry them and their own project
+ * logos are not bundled yet.
  */
 
-import { ProviderIcon as LobeProviderIcon } from "@lobehub/icons";
+import type { ReactNode } from "react";
+import { Coze, Yi, ProviderIcon as LobeProviderIcon } from "@lobehub/icons";
+import { DIRECT_BRANDS, PROVIDER_PREFIXES } from "./providerIconMap";
 
-/** providerId prefix → @lobehub/icons provider id. */
-const PROVIDER_PREFIXES: Record<string, string> = {
-  openai: "openai",
-  anthropic: "anthropic",
-  claude: "claude",
-  gemini: "google",
-  mistral: "mistral",
-  groq: "groq",
-  xai: "xai",
-  siliconflow: "siliconcloud",
-  stepfun: "stepfun",
-  doubao: "doubao",
-  baichuan: "baichuan",
-  google: "google",
-  openrouter: "openrouter",
-  deepseek: "deepseek",
-  qwen: "qwen",
-  kimi: "moonshot",
-  moonshot: "moonshot",
-  minimax: "minimax",
-  zhipu: "zhipu",
-  glm: "zhipu",
-  grok: "xai",
-  cohere: "cohere",
-  perplexity: "perplexity",
-  ollama: "ollama",
-  siliconcloud: "siliconcloud",
-  together: "together",
-  fireworks: "fireworks",
-  cerebras: "cerebras",
-  huggingface: "huggingface",
-  microsoft: "microsoft",
-  azure: "azure",
-  bedrock: "bedrock",
-  vertexai: "vertexai",
+const DIRECT_COMPONENTS: Record<string, (props: { size: number }) => ReactNode> = {
+  yi: ({ size }) => <Yi.Color size={size} />,
+  coze: ({ size }) => <Coze size={size} />,
 };
 
 export function ProviderIcon({
@@ -56,6 +29,17 @@ export function ProviderIcon({
   // Empty/undefined ids surface from freshly created accounts before the
   // provider row exists; the neutral fallback must still render.
   const prefix = (providerId ?? "").split(":")[0].trim().toLowerCase();
+  const directBrand = prefix ? DIRECT_BRANDS[prefix] : undefined;
+
+  if (directBrand) {
+    const render = DIRECT_COMPONENTS[directBrand];
+    return (
+      <span className="provider-icon" style={{ width: size, height: size }} aria-hidden="true">
+        {render({ size })}
+      </span>
+    );
+  }
+
   const lobeProvider = prefix ? PROVIDER_PREFIXES[prefix] : undefined;
 
   if (!lobeProvider) {

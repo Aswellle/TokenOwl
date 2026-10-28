@@ -15,6 +15,13 @@ test.describe("TokenOwl dashboard smoke", () => {
     await expect(page.getByRole("heading", { name: "概览" })).toBeVisible();
   });
 
+  test("clicking an account row opens the provider's detail view", async ({ page }) => {
+    await page.goto("/");
+    await page.locator(".account__identity").first().click();
+    // The titlebar heading names the account once its detail view is open.
+    await expect(page.getByRole("heading", { name: "OpenAI 官方" })).toBeVisible();
+  });
+
   test("navigates through the dock views", async ({ page }) => {
     await page.goto("/");
     for (const view of ["历史", "通知", "设置"]) {

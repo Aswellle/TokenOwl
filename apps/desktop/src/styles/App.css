@@ -1042,6 +1042,16 @@ button:disabled {
   align-items: center;
   gap: 10px;
   min-width: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.account__identity:hover .account__label {
+  color: var(--accent-ink);
 }
 
 .account__mark {
@@ -1058,10 +1068,12 @@ button:disabled {
 }
 
 .account__names {
+  display: block;
   min-width: 0;
 }
 
 .account__label {
+  display: block;
   font-size: var(--step-2);
   font-weight: 600;
   line-height: 1.45;
@@ -1072,6 +1084,7 @@ button:disabled {
 }
 
 .account__provider {
+  display: block;
   color: var(--ink-3);
   font-size: var(--step-0);
   overflow: hidden;
@@ -2129,9 +2142,19 @@ button:disabled {
   background: #ff3b30;
 }
 
+/* The overflow indicator is itself the way in: it opens the overview where
+   every provider is listed. */
 .rail__hint {
-  font-size: var(--step-0);
+  padding: 0 2px;
+  border: 0;
+  background: none;
   color: var(--ink-3);
+  font-size: var(--step-0);
+  cursor: pointer;
+}
+
+.rail__hint:hover {
+  color: var(--ink);
 }
 
 /* ---------- bottom dock ---------- */

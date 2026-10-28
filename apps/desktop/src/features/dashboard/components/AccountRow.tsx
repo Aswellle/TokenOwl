@@ -32,6 +32,7 @@ export function AccountRow({
   now,
   refreshing,
   deleting,
+  onOpen,
   onRefresh,
   onDelete,
 }: {
@@ -40,6 +41,7 @@ export function AccountRow({
   now: number;
   refreshing: boolean;
   deleting: boolean;
+  onOpen: () => void;
   onRefresh: () => void;
   onDelete: () => void;
 }) {
@@ -61,15 +63,21 @@ export function AccountRow({
       layout={!confirming}
     >
       <div className="account__head">
-        <div className="account__identity">
+        {/* The identity is the row's navigation affordance: it looks like the
+            card's clickable face, so it must actually open the provider
+            view — the tools on the right stay separate actions. */}
+        <button
+          className="account__identity"
+          type="button"
+          onClick={onOpen}
+          title={copy.a11y.selectProvider(account.label)}
+        >
           <ProviderIcon providerId={account.providerId} size={32} />
-          <div className="account__names">
-            <h3 className="account__label" title={account.label}>
-              {account.label}
-            </h3>
-            <p className="account__provider">{account.providerName}</p>
-          </div>
-        </div>
+          <span className="account__names">
+            <span className="account__label">{account.label}</span>
+            <span className="account__provider">{account.providerName}</span>
+          </span>
+        </button>
         <div className="account__tools">
           <StatusChip status={account.status} />
           <button

@@ -407,9 +407,15 @@ export function App({ bridge = tauriBridge }: AppProps = {}) {
               </button>
             ))}
             {accounts.length > RAIL_MAX && (
-              <span className="rail__hint" aria-hidden="true">
+              <button
+                type="button"
+                className="rail__hint"
+                aria-label={copy.rail.maxHint}
+                title={copy.rail.maxHint}
+                onClick={() => goView("overview")}
+              >
                 +{accounts.length - RAIL_MAX}
-              </span>
+              </button>
             )}
             <button
               type="button"
@@ -571,6 +577,7 @@ export function App({ bridge = tauriBridge }: AppProps = {}) {
                           now={now}
                           refreshing={refreshingId === account.id || refreshingId === "all"}
                           deleting={deletingId === account.id}
+                          onOpen={() => openProvider(account.id)}
                           onRefresh={() => void handleRefresh(account.id)}
                           onDelete={() =>
                             void handleDelete(account.id, () => {

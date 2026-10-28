@@ -41,6 +41,7 @@ describe("AccountRow", () => {
         now={Date.now()}
         refreshing={false}
         deleting={false}
+        onOpen={() => {}}
         onRefresh={() => {}}
         onDelete={() => {}}
       />,
@@ -57,6 +58,7 @@ describe("AccountRow", () => {
         now={Date.now()}
         refreshing={false}
         deleting={false}
+        onOpen={() => {}}
         onRefresh={() => {}}
         onDelete={() => {}}
       />,
@@ -64,7 +66,8 @@ describe("AccountRow", () => {
     expect(screen.getByText("5h quota")).toBeInTheDocument();
   });
 
-  it("calls onRefresh when refresh button clicked", () => {
+  it("opens the provider view from the card face and refreshes from its own button", () => {
+    const onOpen = vi.fn();
     const onRefresh = vi.fn();
     render(
       <AccountRow
@@ -73,12 +76,18 @@ describe("AccountRow", () => {
         now={Date.now()}
         refreshing={false}
         deleting={false}
+        onOpen={onOpen}
         onRefresh={onRefresh}
         onDelete={() => {}}
       />,
     );
-    const buttons = screen.getAllByRole("button");
-    fireEvent.click(buttons[0]);
+    // The card's face (icon + name) is the navigation affordance; the refresh
+    // control stays a separate target.
+    fireEvent.click(screen.getByTitle(/查看供应商/));
+    expect(onOpen).toHaveBeenCalledOnce();
+    expect(onRefresh).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: /刷新账户/ }));
     expect(onRefresh).toHaveBeenCalledOnce();
   });
 
@@ -91,6 +100,7 @@ describe("AccountRow", () => {
         now={Date.now()}
         refreshing={false}
         deleting={false}
+        onOpen={() => {}}
         onRefresh={() => {}}
         onDelete={onDelete}
       />,
@@ -109,7 +119,7 @@ describe("AccountRow", () => {
     expect(onDelete).toHaveBeenCalledOnce();
   });
 
-  it("disables buttons when refreshing", () => {
+  it("keeps the card face navigable while the mutation buttons are disabled", () => {
     render(
       <AccountRow
         account={mockAccount}
@@ -117,12 +127,14 @@ describe("AccountRow", () => {
         now={Date.now()}
         refreshing={true}
         deleting={false}
+        onOpen={() => {}}
         onRefresh={() => {}}
         onDelete={() => {}}
       />,
     );
-    const buttons = screen.getAllByRole("button");
-    buttons.forEach((btn) => expect(btn).toBeDisabled());
+    expect(screen.getByRole("button", { name: /刷新账户/ })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /移除账户/ })).toBeDisabled();
+    expect(screen.getByTitle(/查看供应商/)).toBeEnabled();
   });
 
   it("shows provider icon", () => {
@@ -133,6 +145,7 @@ describe("AccountRow", () => {
         now={Date.now()}
         refreshing={false}
         deleting={false}
+        onOpen={() => {}}
         onRefresh={() => {}}
         onDelete={() => {}}
       />,

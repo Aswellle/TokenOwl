@@ -2707,8 +2707,16 @@ button:disabled {
   padding: 4px;
   border: 1px solid var(--hairline);
   border-radius: 12px;
-  background: var(--surface-raised);
+  /* Opaque on purpose: the menu opens over a row of capsules, and a
+     translucent surface let their glyphs bleed through the option labels. */
+  background: #ffffff;
   box-shadow: var(--shadow-card);
+}
+
+@media (prefers-color-scheme: dark) {
+  .picker__menu {
+    background: #2a2a2d;
+  }
 }
 
 .picker__option {

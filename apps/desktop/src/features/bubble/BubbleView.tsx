@@ -12,12 +12,13 @@ import { onMorphToBubble, type MorphAnchor } from "../../lib/morph";
 import type { AccountHealth, AccountViewModel, DashboardBridge, QuotaViewModel } from "../../types";
 
 const DRAG_THRESHOLD_PX = 5;
-// Apple-Watch-style rings filling the 50×50 viewBox. The outer band runs flush
-// to the bubble edge (its stroke's outer edge lands on radius 25 — the button
-// radius — so no status-coloured rim leaks around it), the bands sit adjacent
-// at width 5, and the hole left over (radius 14.95) is the brand icon's space.
-const RING_RADII = [22.5, 17.5];
-const RING_BAND = 5;
+// Apple-Watch-style rings filling the 50×50 viewBox, layered with a clean
+// 2-unit gap between the bands: the outer band spans 18.5–23.5 (1.5 units of
+// breathing room to the button's edge) and the inner 11.5–16.5, leaving a
+// radius-11.5 hole for the brand mark. Two adjacent bands read as one blob;
+// the gap is what makes them read as two separate dials. The 5-unit band
+// width lives in the `.bubble__ring-*` CSS.
+const RING_RADII = [21, 14];
 
 interface Ring {
   label: string;
@@ -231,16 +232,7 @@ export function BubbleView({ bridge = tauriBridge }: { bridge?: DashboardBridge 
         title={`${ringSummary} · ${copy.bubble.openDashboard}`}
       >
         <svg className="bubble__rings" viewBox="0 0 50 50" aria-hidden="true">
-          {(rings.length > 0 || fallbackRatio !== null) && (
-            <circle
-              className="bubble__ring-channel"
-              cx="25"
-              cy="25"
-              r={(RING_RADII[0] + RING_RADII[1]) / 2}
-              style={{ strokeWidth: RING_RADII[0] - RING_RADII[1] + RING_BAND }}
-            />
-          )}
-          {rings.length === 0 && fallbackRatio !== null && (
+          {rings.length === 0 && fallbackRatio !== null && fallbackRatio > 0 && (
             <g>
               <circle className="bubble__ring-track" cx="25" cy="25" r={RING_RADII[0]} />
               <circle
@@ -249,24 +241,29 @@ export function BubbleView({ bridge = tauriBridge }: { bridge?: DashboardBridge 
                 cy="25"
                 r={RING_RADII[0]}
                 strokeDasharray={circumference(RING_RADII[0])}
-                strokeDashoffset={circumference(RING_RADII[0]) * (1 - fallbackRatio)}
+                strokeDashoffset={circumference(RING_RADII[0]) * (1 - Math.min(fallbackRatio, 1))}
               />
             </g>
           )}
           {rings.map((ring, index) => {
             const radius = RING_RADII[index];
-            const ratio = ring.ratio ?? 0;
+            const ratio = ring.ratio;
             return (
               <g key={ring.label}>
                 <circle className="bubble__ring-track" cx="25" cy="25" r={radius} />
-                <circle
-                  className={`bubble__ring-value bubble__ring-value--${index}`}
-                  cx="25"
-                  cy="25"
-                  r={radius}
-                  strokeDasharray={circumference(radius)}
-                  strokeDashoffset={ratio === null ? circumference(radius) : circumference(radius) * (1 - ratio)}
-                />
+                {/* Only a measurable remaining share draws an arc: at 0 or
+                    unknown the unlit track stands alone — a round line cap
+                    would otherwise leave a stray dot on an empty dial. */}
+                {ratio !== null && ratio > 0 && (
+                  <circle
+                    className={`bubble__ring-value bubble__ring-value--${index}`}
+                    cx="25"
+                    cy="25"
+                    r={radius}
+                    strokeDasharray={circumference(radius)}
+                    strokeDashoffset={circumference(radius) * (1 - Math.min(ratio, 1))}
+                  />
+                )}
               </g>
             );
           })}
@@ -275,7 +272,10 @@ export function BubbleView({ bridge = tauriBridge }: { bridge?: DashboardBridge 
           {primary ? (
             <ProviderIcon providerId={primary.providerId} size={19} />
           ) : (
-            <IconOwl size={48} strokeWidth={1.6} />
+            /* No accounts yet: the owl alone on the dark dial, sized to sit
+               inside the circle without a transform hack. It breathes softly
+               so the empty state reads as "alive, waiting", not broken. */
+            <IconOwl size={50} strokeWidth={1.6} />
           )}
         </span>
       </motion.button>

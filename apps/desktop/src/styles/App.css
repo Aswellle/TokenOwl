@@ -1461,10 +1461,10 @@ button:disabled {
   filter: drop-shadow(0 1px 2px rgba(9, 32, 28, 0.45));
 }
 
-/* Empty bubble: the owl is the whole show — its svg fills the button and the
-   glyph scales up to occupy the circle (the 24-unit viewBox pads it ~30%). */
-.bubble__mark--solo svg {
-  transform: scale(1.18);
+/* Empty bubble: the owl is the whole show — sized to fill the circle without
+   transforms (the svg's own 24-unit viewBox already pads the glyph ~30%). */
+.bubble__mark--solo {
+  animation: breathe 3.2s ease-in-out infinite;
 }
 
 .bubble--syncing .bubble__mark {
@@ -1499,6 +1499,14 @@ button:disabled {
 @keyframes pulse {
   50% {
     opacity: 0.55;
+  }
+}
+
+/* The idle, unconfigured bubble breathes instead of sitting dead; the global
+   reduced-motion override collapses it to a static frame. */
+@keyframes breathe {
+  50% {
+    opacity: 0.6;
   }
 }
 
@@ -2349,16 +2357,11 @@ button:disabled {
   fill: none;
 }
 
-/* One dark channel under the whole stack; the bands themselves sit adjacent
-   on it (Apple-Watch style) — no spacer ring between the two data colors.
-   It reads as the unlit part of the dial, so it stays near-black rather than
-   translucent white (white washed the jewel out). */
-.bubble__rings .bubble__ring-channel {
-  stroke: rgba(0, 0, 0, 0.34);
-}
-
+/* Each band is its own dial: a faint unlit track under the value arc. No
+   shared channel circle underneath — it muddied the gap that separates the
+   two rings. */
 .bubble__rings .bubble__ring-track {
-  stroke: rgba(255, 255, 255, 0.1);
+  stroke: rgba(255, 255, 255, 0.14);
   stroke-width: 5;
 }
 

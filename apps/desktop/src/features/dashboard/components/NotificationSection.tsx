@@ -380,9 +380,6 @@ export function NotificationSection({
     <section className="section notif-section" aria-label={copy.a11y.notificationsRegion}>
       <div className="section__head">
         <div className="section__titlewrap">
-          {items && items.length > 0 && (
-            <span className="section__count num">{items.length}</span>
-          )}
           {unread > 0 && <span className="notif__badge num">{copy.notifications.unreadSuffix(unread)}</span>}
         </div>
         <div className="section__actions">

@@ -891,6 +891,12 @@ button:disabled {
   margin-bottom: 12px;
 }
 
+/* Heads without a title (the counts live in the segmented control) keep the
+   actions pinned to the trailing edge. */
+.section__head--end {
+  justify-content: flex-end;
+}
+
 .section__titlewrap {
   display: flex;
   align-items: center;

@@ -516,10 +516,7 @@ export function App({ bridge = tauriBridge }: AppProps = {}) {
                 </section>
 
                 <section className="section" aria-label={copy.a11y.accountsRegion}>
-                <div className="section__head">
-                  <div className="section__titlewrap">
-                    {accounts.length > 0 && <span className="section__count num">{accounts.length}</span>}
-                  </div>
+                <div className="section__head section__head--end">
                   <div className="section__actions">
                     {accounts.length > 0 && (
                       <>

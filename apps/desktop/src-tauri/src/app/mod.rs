@@ -71,12 +71,17 @@ fn save_bubble_position(
 /// plus decorations, which are none here) → divide by the scale factor of the
 /// dashboard's monitor. Falls back to the bubble's saved position when the
 /// window is not realized yet (e.g. the tray opened the dashboard first).
-fn morph_anchor(app: &AppHandle) -> Option<MorphAnchor> {
+///
+/// `clamp_to_dashboard` keeps the anchor inside the dashboard's rect: a
+/// collapse toward a bubble parked far off the dashboard would otherwise
+/// shrink toward a point the user cannot see, reading as a plain pop-out.
+fn morph_anchor(app: &AppHandle, clamp_to_dashboard: bool) -> Option<MorphAnchor> {
     let bubble = app.get_webview_window("bubble")?;
     let dashboard = app.get_webview_window("main")?;
     let bubble_position = bubble.outer_position().ok()?;
     let bubble_size = bubble.outer_size().ok()?;
     let dashboard_position = dashboard.outer_position().ok()?;
+    let dashboard_size = dashboard.outer_size().ok()?;
     let scale = dashboard.scale_factor().ok()?;
     let scale = if scale > 0.0 { scale } else { 1.0 };
 
@@ -85,11 +90,93 @@ fn morph_anchor(app: &AppHandle) -> Option<MorphAnchor> {
     let dashboard_origin_x = f64::from(dashboard_position.x);
     let dashboard_origin_y = f64::from(dashboard_position.y);
 
+    let mut x = (bubble_center_x - dashboard_origin_x) / scale;
+    let mut y = (bubble_center_y - dashboard_origin_y) / scale;
+    if clamp_to_dashboard {
+        let width = f64::from(dashboard_size.width) / scale;
+        let height = f64::from(dashboard_size.height) / scale;
+        let (clamped_x, clamped_y) = clamp_anchor_to_rect(x, y, width, height);
+        x = clamped_x;
+        y = clamped_y;
+    }
+
     Some(MorphAnchor {
-        x: (bubble_center_x - dashboard_origin_x) / scale,
-        y: (bubble_center_y - dashboard_origin_y) / scale,
+        x,
+        y,
         diameter: f64::from(bubble_size.width) / scale,
     })
+}
+
+/// Centers a window of `size` on `center`, clamped so it stays fully inside
+/// the monitor rect (`bounds_origin` + `bounds_size`). A monitor smaller than
+/// the window aligns the window to the monitor origin instead. Pure so the
+/// geometry stays unit-testable without a live window.
+fn centered_origin(
+    center: (i32, i32),
+    size: (i32, i32),
+    bounds_origin: (i32, i32),
+    bounds_size: (i32, i32),
+) -> (i32, i32) {
+    let x = center.0 - size.0 / 2;
+    let y = center.1 - size.1 / 2;
+    let max_x = if bounds_size.0 > size.0 {
+        bounds_origin.0 + (bounds_size.0 - size.0)
+    } else {
+        bounds_origin.0
+    };
+    let max_y = if bounds_size.1 > size.1 {
+        bounds_origin.1 + (bounds_size.1 - size.1)
+    } else {
+        bounds_origin.1
+    };
+    (
+        x.clamp(bounds_origin.0, max_x),
+        y.clamp(bounds_origin.1, max_y),
+    )
+}
+
+/// Clamps a morph anchor into the dashboard's client rect. Pure, unit-tested.
+fn clamp_anchor_to_rect(x: f64, y: f64, width: f64, height: f64) -> (f64, f64) {
+    (x.clamp(0.0, width), y.clamp(0.0, height))
+}
+
+/// Moves the dashboard so the bubble's center lands inside it (centered when
+/// the monitor is large enough), which is what makes the expand morph's origin
+/// circle a real point on the dashboard surface instead of a spot off-window
+/// where the animation would be invisible and the window would just pop in.
+fn center_dashboard_on_bubble(dashboard: &tauri::WebviewWindow, bubble: &tauri::WebviewWindow) {
+    let Ok(bubble_position) = bubble.outer_position() else {
+        return;
+    };
+    let Ok(bubble_size) = bubble.outer_size() else {
+        return;
+    };
+    let Ok(dashboard_size) = dashboard.outer_size() else {
+        return;
+    };
+    let monitor = bubble
+        .current_monitor()
+        .ok()
+        .flatten()
+        .or_else(|| dashboard.current_monitor().ok().flatten());
+    let Some(monitor) = monitor else {
+        return;
+    };
+    let center = (
+        bubble_position.x + i32::try_from(bubble_size.width).unwrap_or(0) / 2,
+        bubble_position.y + i32::try_from(bubble_size.height).unwrap_or(0) / 2,
+    );
+    let size = (
+        i32::try_from(dashboard_size.width).unwrap_or(0),
+        i32::try_from(dashboard_size.height).unwrap_or(0),
+    );
+    let bounds_origin = (monitor.position().x, monitor.position().y);
+    let bounds_size = (
+        i32::try_from(monitor.size().width).unwrap_or(0),
+        i32::try_from(monitor.size().height).unwrap_or(0),
+    );
+    let (x, y) = centered_origin(center, size, bounds_origin, bounds_size);
+    let _ = dashboard.set_position(tauri::PhysicalPosition::new(x, y));
 }
 
 /// Whether the bubble window is currently visible, so the dashboard knows if
@@ -109,14 +196,25 @@ fn open_dashboard(app: AppHandle) -> Result<(), String> {
     // expansion lands, which is what actually hides the bubble. Hiding here
     // would leave a frame with neither surface on screen — the gap this
     // transition exists to remove.
-    let anchor = morph_anchor(&app);
     let from_bubble = bubble_is_visible(&app);
     let dashboard = app
         .get_webview_window("main")
         .ok_or_else(|| "dashboard window unavailable".to_string())?;
+    // Position before showing: an expand-from-bubble must open with the
+    // bubble's spot inside the dashboard rect, or the clip animation starts
+    // off-window and the user sees a plain pop-in. Repositioning a hidden
+    // window is invisible; there is nothing to jump.
+    if from_bubble && let Some(bubble) = app.get_webview_window("bubble") {
+        center_dashboard_on_bubble(&dashboard, &bubble);
+    }
+    let anchor = if from_bubble {
+        morph_anchor(&app, false)
+    } else {
+        None
+    };
     dashboard.show().map_err(|error| error.to_string())?;
     dashboard.set_focus().map_err(|error| error.to_string())?;
-    if from_bubble && let Some(anchor) = anchor {
+    if let Some(anchor) = anchor {
         let _ = app.emit("window:morph-from-bubble", anchor);
     }
     Ok(())
@@ -192,7 +290,10 @@ fn show_bubble(app: AppHandle, state: State<'_, Arc<Mutex<RuntimeState>>>) -> Re
     // surfaces overlap for one beat instead of leaving a blank frame between
     // them.
     bubble.show().map_err(|error| error.to_string())?;
-    if let Some(anchor) = morph_anchor(&app) {
+    // The dashboard shrinks toward the bubble; when the bubble is parked far
+    // outside the dashboard's rect the raw anchor would be off-window, so the
+    // collapse target is clamped to the nearest point on the dashboard.
+    if let Some(anchor) = morph_anchor(&app, true) {
         let _ = app.emit("window:morph-to-bubble", anchor);
     }
     Ok(())
@@ -689,4 +790,60 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running TokenOwl");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn centered_origin_puts_the_bubble_center_at_the_window_center() {
+        // A 760×720 dashboard centered on a bubble at (1000, 500); the
+        // monitor is tall enough for the window to fit without clamping.
+        let (x, y) = centered_origin((1000, 500), (760, 720), (0, 0), (1920, 1080));
+        assert_eq!((x, y), (620, 140));
+    }
+
+    #[test]
+    fn centered_origin_clamps_to_the_monitor_bounds() {
+        // A bubble parked at the far bottom-right would push the dashboard
+        // off-monitor; the clamp keeps it fully on screen.
+        let (x, y) = centered_origin((1900, 1050), (760, 720), (0, 0), (1920, 1080));
+        assert_eq!((x, y), (1160, 360));
+    }
+
+    #[test]
+    fn centered_origin_aligns_to_the_monitor_origin_when_the_monitor_is_smaller() {
+        let (x, y) = centered_origin((400, 300), (760, 720), (0, 0), (640, 480));
+        assert_eq!((x, y), (0, 0));
+    }
+
+    #[test]
+    fn centered_origin_respects_the_monitor_origin_offset() {
+        // Second monitor placed to the right of the primary.
+        let (x, y) = centered_origin((2500, 300), (760, 720), (1920, 0), (1920, 1080));
+        assert_eq!((x, y), (2120, 0));
+    }
+
+    #[test]
+    fn clamp_anchor_keeps_inside_points_untouched() {
+        assert_eq!(
+            clamp_anchor_to_rect(120.0, 90.0, 760.0, 720.0),
+            (120.0, 90.0)
+        );
+    }
+
+    #[test]
+    fn clamp_anchor_pulls_offwindow_points_onto_the_window_edge() {
+        // A bubble docked 300px right of the dashboard: the collapse target
+        // becomes the dashboard's right edge rather than an invisible point.
+        assert_eq!(
+            clamp_anchor_to_rect(1060.0, 400.0, 760.0, 720.0),
+            (760.0, 400.0)
+        );
+        assert_eq!(
+            clamp_anchor_to_rect(-100.0, 800.0, 760.0, 720.0),
+            (0.0, 720.0)
+        );
+    }
 }

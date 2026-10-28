@@ -138,8 +138,12 @@ describe("setup form brand variant grouping", () => {
       expect(screen.getByRole("button", { name: /添加账户|Add Provider/i })).toBeInTheDocument(),
     );
     fireEvent.click(screen.getByRole("button", { name: /添加账户|Add Provider/i }));
-    await waitFor(() =>
-      expect(screen.getByRole("button", { name: "Zhipu / GLM" })).toBeInTheDocument(),
+    // Profiles arrive from the bridge after mount; under full-suite load the
+    // default 1s waitFor window is too tight for the worker that lost the
+    // scheduling race, so pin a wider one here.
+    await waitFor(
+      () => expect(screen.getByRole("button", { name: "Zhipu / GLM" })).toBeInTheDocument(),
+      { timeout: 4000 },
     );
   }
 
@@ -151,7 +155,7 @@ describe("setup form brand variant grouping", () => {
     const more = screen.getByRole("button", { name: "Zhipu / GLM 的其他平台版本" });
 
     fireEvent.click(more);
-    const option = screen.getByRole("option", { name: /国际版/ });
+    const option = screen.getByRole("button", { name: /国际版/ });
     expect(option).toBeInTheDocument();
 
     fireEvent.click(option);
@@ -160,6 +164,27 @@ describe("setup form brand variant grouping", () => {
     );
     // The capsule face now names the selected platform variant.
     expect(screen.getByRole("button", { name: "Zhipu / GLM 国际版" })).toBeInTheDocument();
+  });
+
+  it("dismisses the variant menu on Escape and returns focus to the expander", async () => {
+    await openWithZhipuPair();
+    const more = screen.getByRole("button", { name: "Zhipu / GLM 的其他平台版本" });
+    fireEvent.click(more);
+    expect(screen.getByRole("button", { name: /国际版/ })).toBeInTheDocument();
+
+    fireEvent.keyDown(more.closest(".picker__group")!, { key: "Escape" });
+    expect(screen.queryByRole("button", { name: /国际版/ })).not.toBeInTheDocument();
+    expect(more).toHaveFocus();
+  });
+
+  it("dismisses the variant menu when a pointer presses outside the brand group", async () => {
+    await openWithZhipuPair();
+    const more = screen.getByRole("button", { name: "Zhipu / GLM 的其他平台版本" });
+    fireEvent.click(more);
+    expect(screen.getByRole("button", { name: /国际版/ })).toBeInTheDocument();
+
+    fireEvent.pointerDown(document.body);
+    expect(screen.queryByRole("button", { name: /国际版/ })).not.toBeInTheDocument();
   });
 });
 

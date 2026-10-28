@@ -75,7 +75,12 @@ test.describe("settings view (phase-C UI)", () => {
     await expect(page.getByRole("button", { name: "Anthropic", exact: true })).toBeVisible();
     const more = page.getByRole("button", { name: "Anthropic 的其他平台版本" });
     await more.click();
-    await expect(page.getByRole("option", { name: /OpenAI 兼容/ })).toBeVisible();
+    const option = page.getByRole("button", { name: /OpenAI 兼容/ });
+    await expect(option).toBeVisible();
+    // The variant list dismisses like a popover: Escape closes it and hands
+    // focus back to the expander.
+    await page.keyboard.press("Escape");
+    await expect(option).toBeHidden();
   });
 
   test("the update check result appears beside the check button, in view", async ({ page }) => {

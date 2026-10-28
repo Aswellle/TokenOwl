@@ -48,6 +48,8 @@ export function SetupForm({
   const [usageEndpoint, setUsageEndpoint] = useState("");
   const [balanceEndpoint, setBalanceEndpoint] = useState("");
   const apiKeyRef = useRef<HTMLInputElement>(null);
+  // The ⋯ trigger of each expanded brand, so Escape can hand focus back.
+  const moreRefs = useRef(new Map<string, HTMLButtonElement>());
 
   useEffect(() => {
     let active = true;
@@ -91,6 +93,19 @@ export function SetupForm({
     setCustomFormat(format);
     setBaseUrl(CUSTOM_DEFAULT_BASE_URL[format]);
   };
+
+  // A brand's variant list behaves like a popover: any click or focus move
+  // outside its group dismisses it, so it never lingers over the form.
+  useEffect(() => {
+    if (!expandedBrand) return;
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (target instanceof Element && target.closest(`[data-brand="${expandedBrand}"]`)) return;
+      setExpandedBrand(null);
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    return () => document.removeEventListener("pointerdown", onPointerDown);
+  }, [expandedBrand]);
 
   // Platform variants of one brand (智谱 国内版/国际版, Anthropic 原生/OpenAI
   // 兼容) collapse into a single capsule keyed by the brand; the capsule
@@ -248,7 +263,23 @@ export function SetupForm({
                 {groups.map((group) => {
                   const active = group.members.some((member) => member.id === profileId);
                   return (
-                    <div className="picker__group" key={group.key}>
+                    <div
+                      className="picker__group"
+                      key={group.key}
+                      data-brand={group.key}
+                      onBlur={(event) => {
+                        if (!event.currentTarget.contains(event.relatedTarget)) {
+                          setExpandedBrand(null);
+                        }
+                      }}
+                      onKeyDown={(event) => {
+                        if (event.key === "Escape" && expandedBrand === group.key) {
+                          event.stopPropagation();
+                          setExpandedBrand(null);
+                          moreRefs.current.get(group.key)?.focus();
+                        }
+                      }}
+                    >
                       <button
                         type="button"
                         className={`picker__btn${active ? " is-active" : ""}${group.members.length > 1 ? " has-variants" : ""}`}
@@ -263,8 +294,13 @@ export function SetupForm({
                           type="button"
                           className="picker__more"
                           aria-expanded={expandedBrand === group.key}
+                          aria-controls={`picker-menu-${group.key}`}
                           aria-label={copy.form.variantsOf(group.activeMember.name)}
                           title={copy.form.variantsOf(group.activeMember.name)}
+                          ref={(node) => {
+                            if (node) moreRefs.current.set(group.key, node);
+                            else moreRefs.current.delete(group.key);
+                          }}
                           onClick={() =>
                             setExpandedBrand(expandedBrand === group.key ? null : group.key)
                           }
@@ -273,13 +309,11 @@ export function SetupForm({
                         </button>
                       )}
                       {group.members.length > 1 && expandedBrand === group.key && (
-                        <div className="picker__menu" role="listbox" aria-label={copy.form.variantsOf(group.activeMember.name)}>
+                        <div className="picker__menu" id={`picker-menu-${group.key}`}>
                           {group.members.map((member) => (
                             <button
                               key={member.id}
                               type="button"
-                              role="option"
-                              aria-selected={member.id === profileId}
                               className={`picker__option${member.id === profileId ? " is-active" : ""}`}
                               onClick={() => {
                                 selectProfile(member.id);

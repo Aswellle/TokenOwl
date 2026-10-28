@@ -152,7 +152,42 @@ export function SetupForm({
   const [lanConsent, setLanConsent] = useState<{ token: string } | null>(null);
   const [consentBusy, setConsentBusy] = useState(false);
   const [classifyError, setClassifyError] = useState<string | null>(null);
+  // The form opts out of native validation bubbles (their language and
+  // styling follow the OS, not the app): the same rules run inline here, and
+  // focus lands on the first field that needs fixing.
+  const [validationError, setValidationError] = useState<string | null>(null);
+  const errorRef = useRef<HTMLParagraphElement>(null);
   const submitTriggerRef = useRef<HTMLButtonElement>(null);
+
+  const formErrorText = error ?? classifyError ?? validationError;
+  useEffect(() => {
+    // Backend and classification errors have no specific field; scrolling the
+    // message itself into view keeps the outcome visible after a submit that
+    // started at the bottom of the long form.
+    if (error || classifyError) errorRef.current?.focus();
+  }, [error, classifyError]);
+
+  const validateInput = (): { message: string; fieldId: string } | null => {
+    if (!label.trim() && !effectiveBaseUrl.trim())
+      return { message: copy.form.missingAccount, fieldId: "account-label" };
+    if (!label.trim()) return { message: copy.form.missingAccount, fieldId: "account-label" };
+    if (!effectiveBaseUrl.trim())
+      return { message: copy.form.missingAccount, fieldId: "base-url" };
+    try {
+      new URL(effectiveBaseUrl.trim());
+    } catch {
+      return { message: copy.form.invalidBaseUrl, fieldId: "base-url" };
+    }
+    const endpointIds = ["quota-endpoint", "usage-endpoint", "balance-endpoint"] as const;
+    const badEndpoint = endpointIds.find((id) => {
+      const value = (document.getElementById(id) as HTMLInputElement | null)?.value.trim() ?? "";
+      return value !== "" && !value.startsWith("/");
+    });
+    if (badEndpoint) return { message: copy.form.invalidEndpoint, fieldId: badEndpoint };
+    if (!apiKeyRef.current?.value.trim())
+      return { message: copy.form.missingKey, fieldId: "api-key" };
+    return null;
+  };
 
   const sendAccount = async (lanConsentToken?: string) => {
     const apiKeyInput = apiKeyRef.current;
@@ -175,6 +210,12 @@ export function SetupForm({
     // The dialog is the only confirmation path: while it is open (or a
     // classification is in flight) form submits are inert.
     if (lanConsent || consentBusy) return;
+    const invalid = validateInput();
+    setValidationError(invalid?.message ?? null);
+    if (invalid) {
+      document.getElementById(invalid.fieldId)?.focus();
+      return;
+    }
     setClassifyError(null);
     setConsentBusy(true);
     let token: string | null;
@@ -198,6 +239,7 @@ export function SetupForm({
     <motion.form
       className="form"
       aria-labelledby="setup-title"
+      noValidate
       variants={fadeVariants}
       initial="hidden"
       animate="show"
@@ -213,14 +255,9 @@ export function SetupForm({
         </button>
       </div>
       <p className="form__intro">{copy.form.intro}</p>
-      {error && (
-        <p className="form__error" role="alert">
-          {error}
-        </p>
-      )}
-      {classifyError && (
-        <p className="form__error" role="alert">
-          {classifyError}
+      {formErrorText && (
+        <p className="form__error" role="alert" id="setup-error" tabIndex={-1} ref={errorRef}>
+          {formErrorText}
         </p>
       )}
       {packSkipped.length > 0 && (

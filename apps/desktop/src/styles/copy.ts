@@ -223,6 +223,8 @@ export const copy = {
     balanceEndpointHelp: "相对路径，例如 /balance；留空则不请求。",
     missingAccount: "请填写账户名称与接口地址。",
     missingKey: "请填写 API 密钥。",
+    invalidBaseUrl: "接口地址必须是完整 URL，例如 https://api.example.com/v1。",
+    invalidEndpoint: "额度、用量、余额接口必须是以 / 开头的相对路径。",
     failed: "账户连接失败，请检查接口地址与密钥后重试。",
     credentialsNote: "凭据只保存在本机系统凭据库。",
     endpointLabels: {

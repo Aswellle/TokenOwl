@@ -114,4 +114,47 @@ describe("setup form submit wiring", () => {
 
     await waitFor(() => expect(screen.getByRole("alert")).toBeInTheDocument());
   });
+
+  it("rejects an empty form with an inline error and moves focus to the name field", async () => {
+    await openSetupForm();
+    fireEvent.submit(screen.getByRole("button", { name: /连接账户|Connect/i }).closest("form")!);
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent(/请填写账户名称与接口地址/);
+    expect(mockCreateAccount).not.toHaveBeenCalled();
+    expect(screen.getByLabelText(/账户名称|Account name/i)).toHaveFocus();
+  });
+
+  it("rejects a malformed base URL with a fix-it message", async () => {
+    await openSetupForm();
+    fireEvent.change(screen.getByLabelText(/账户名称|Account name/i), {
+      target: { value: "Probe" },
+    });
+    fireEvent.change(screen.getByLabelText(/接口地址|Base URL/i), {
+      target: { value: "not a url" },
+    });
+    fireEvent.change(screen.getByLabelText(/API 密钥|API key/i), {
+      target: { value: "sk-probe" },
+    });
+    fireEvent.submit(screen.getByRole("button", { name: /连接账户|Connect/i }).closest("form")!);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(/完整 URL/);
+    expect(screen.getByLabelText(/接口地址|Base URL/i)).toHaveFocus();
+    expect(mockCreateAccount).not.toHaveBeenCalled();
+  });
+
+  it("asks for the API key before touching the bridge", async () => {
+    await openSetupForm();
+    fireEvent.change(screen.getByLabelText(/账户名称|Account name/i), {
+      target: { value: "Probe" },
+    });
+    fireEvent.change(screen.getByLabelText(/接口地址|Base URL/i), {
+      target: { value: "https://probe.test/v1" },
+    });
+    fireEvent.submit(screen.getByRole("button", { name: /连接账户|Connect/i }).closest("form")!);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(/API 密钥/);
+    expect(screen.getByLabelText(/API 密钥|API key/i)).toHaveFocus();
+    expect(mockCreateAccount).not.toHaveBeenCalled();
+  });
 });

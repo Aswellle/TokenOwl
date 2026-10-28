@@ -70,6 +70,19 @@ test.describe("settings view (phase-C UI)", () => {
     await more.click();
     await expect(page.getByRole("option", { name: /OpenAI 兼容/ })).toBeVisible();
   });
+
+  test("the update check result appears beside the check button, in view", async ({ page }) => {
+    await page.goto("/");
+    await page.getByRole("button", { name: "设置", exact: true }).click();
+    const check = page.getByRole("button", { name: "检查更新" });
+    await check.scrollIntoViewIfNeeded();
+    await check.click();
+    const banner = page.getByRole("status").filter({ hasText: "已是最新版本" });
+    await expect(banner).toBeVisible();
+    // The settings form is taller than the window: the result must be
+    // readable where the user pressed the button, without scrolling back up.
+    await expect(banner).toBeInViewport();
+  });
 });
 
 test.describe("viewport scrolling", () => {

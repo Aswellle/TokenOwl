@@ -606,6 +606,17 @@ export function App({ bridge = tauriBridge }: AppProps = {}) {
 
             {view === "settings" && (
               <section className="section" aria-label={copy.views.settings}>
+                <SetupForm
+                  bridge={bridge}
+                  submitting={formSubmitting}
+                  error={formError}
+                  onCancel={() => goView("overview")}
+                  onSubmit={handleCreate}
+                />
+                <ProviderMatrix bridge={bridge} />
+                {/* The check lives at the bottom of a long page, so the result
+                    renders here — right above the button that produced it —
+                    and never at the top, where it would land off-screen. */}
                 {banner?.kind === "available" && (
                   <motion.div
                     className="notice notice--accent"
@@ -687,14 +698,6 @@ export function App({ bridge = tauriBridge }: AppProps = {}) {
                     </Notice>
                   </motion.div>
                 )}
-                <SetupForm
-                  bridge={bridge}
-                  submitting={formSubmitting}
-                  error={formError}
-                  onCancel={() => goView("overview")}
-                  onSubmit={handleCreate}
-                />
-                <ProviderMatrix bridge={bridge} />
                 <div className="settings__about">
                   <button className="btn btn--quiet" type="button" onClick={() => void handleUpdateCheck()} disabled={updateState === "checking"}>
                     <IconRefresh size={14} className={updateState === "checking" ? "is-spinning" : undefined} />

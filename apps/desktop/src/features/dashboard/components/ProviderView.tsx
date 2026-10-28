@@ -166,7 +166,10 @@ export function ProviderView({
   }, [bridge, account.id, account.providerId, account.lastUpdatedAt]);
 
   const range: RangeUsageViewModel | null = usage ? usage[windowKey] : null;
-  const tokensText = range?.hasData ? formatCompact(range.tokens) : copy.usage.noData;
+  // While the usage query is in flight the cards stay neutral ("—"); showing
+  // the empty-window copy here would present loading as "no records".
+  const tokensText =
+    usage === null ? copy.summary.none : range?.hasData ? formatCompact(range.tokens) : copy.usage.noData;
   const burnRate: BurnRateViewModel | undefined = usage?.burnRate;
 
   return (
@@ -231,7 +234,7 @@ export function ProviderView({
           </div>
           <div className="pview__number pview__number--muted">
             <dt>{copy.usage.cost}</dt>
-            <dd className="num">{formatCost(range)}</dd>
+            <dd className="num">{usage === null ? copy.summary.none : formatCost(range)}</dd>
           </div>
           {burnRate && (
             <div className="pview__number">

@@ -41,7 +41,8 @@ import {
   timestamp,
 } from "../../lib/format";
 import { isTauri, shell, tauriBridge } from "../../lib/tauri";
-import { clipCircle, cornerRadius, useMorphFromBubble } from "../../lib/morph";
+import { clipCircle, cornerRadius, onMorphToBubble, useMorphFromBubble } from "../../lib/morph";
+import type { MorphAnchor } from "../../lib/morph";
 import type {
   DashboardBridge,
 } from "../../types";
@@ -236,6 +237,13 @@ export function App({ bridge = tauriBridge }: AppProps = {}) {
   // Expansion origin, reported by Rust when the dashboard was opened from the
   // bubble. Null means "opened some other way" and the window just appears.
   const anchor = useMorphFromBubble();
+  // Collapse target, reported when the bubble takes over; the dashboard
+  // shrinks into that circle and only then hides (the reverse handoff).
+  const [collapseAnchor, setCollapseAnchor] = useState<MorphAnchor | null>(null);
+  // True once the expand reveal has landed: the clip circle then yields to a
+  // full-cover one, so later window resizes are never masked by a stale
+  // fixed-radius circle.
+  const [revealDone, setRevealDone] = useState(false);
   const revealRadius = useMemo(() => {
     if (!anchor) return 0;
     const width = window.innerWidth || 760;
@@ -243,6 +251,32 @@ export function App({ bridge = tauriBridge }: AppProps = {}) {
     // +2% so the final circle clears the corners even if the window is
     // resized between the anchor being measured and the animation running.
     return cornerRadius(anchor.x, anchor.y, width, height) * 1.02;
+  }, [anchor]);
+  // Full-cover clip for the idle state: always a circle (so the collapse can
+  // interpolate from it), recomputed on resize because a stale one would cut
+  // the corners of a grown window.
+  const [viewport, setViewport] = useState(() => ({
+    w: window.innerWidth || 760,
+    h: window.innerHeight || 720,
+  }));
+  useEffect(() => {
+    const onResize = () => setViewport({ w: window.innerWidth, h: window.innerHeight });
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+  const idleClip = clipCircle(
+    { x: viewport.w / 2, y: viewport.h / 2 },
+    cornerRadius(viewport.w / 2, viewport.h / 2, viewport.w, viewport.h),
+  );
+
+  useEffect(() => {
+    if (!isTauri()) return;
+    return onMorphToBubble((incoming) => setCollapseAnchor(incoming));
+  }, []);
+
+  // A fresh expand anchor always restarts the reveal.
+  useEffect(() => {
+    if (anchor) setRevealDone(false);
   }, [anchor]);
 
   const goView = useCallback((next: ViewId) => {
@@ -354,18 +388,39 @@ export function App({ bridge = tauriBridge }: AppProps = {}) {
       // The desktop window grows out of the bubble's circle; the bubble is
       // still on screen underneath until `finishBubbleHandoff` lands, so the
       // two surfaces overlap and there is never a blank frame between them.
-      // Without an anchor (tray, first launch) no clip is set at all — the
-      // window simply is, and no handoff fires.
+      // Without an anchor (tray, first launch) the window simply is. On
+      // collapse the same circle plays in reverse, and only after it settles
+      // does `finishDashboardHandoff` hide the window.
       initial={reduce || !anchor ? false : { clipPath: clipCircle(anchor, anchor.diameter / 2), opacity: 0.35 }}
-      animate={anchor ? { clipPath: clipCircle(anchor, revealRadius), opacity: 1 } : undefined}
+      animate={
+        collapseAnchor
+          ? { clipPath: clipCircle(collapseAnchor, collapseAnchor.diameter / 2), opacity: 0.35 }
+          : anchor && !revealDone
+            ? { clipPath: clipCircle(anchor, revealRadius), opacity: 1 }
+            : { clipPath: idleClip, opacity: 1 }
+      }
       transition={
-        reduce || !anchor
-          ? { duration: 0 }
-          : { type: "spring", stiffness: 240, damping: 30, mass: 0.9 }
+        collapseAnchor
+          ? reduce
+            ? { duration: 0.12 }
+            : { type: "spring", stiffness: 240, damping: 30, mass: 0.9 }
+          : anchor && !revealDone
+            ? reduce
+              ? { duration: 0 }
+              : { type: "spring", stiffness: 240, damping: 30, mass: 0.9 }
+            : { duration: 0 }
       }
       onAnimationComplete={() => {
-        if (!isTauri() || !anchor) return;
-        void shell.finishBubbleHandoff().catch(() => null);
+        if (!isTauri()) return;
+        if (collapseAnchor) {
+          setCollapseAnchor(null);
+          void shell.finishDashboardHandoff().catch(() => null);
+          return;
+        }
+        if (anchor && !revealDone) {
+          setRevealDone(true);
+          void shell.finishBubbleHandoff().catch(() => null);
+        }
       }}
     >
       <header className="titlebar" data-tauri-drag-region>

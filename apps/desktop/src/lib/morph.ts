@@ -51,7 +51,9 @@ export function clipCircle(anchor: { x: number; y: number }, radius: number): st
  * in the same turn it shows the window — a `useEffect`-registered listener in
  * the component that *uses* the anchor would miss it. `null` means "no morph":
  * the dashboard was opened by the tray, on first launch, or the event arrived
- * after the animation window had already elapsed.
+ * after the animation window had already elapsed. The shell pairs the anchor
+ * with a `revealDone` flag instead of clearing it, so the collapse transition
+ * can always interpolate between full-cover circles.
  */
 export function useMorphFromBubble(): MorphAnchor | null {
   const [anchor, setAnchor] = useState<MorphAnchor | null>(null);

@@ -162,7 +162,7 @@ describe("NotificationSection", () => {
     expect(screen.queryByText("通知设置")).not.toBeInTheDocument();
   });
 
-  it("shows an error and keeps editing when saving preferences fails", async () => {
+  it("shows an error and rolls back when saving preferences fails", async () => {
     const bridge = makeBridge({
       setNotificationPreferences: vi.fn(async () => {
         throw new Error("rejected");
@@ -170,7 +170,10 @@ describe("NotificationSection", () => {
     });
     render(<NotificationSection bridge={bridge} reloadSignal={0} />);
     await screen.findByText("额度紧张", { selector: ".notif__title" });
-    fireEvent.click(screen.getByLabelText(/^启用通知/));
+    const toggle = screen.getByLabelText(/^启用通知/);
+    fireEvent.click(toggle);
     expect(await screen.findByRole("alert")).toHaveTextContent("保存失败");
+    // The checkbox shows the persisted value again, not the rejected edit.
+    expect(toggle).toBeChecked();
   });
 });

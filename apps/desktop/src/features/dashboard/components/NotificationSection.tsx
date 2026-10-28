@@ -460,8 +460,17 @@ export function NotificationSection({
         <NotificationSettings
           prefs={prefs}
           onChange={async (next) => {
+            // Optimistic, but honest: a rejected save rolls the form back to
+            // the persisted values so the UI never shows an unsaved state as
+            // if it were saved.
+            const previous = prefs;
             setPrefs(next);
-            await bridge.setNotificationPreferences(next);
+            try {
+              await bridge.setNotificationPreferences(next);
+            } catch (error) {
+              setPrefs(previous);
+              throw error;
+            }
           }}
         />
       )}

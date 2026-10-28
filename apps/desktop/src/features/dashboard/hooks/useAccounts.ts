@@ -110,16 +110,16 @@ export function useAccounts(bridge: DashboardBridge) {
   const handleCreate = useCallback(
     async (
       input: Omit<GenericOpenAiAccountInput, "apiKey"> & { apiKeyInput: HTMLInputElement },
-    ) => {
+    ): Promise<boolean> => {
       if (!input.label || !input.baseUrl) {
         input.apiKeyInput.value = "";
         setFormError(copy.form.missingAccount);
-        return;
+        return false;
       }
       const secret = input.apiKeyInput.value;
       if (!secret.trim()) {
         setFormError(copy.form.missingKey);
-        return;
+        return false;
       }
       setFormSubmitting(true);
       setFormError(null);
@@ -138,10 +138,14 @@ export function useAccounts(bridge: DashboardBridge) {
         setAccounts((current) => [...current.filter((item) => item.id !== account.id), account]);
         setPhase("ready");
         setNotice(null);
+        // A fresh form for the next account; failures keep every field so the
+        // user can correct and retry without retyping the secret.
+        input.apiKeyInput.value = "";
+        return true;
       } catch {
         setFormError(copy.form.failed);
+        return false;
       } finally {
-        input.apiKeyInput.value = "";
         setFormSubmitting(false);
       }
     },

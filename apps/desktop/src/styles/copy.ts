@@ -226,6 +226,7 @@ export const copy = {
     invalidBaseUrl: "接口地址必须是完整 URL，例如 https://api.example.com/v1。",
     invalidEndpoint: "额度、用量、余额接口必须是以 / 开头的相对路径。",
     failed: "账户连接失败，请检查接口地址与密钥后重试。",
+    connected: "账户已连接，它已出现在列表中；快照随首次刷新填充。",
     credentialsNote: "凭据只保存在本机系统凭据库。",
     endpointLabels: {
       models: "模型",

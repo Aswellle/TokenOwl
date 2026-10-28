@@ -95,6 +95,11 @@ describe("setup form submit wiring", () => {
       baseUrl: "https://probe.test/v1",
       apiKey: "sk-probe",
     });
+    // Success is confirmed next to the submit button and the form resets so
+    // the next account starts clean.
+    expect(await screen.findByText(/账户已连接/)).toBeInTheDocument();
+    expect(screen.getByLabelText(/账户名称|Account name/i)).toHaveValue("");
+    expect(screen.getByLabelText(/API 密钥|API key/i)).toHaveValue("");
   });
 
   it("reports a failure instead of silently doing nothing", async () => {

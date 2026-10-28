@@ -870,6 +870,13 @@ button:disabled {
   line-height: 1.7;
 }
 
+.form__success {
+  margin: 14px 0 0;
+  color: var(--ok);
+  font-size: var(--step-1);
+  line-height: 1.7;
+}
+
 /* ---------- section ---------- */
 
 .section {

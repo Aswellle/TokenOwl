@@ -29,7 +29,7 @@ export function SetupForm({
   submitting: boolean;
   error: string | null;
   onCancel: () => void;
-  onSubmit: (input: Omit<GenericOpenAiAccountInput, "apiKey"> & { apiKeyInput: HTMLInputElement }) => Promise<void>;
+  onSubmit: (input: Omit<GenericOpenAiAccountInput, "apiKey"> & { apiKeyInput: HTMLInputElement }) => Promise<boolean>;
 }) {
   const [profiles, setProfiles] = useState<ManifestProfileViewModel[]>([]);
   const [packSkipped, setPackSkipped] = useState<string[]>([]);
@@ -92,6 +92,27 @@ export function SetupForm({
   const selectCustomFormat = (format: "openai_compatible" | "anthropic" | "gemini") => {
     setCustomFormat(format);
     setBaseUrl(CUSTOM_DEFAULT_BASE_URL[format]);
+  };
+
+  // A successful connection resets the form for the next account and says so
+  // next to the submit button — the rail updates too, but the user is looking
+  // at the button they just pressed.
+  const [connected, setConnected] = useState(false);
+  useEffect(() => {
+    if (!connected) return;
+    const timer = window.setTimeout(() => setConnected(false), 4_000);
+    return () => window.clearTimeout(timer);
+  }, [connected]);
+
+  const resetAfterConnect = () => {
+    setConnected(true);
+    setLabel("");
+    setProfileId("custom");
+    setCustomFormat("openai_compatible");
+    setBaseUrl(CUSTOM_DEFAULT_BASE_URL.openai_compatible);
+    setQuotaEndpoint("");
+    setUsageEndpoint("");
+    setBalanceEndpoint("");
   };
 
   // A brand's variant list behaves like a popover: any click or focus move
@@ -191,8 +212,8 @@ export function SetupForm({
 
   const sendAccount = async (lanConsentToken?: string) => {
     const apiKeyInput = apiKeyRef.current;
-    if (!apiKeyInput || !apiKeyInput.value.trim()) return;
-    await onSubmit({
+    if (!apiKeyInput || !apiKeyInput.value.trim()) return false;
+    return onSubmit({
       providerId: profile ? profile.id : "generic.openai_compatible",
       label: label.trim(),
       baseUrl: effectiveBaseUrl.trim(),
@@ -229,7 +250,8 @@ export function SetupForm({
     }
     setConsentBusy(false);
     if (token === null) {
-      await sendAccount();
+      const connectedOk = await sendAccount();
+      if (connectedOk) resetAfterConnect();
       return;
     }
     setLanConsent({ token });
@@ -277,7 +299,9 @@ export function SetupForm({
           onConfirm={() => {
             const token = lanConsent.token;
             setLanConsent(null);
-            void sendAccount(token);
+            void sendAccount(token).then((connectedOk) => {
+              if (connectedOk) resetAfterConnect();
+            });
           }}
         />
       )}
@@ -554,6 +578,11 @@ export function SetupForm({
           </span>
         </div>
       </div>
+      {connected && (
+        <p className="form__success" role="status">
+          {copy.form.connected}
+        </p>
+      )}
       <div className="form__footer">
         <span className="form__note">
           <IconKey size={14} />

@@ -112,7 +112,6 @@ export function useAccounts(bridge: DashboardBridge) {
       input: Omit<GenericOpenAiAccountInput, "apiKey"> & { apiKeyInput: HTMLInputElement },
     ): Promise<boolean> => {
       if (!input.label || !input.baseUrl) {
-        input.apiKeyInput.value = "";
         setFormError(copy.form.missingAccount);
         return false;
       }

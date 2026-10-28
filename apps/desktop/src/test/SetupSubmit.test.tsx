@@ -118,6 +118,10 @@ describe("setup form submit wiring", () => {
     fireEvent.submit(screen.getByRole("button", { name: /连接账户|Connect/i }).closest("form")!);
 
     await waitFor(() => expect(screen.getByRole("alert")).toBeInTheDocument());
+    // A failed attempt must not wipe the secret: the error tells the user to
+    // check the key, so the key they typed has to still be there.
+    expect(screen.getByLabelText(/API 密钥|API key/i)).toHaveValue("sk-probe");
+    expect(screen.getByLabelText(/账户名称|Account name/i)).toHaveValue("Probe");
   });
 
   it("rejects an empty form with an inline error and moves focus to the name field", async () => {

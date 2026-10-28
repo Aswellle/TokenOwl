@@ -3,7 +3,7 @@ import { motion } from "motion/react";
 import { Area, AreaChart, ResponsiveContainer, Tooltip, YAxis } from "recharts";
 import { copy } from "../../../styles/copy";
 import { ProviderIcon } from "../../../components/ProviderIcon";
-import { IconRefresh } from "../../../components/icons";
+import { IconChevronLeft, IconRefresh } from "../../../components/icons";
 import {
   burnExhaustionHint as burnHint,
   formatBurnRate,
@@ -101,12 +101,14 @@ export function ProviderView({
   now,
   refreshing,
   bridge,
+  onBack,
   onRefresh,
 }: {
   account: AccountViewModel;
   now: number;
   refreshing: boolean;
   bridge: DashboardBridge;
+  onBack: () => void;
   onRefresh: () => void;
 }) {
   const [windowKey, setWindowKey] = useState<WindowKey>("hours24");
@@ -175,6 +177,15 @@ export function ProviderView({
   return (
     <section className="pview" aria-label={account.label}>
       <div className="pview__head">
+        <button
+          className="btn btn--icon"
+          type="button"
+          onClick={onBack}
+          aria-label={copy.actions.backToOverview}
+          title={copy.actions.backToOverview}
+        >
+          <IconChevronLeft size={18} />
+        </button>
         <ProviderIcon providerId={account.providerId} size={40} />
         <div className="pview__names">
           <p className="pview__provider">{account.providerName}</p>

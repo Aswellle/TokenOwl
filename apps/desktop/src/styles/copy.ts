@@ -91,6 +91,7 @@ export const copy = {
     downloadUpdate: "下载并安装",
     dismissBanner: "关闭此通知",
     later: "稍后",
+    backToOverview: "返回概览",
     openDashboard: "展开面板",
     collapseDashboard: "收起面板",
   },

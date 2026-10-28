@@ -75,6 +75,9 @@ export function AlertDialog({
       onKeyDown={(event) => {
         if (event.key === "Escape") {
           event.preventDefault();
+          // The dialog owns Escape: stop it from also reaching page-level
+          // shortcuts (the dashboard walks back a view on Escape).
+          event.stopPropagation();
           finish("cancel");
           return;
         }

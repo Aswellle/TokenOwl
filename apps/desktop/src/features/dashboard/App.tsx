@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion, useMotionValueEvent, useReducedMotion, useSpring } from "motion/react";
 import { listen } from "@tauri-apps/api/event";
 import "../../styles/App.css";
@@ -245,13 +245,25 @@ export function App({ bridge = tauriBridge }: AppProps = {}) {
     return cornerRadius(anchor.x, anchor.y, width, height) * 1.02;
   }, [anchor]);
 
-  const goView = (next: ViewId) => {
+  const goView = useCallback((next: ViewId) => {
     const from = VIEW_ORDER.indexOf(viewRef.current);
     const to = VIEW_ORDER.indexOf(next);
     setDirection(to >= from ? 1 : -1);
     viewRef.current = next;
     setView(next);
-  };
+  }, []);
+
+  // Escape walks back from a provider's detail view like a desktop app's
+  // Back. Dialogs stopPropagation, so closing them never also navigates.
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && viewRef.current === "provider") {
+        goView("overview");
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [goView]);
 
   const openProvider = (accountId: string) => {
     setSelectedId(accountId);
@@ -596,6 +608,7 @@ export function App({ bridge = tauriBridge }: AppProps = {}) {
                 now={now}
                 refreshing={refreshingId === selected.id || refreshingId === "all"}
                 bridge={bridge}
+                onBack={() => goView("overview")}
                 onRefresh={() => void handleRefresh(selected.id)}
               />
             )}

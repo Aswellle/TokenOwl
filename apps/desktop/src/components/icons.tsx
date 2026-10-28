@@ -190,6 +190,15 @@ export function IconChevronRight({ size = 16, className, strokeWidth }: IconProp
   );
 }
 
+/** The "back to overview" affordance of the provider detail view. */
+export function IconChevronLeft({ size = 16, className, strokeWidth }: IconProps) {
+  return (
+    <svg {...base(size, strokeWidth)} className={className}>
+      <path d="M15 6l-6 6 6 6" />
+    </svg>
+  );
+}
+
 /** Account avatar glyph. */
 export function IconCircleUser({ size = 16, className, strokeWidth }: IconProps) {
   return (

@@ -153,6 +153,20 @@ describe("Dashboard state machine", () => {
     await waitFor(() => expect(mockDeleteAccount).toHaveBeenCalledWith("acc-1"));
   });
 
+  it("returns to the overview from a provider view on Escape", async () => {
+    mockListAccounts.mockResolvedValue([mockAccount]);
+    render(<App />);
+    await waitFor(() => expect(screen.getByText("Test Account")).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole("button", { name: /查看供应商/ }));
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { name: "Test Account" })).toBeVisible(),
+    );
+
+    fireEvent.keyDown(window, { key: "Escape" });
+    await waitFor(() => expect(screen.getByRole("heading", { name: "概览" })).toBeVisible());
+  });
+
   it("shows the setup form when add provider is clicked", async () => {
     mockListAccounts.mockResolvedValue([]);
     render(<App />);

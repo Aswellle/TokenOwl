@@ -23,6 +23,9 @@ test.describe("TokenOwl dashboard smoke", () => {
     // The capability chip comes from the provider matrix, not a hardcoded
     // placeholder — OpenAI's measured level is L4.
     await expect(page.getByText("L4 · 完整额度")).toBeVisible();
+    // Escape walks back to the overview like a desktop app's Back.
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("heading", { name: "概览" })).toBeVisible();
   });
 
   test("navigates through the dock views", async ({ page }) => {

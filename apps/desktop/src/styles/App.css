@@ -1540,22 +1540,6 @@ button:disabled {
     --field: #f2f2f6;
   }
 
-@media (hover: none) {
-  .bubble:hover,
-  .btn:hover:not(:disabled),
-  .pill:hover:not(:disabled),
-  .account:hover,
-  .stat:hover,
-  .seg__btn:hover:not(.is-active) {
-    transform: none;
-    background: inherit;
-    box-shadow: inherit;
-  }
-  .field__input:hover {
-    border-color: var(--hairline-strong);
-  }
-}
-
   @media (prefers-color-scheme: dark) {
     :root {
       --material: #1c1c1e;
@@ -1570,6 +1554,25 @@ button:disabled {
   .bubble {
     backdrop-filter: none;
     -webkit-backdrop-filter: none;
+  }
+}
+
+/* Hover treatments are pointer-only decoration: on touch surfaces they would
+   stick after a tap, so they are suppressed for any hover:none device — not
+   only when reduced transparency also happens to be on. */
+@media (hover: none) {
+  .bubble:hover,
+  .btn:hover:not(:disabled),
+  .pill:hover:not(:disabled),
+  .account:hover,
+  .stat:hover,
+  .seg__btn:hover:not(.is-active) {
+    transform: none;
+    background: inherit;
+    box-shadow: inherit;
+  }
+  .field__input:hover {
+    border-color: var(--hairline-strong);
   }
 }
 

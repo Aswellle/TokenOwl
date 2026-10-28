@@ -2680,22 +2680,23 @@ button:disabled {
 }
 
 .picker__btn.has-variants {
-  padding-right: 34px;
+  padding-right: 38px;
 }
 
 /* The ellipsis sits visually inside the capsule's right edge but is a DOM
    sibling: a button inside a button is invalid, and the two hit targets
-   (select brand / open variants) must stay separate. */
+   (select brand / open variants) must stay separate. 24px keeps it above the
+   WCAG 2.2 minimum target size. */
 .picker__more {
   position: absolute;
   top: 50%;
-  right: 6px;
+  right: 4px;
   transform: translateY(-50%);
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 22px;
-  height: 22px;
+  width: 24px;
+  height: 24px;
   padding: 0;
   border: none;
   border-radius: 7px;

@@ -114,7 +114,7 @@ export const copy = {
     partial: "数据不完整",
     notReported: "未上报",
     readError: "该指标读取失败",
-    emptyTitle: "尚未获得额度数据",
+    firstRunTitle: "连接你的第一个供应商",
     emptyBody: "点击刷新以获取该账户的第一个快照。",
     emptyUnavailable: "该账户已连接，但接口没有返回可识别的额度字段。",
   },

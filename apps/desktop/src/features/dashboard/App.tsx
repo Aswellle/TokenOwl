@@ -179,7 +179,7 @@ function EmptyState({
         <IconOwl size={40} strokeWidth={1.4} />
       </span>
       <h3 className="empty__title">
-        {offline ? copy.notices.offlineTitle : copy.quota.emptyTitle}
+        {offline ? copy.notices.offlineTitle : copy.quota.firstRunTitle}
       </h3>
       <p className="empty__body">{offline ? copy.notices.offlineBody : copy.form.intro}</p>
       <div className="empty__actions">

@@ -669,7 +669,6 @@ export function App({ bridge = tauriBridge }: AppProps = {}) {
                 )}
                 {banner?.kind === "current" && (
                   <motion.div
-                    role="status"
                     variants={fadeVariants}
                     initial="hidden"
                     animate="show"
@@ -693,7 +692,6 @@ export function App({ bridge = tauriBridge }: AppProps = {}) {
                 )}
                 {banner?.kind === "failed" && (
                   <motion.div
-                    role="status"
                     variants={fadeVariants}
                     initial="hidden"
                     animate="show"

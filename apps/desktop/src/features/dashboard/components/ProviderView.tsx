@@ -12,6 +12,7 @@ import {
   quotaWindowTag,
 } from "../../../lib/format";
 import { QuotaMetric } from "./QuotaMetric";
+import { LEVEL_CLASS } from "./ProviderMatrix";
 import { StatusChip } from "./StatusChip";
 import type {
   AccountViewModel,
@@ -113,14 +114,27 @@ export function ProviderView({
   const [trend, setTrend] = useState<
     Array<{ label: string; tokens: number | null; dayStart: number }>
   >([]);
+  // The capability chip reflects the provider's measured level from the
+  // embedded matrix instead of a hardcoded value; unknown ids show nothing.
+  const [capabilityLevel, setCapabilityLevel] = useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
     setUsage(null);
+    setCapabilityLevel(null);
     bridge
       .usageWindows(account.id)
       .then((value) => {
         if (active) setUsage(value);
+      })
+      .catch(() => null);
+    const prefix = account.providerId.split(":")[0].trim().toLowerCase();
+    bridge
+      .providerMatrix()
+      .then((rows) => {
+        if (!active) return;
+        const row = rows.find((item) => item.id === prefix);
+        setCapabilityLevel(row && row.implemented && row.level ? row.level : null);
       })
       .catch(() => null);
     bridge
@@ -149,7 +163,7 @@ export function ProviderView({
     return () => {
       active = false;
     };
-  }, [bridge, account.id, account.lastUpdatedAt]);
+  }, [bridge, account.id, account.providerId, account.lastUpdatedAt]);
 
   const range: RangeUsageViewModel | null = usage ? usage[windowKey] : null;
   const tokensText = range?.hasData ? formatCompact(range.tokens) : copy.usage.noData;
@@ -163,9 +177,14 @@ export function ProviderView({
           <p className="pview__provider">{account.providerName}</p>
         </div>
         <StatusChip status={account.status} />
-        <span className="cap-chip cap-chip--l1" title={copy.a11y.capabilityChip("L1")}>
-          {copy.matrix.level.L1}
-        </span>
+        {capabilityLevel && (
+          <span
+            className={`cap-chip ${LEVEL_CLASS[capabilityLevel] ?? "cap-chip--l1"}`}
+            title={copy.a11y.capabilityChip(capabilityLevel)}
+          >
+            {capabilityLevel} · {copy.matrix.level[capabilityLevel] ?? capabilityLevel}
+          </span>
+        )}
         <button
           className="btn btn--icon"
           type="button"

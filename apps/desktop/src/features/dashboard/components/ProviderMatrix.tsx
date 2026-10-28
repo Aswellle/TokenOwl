@@ -2,7 +2,8 @@ import { useEffect, useState } from "react";
 import { copy } from "../../../styles/copy";
 import type { DashboardBridge, ProviderMatrixRowViewModel } from "../../../types";
 
-const LEVEL_CLASS: Record<string, string> = {
+/** Level → chip treatment, shared with the provider detail view. */
+export const LEVEL_CLASS: Record<string, string> = {
   L4: "cap-chip--l4",
   L3: "cap-chip--l3",
   L2: "cap-chip--l2",

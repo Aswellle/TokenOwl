@@ -20,6 +20,9 @@ test.describe("TokenOwl dashboard smoke", () => {
     await page.locator(".account__identity").first().click();
     // The titlebar heading names the account once its detail view is open.
     await expect(page.getByRole("heading", { name: "OpenAI 官方" })).toBeVisible();
+    // The capability chip comes from the provider matrix, not a hardcoded
+    // placeholder — OpenAI's measured level is L4.
+    await expect(page.getByText("L4 · 完整额度")).toBeVisible();
   });
 
   test("navigates through the dock views", async ({ page }) => {

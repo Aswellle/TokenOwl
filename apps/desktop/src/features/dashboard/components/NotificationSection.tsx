@@ -441,7 +441,7 @@ export function NotificationSection({
           initial="hidden"
           animate="show"
         >
-          {copy.notifications.empty}
+          {copy.notifications.filteredEmpty}
         </motion.p>
       ) : (
         <ul className="notifs">

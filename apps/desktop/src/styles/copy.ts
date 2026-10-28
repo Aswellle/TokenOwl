@@ -300,6 +300,7 @@ export const copy = {
   notifications: {
     title: "通知",
     empty: "一切正常，暂无需要处理的事项。额度告警、预测耗尽与恢复通知会出现在这里。",
+    filteredEmpty: "该类型下暂无通知；切换类型或等待新的提醒。",
     markAllRead: "全部已读",
     markRead: "标为已读",
     unreadSuffix: (count: number) => `${count} 条未读`,

@@ -205,24 +205,15 @@ export function BubbleView({ bridge = tauriBridge }: { bridge?: DashboardBridge 
       <motion.button
         className={`bubble bubble--${status}`}
         type="button"
-        initial={
-          reduce
-            ? false
-            : collapseAnchor
-              ? // Grow from the dashboard's circle: the two windows are the
-                // same visual object at this moment, so the bubble starts at
-                // the size the dashboard's collapse left behind.
-                { scale: Math.max(1, collapseAnchor.diameter / 48), opacity: 0 }
-              : { scale: 0.86, opacity: 0 }
+        initial={reduce ? false : { scale: 0.86, opacity: 0 }}
+        animate={
+          collapseAnchor
+            ? // Keyframes replay on every collapse: grow from the circle the
+              // dashboard just shrank into, instead of popping at full size.
+              { scale: [Math.max(1, collapseAnchor.diameter / 48), 1], opacity: [0.4, 1] }
+            : { scale: 1, opacity: 1 }
         }
-        animate={{ scale: 1, opacity: 1 }}
-        transition={
-          reduce
-            ? { duration: 0 }
-            : collapseAnchor
-              ? { type: "spring", stiffness: 300, damping: 26, mass: 0.8 }
-              : { type: "spring", stiffness: 190, damping: 22 }
-        }
+        transition={reduce ? { duration: 0 } : { type: "spring", stiffness: 300, damping: 26, mass: 0.8 }}
         whileHover={reduce ? undefined : { scale: 1.04 }}
         whileTap={reduce ? undefined : { scale: 0.94 }}
         onPointerDown={scheduleDrag}

@@ -41,8 +41,6 @@ import {
   timestamp,
 } from "../../lib/format";
 import { isTauri, shell, tauriBridge } from "../../lib/tauri";
-import { clipCircle, cornerRadius, onMorphToBubble, useMorphFromBubble } from "../../lib/morph";
-import type { MorphAnchor } from "../../lib/morph";
 import type {
   DashboardBridge,
 } from "../../types";
@@ -234,69 +232,9 @@ export function App({ bridge = tauriBridge }: AppProps = {}) {
   const reduce = useReducedMotion();
   const overallStatus = overallHealth(accounts, phase);
 
-  // Expansion origin, reported by Rust when the dashboard was opened from the
-  // bubble. Null means "opened some other way" and the window just appears.
-  const anchor = useMorphFromBubble();
-  // Collapse target, reported when the bubble takes over; the dashboard
-  // shrinks into that circle and only then hides (the reverse handoff).
-  const [collapseAnchor, setCollapseAnchor] = useState<MorphAnchor | null>(null);
-  // True once the expand reveal has landed: the clip circle then yields to a
-  // full-cover one, so later window resizes are never masked by a stale
-  // fixed-radius circle.
-  const [revealDone, setRevealDone] = useState(false);
-  const revealRadius = useMemo(() => {
-    if (!anchor) return 0;
-    const width = window.innerWidth || 760;
-    const height = window.innerHeight || 720;
-    // +2% so the final circle clears the corners even if the window is
-    // resized between the anchor being measured and the animation running.
-    return cornerRadius(anchor.x, anchor.y, width, height) * 1.02;
-  }, [anchor]);
-  // Full-cover clip for the idle state: always a circle (so the collapse can
-  // interpolate from it), recomputed on resize because a stale one would cut
-  // the corners of a grown window.
-  const [viewport, setViewport] = useState(() => ({
-    w: window.innerWidth || 760,
-    h: window.innerHeight || 720,
-  }));
-  useEffect(() => {
-    const onResize = () => setViewport({ w: window.innerWidth, h: window.innerHeight });
-    window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
-  }, []);
-  const idleClip = clipCircle(
-    { x: viewport.w / 2, y: viewport.h / 2 },
-    cornerRadius(viewport.w / 2, viewport.h / 2, viewport.w, viewport.h),
-  );
-
-  useEffect(() => {
-    if (!isTauri()) return;
-    return onMorphToBubble((incoming) => setCollapseAnchor(incoming));
-  }, []);
-
-  // A fresh expand anchor always restarts the reveal. The bubble is topmost,
-  // so it would sit over the growing panel for the whole animation; the
-  // bubble fades itself out on the same event, and the shell hides it once
-  // the fade has landed (finish is idempotent).
-  useEffect(() => {
-    if (!anchor) return;
-    setRevealDone(false);
-    const timer = window.setTimeout(() => {
-      void shell.finishBubbleHandoff().catch(() => null);
-    }, 200);
-    return () => window.clearTimeout(timer);
-  }, [anchor]);
-
-  // Mirror handoff for the collapse: with the ease-out shrink the circle is
-  // down to the bubble's size by ~280ms, and the topmost bubble (opaque from
-  // frame one) covers the endpoint — the panel can leave the screen there.
-  useEffect(() => {
-    if (!collapseAnchor) return;
-    const timer = window.setTimeout(() => {
-      void shell.finishDashboardHandoff().catch(() => null);
-    }, 280);
-    return () => window.clearTimeout(timer);
-  }, [collapseAnchor]);
+  // The expand/collapse morph lives entirely on the Rust side as an OS window
+  // region animation (it must clip the acrylic material, which no CSS effect
+  // can reach). The webview just paints the full panel; see app/mod.rs.
 
   const goView = useCallback((next: ViewId) => {
     const from = VIEW_ORDER.indexOf(viewRef.current);
@@ -402,54 +340,7 @@ export function App({ bridge = tauriBridge }: AppProps = {}) {
   ];
 
   return (
-    <motion.div
-      className="window"
-      // The desktop window grows out of the bubble's circle; the bubble fades
-      // itself out under the growing panel, so the two surfaces overlap
-      // without a hard cut on either side. Keyframes (from → to) make both
-      // directions replay on every anchor: expand always grows out of the
-      // bubble's small circle, collapse always pulls the full panel back into
-      // it — a plain animate target would interpolate from whatever was last
-      // painted and skip the path. Both stay fully opaque throughout: a
-      // fading panel over the desktop read as ghosting.
-      initial={reduce || !anchor ? false : { clipPath: clipCircle(anchor, anchor.diameter / 2), opacity: 1 }}
-      animate={
-        collapseAnchor
-          ? {
-              clipPath: [idleClip, clipCircle(collapseAnchor, collapseAnchor.diameter / 2)],
-              opacity: 1,
-            }
-          : anchor && !revealDone
-            ? {
-                clipPath: [clipCircle(anchor, anchor.diameter / 2), clipCircle(anchor, revealRadius)],
-                opacity: 1,
-              }
-            : { clipPath: idleClip, opacity: 1 }
-      }
-      transition={
-        collapseAnchor
-          ? reduce
-            ? { duration: 0.12 }
-            : { duration: 0.36, ease: [0.23, 1, 0.32, 1] }
-          : anchor && !revealDone
-            ? reduce
-              ? { duration: 0 }
-              : { duration: 0.42, ease: [0.23, 1, 0.32, 1] }
-            : { duration: 0 }
-      }
-      onAnimationComplete={() => {
-        if (!isTauri()) return;
-        if (collapseAnchor) {
-          setCollapseAnchor(null);
-          void shell.finishDashboardHandoff().catch(() => null);
-          return;
-        }
-        if (anchor && !revealDone) {
-          setRevealDone(true);
-          void shell.finishBubbleHandoff().catch(() => null);
-        }
-      }}
-    >
+    <div className="window">
       <header className="titlebar" data-tauri-drag-region>
         <TrafficLights />
         <div className="titlebar__brand">
@@ -851,7 +742,7 @@ export function App({ bridge = tauriBridge }: AppProps = {}) {
           <IconGitHub size={19} />
         </button>
       </nav>
-    </motion.div>
+    </div>
   );
 }
 

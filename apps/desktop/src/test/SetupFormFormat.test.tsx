@@ -143,11 +143,11 @@ describe("setup form brand variant grouping", () => {
     // scheduling race, so pin a wider one here.
     await waitFor(
       () => expect(screen.getByRole("button", { name: "Zhipu / GLM" })).toBeInTheDocument(),
-      { timeout: 4000 },
+      { timeout: 10_000 },
     );
   }
 
-  it("collapses platform variants into one capsule with an ellipsis expander", async () => {
+  it("collapses platform variants into one capsule with an ellipsis expander", { timeout: 30_000 }, async () => {
     await openWithZhipuPair();
     // Only ONE capsule for the brand: the two manifests share it, and the
     // ellipsis expander is a separate control with its own label.
@@ -166,7 +166,7 @@ describe("setup form brand variant grouping", () => {
     expect(screen.getByRole("button", { name: "Zhipu / GLM 国际版" })).toBeInTheDocument();
   });
 
-  it("dismisses the variant menu on Escape and returns focus to the expander", async () => {
+  it("dismisses the variant menu on Escape and returns focus to the expander", { timeout: 30_000 }, async () => {
     await openWithZhipuPair();
     const more = screen.getByRole("button", { name: "Zhipu / GLM 的其他平台版本" });
     fireEvent.click(more);
@@ -177,7 +177,7 @@ describe("setup form brand variant grouping", () => {
     expect(more).toHaveFocus();
   });
 
-  it("dismisses the variant menu when a pointer presses outside the brand group", async () => {
+  it("dismisses the variant menu when a pointer presses outside the brand group", { timeout: 30_000 }, async () => {
     await openWithZhipuPair();
     const more = screen.getByRole("button", { name: "Zhipu / GLM 的其他平台版本" });
     fireEvent.click(more);

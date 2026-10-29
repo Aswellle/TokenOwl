@@ -75,10 +75,6 @@ export const shell = {
    * whenever the bubble becomes visible.
    */
   stabilizeBubbleWindow: () => invoke<void>("stabilize_bubble_window"),
-  /** Hides the bubble once the dashboard's expand animation has landed. */
-  finishBubbleHandoff: () => invoke<void>("finish_bubble_handoff"),
-  /** Hides the dashboard once its collapse animation has landed. */
-  finishDashboardHandoff: () => invoke<void>("finish_dashboard_handoff"),
   persistBubblePosition: () => invoke<void>("persist_bubble_position"),
   openProjectPage: () => {
     if (isTauri()) return invoke<void>("open_project_page");

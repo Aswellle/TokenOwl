@@ -190,59 +190,69 @@ fn bubble_is_visible(app: &AppHandle) -> bool {
 
 #[tauri::command]
 fn open_dashboard(app: AppHandle) -> Result<(), String> {
-    // The dashboard replaces the bubble: expanded and collapsed are exclusive.
-    // The bubble stays visible for one animation beat so the dashboard can
-    // grow out of it; the frontend calls `finish_bubble_handoff` when its
-    // expansion lands, which is what actually hides the bubble. Hiding here
-    // would leave a frame with neither surface on screen — the gap this
-    // transition exists to remove.
     let from_bubble = bubble_is_visible(&app);
     let dashboard = app
         .get_webview_window("main")
         .ok_or_else(|| "dashboard window unavailable".to_string())?;
-    // Position before showing: an expand-from-bubble must open with the
-    // bubble's spot inside the dashboard rect, or the clip animation starts
-    // off-window and the user sees a plain pop-in. Repositioning a hidden
-    // window is invisible; there is nothing to jump.
-    if from_bubble && let Some(bubble) = app.get_webview_window("bubble") {
-        center_dashboard_on_bubble(&dashboard, &bubble);
-        // The square DWM shadow would pop around the clip circle while the
-        // reveal is still small; bring it back once the reveal has covered
-        // the frame.
-        let _ = dashboard.set_shadow(false);
-        let raised = dashboard.clone();
-        tauri::async_runtime::spawn(async move {
-            tokio::time::sleep(std::time::Duration::from_millis(650)).await;
-            let _ = raised.set_shadow(true);
-        });
+
+    if !from_bubble {
+        // Opened by the tray, a second launch, or a deep link: no morph, the
+        // window simply appears with its normal frame shadow.
+        let _ = dashboard.set_shadow(true);
+        dashboard.show().map_err(|error| error.to_string())?;
+        dashboard.set_focus().map_err(|error| error.to_string())?;
+        return Ok(());
     }
-    let anchor = if from_bubble {
-        morph_anchor(&app, false)
-    } else {
-        None
+
+    // Expand-from-bubble: an OS window region grows from the bubble's circle.
+    // The region clips the acrylic material and the webview content together —
+    // a CSS clip-path cannot clip the OS material layer, which is exactly what
+    // used to leave a blank material rectangle behind the reveal. Positioning
+    // and region are applied while the window is still hidden, so there is no
+    // frame where the full-size surface flashes first.
+    let Some(bubble) = app.get_webview_window("bubble") else {
+        let _ = dashboard.set_shadow(true);
+        dashboard.show().map_err(|error| error.to_string())?;
+        dashboard.set_focus().map_err(|error| error.to_string())?;
+        return Ok(());
     };
+    center_dashboard_on_bubble(&dashboard, &bubble);
+    let _ = dashboard.set_shadow(false);
+    let Some(anchor) = morph_anchor(&app, false) else {
+        let _ = dashboard.set_shadow(true);
+        dashboard.show().map_err(|error| error.to_string())?;
+        dashboard.set_focus().map_err(|error| error.to_string())?;
+        return Ok(());
+    };
+    // The bubble fades itself out on this event while the panel grows over it.
+    let region = morph_region_geometry(&dashboard, &anchor);
+    let _ = app.emit("window:morph-from-bubble", anchor);
     dashboard.show().map_err(|error| error.to_string())?;
     dashboard.set_focus().map_err(|error| error.to_string())?;
-    if let Some(anchor) = anchor {
-        let _ = app.emit("window:morph-from-bubble", anchor);
+    if let Some((center, start_radius, end_radius)) = region {
+        let fading_bubble = bubble.clone();
+        spawn_region_morph(
+            dashboard.clone(),
+            center,
+            start_radius,
+            end_radius,
+            std::time::Duration::from_millis(380),
+            move || {
+                let _ = fading_bubble.hide();
+                let _ = dashboard.set_shadow(true);
+            },
+        );
+    } else {
+        fading_bubble_hide(&app);
     }
     Ok(())
 }
 
-/// Hides the bubble once the dashboard has visually taken over.
-///
-/// The dashboard calls this after its expansion animation settles. It is
-/// idempotent and safe to call when no morph ran (the bubble is already
-/// hidden), so the frontend never needs to track handoff state.
-#[tauri::command]
-// Tauri commands must return a `Result` to surface IPC errors; hiding is
-// best-effort by design, so the signature stays for the command contract.
-#[allow(clippy::unnecessary_wraps)]
-fn finish_bubble_handoff(app: AppHandle) -> Result<(), String> {
+/// Best-effort bubble hide for the no-geometry fallback path.
+fn fading_bubble_hide(app: &AppHandle) {
     if let Some(bubble) = app.get_webview_window("bubble") {
         let _ = bubble.hide();
     }
-    Ok(())
 }
 
 #[tauri::command]
@@ -300,30 +310,36 @@ fn show_bubble(app: AppHandle, state: State<'_, Arc<Mutex<RuntimeState>>>) -> Re
         None => place_bubble_bottom_right(&bubble),
     }
     // The bubble is placed before it is shown so it materializes at its
-    // docked spot, not wherever it was left. It appears immediately while the
-    // dashboard runs its collapse animation; the dashboard hides itself when
-    // that animation lands (see `finish_dashboard_handoff`), so the two
-    // surfaces overlap for one beat instead of leaving a blank frame between
-    // them.
+    // docked spot, not wherever it was left. It appears immediately (opaque,
+    // covering the collapse endpoint) while the dashboard's window region
+    // shrinks into it; the region task hides the dashboard at the end.
     bubble.show().map_err(|error| error.to_string())?;
     // The dashboard shrinks toward the bubble; when the bubble is parked far
     // outside the dashboard's rect the raw anchor would be off-window, so the
     // collapse target is clamped to the nearest point on the dashboard.
     if let Some(anchor) = morph_anchor(&app, true) {
+        let region = app
+            .get_webview_window("main")
+            .and_then(|dashboard| morph_region_geometry(&dashboard, &anchor));
         let _ = app.emit("window:morph-to-bubble", anchor);
-    }
-    Ok(())
-}
-
-/// Hides the dashboard once its collapse animation has visually handed over
-/// to the bubble. Called by the dashboard frontend; idempotent.
-#[tauri::command]
-// Tauri commands must return a `Result` to surface IPC errors; hiding is
-// best-effort by design, so the signature stays for the command contract.
-#[allow(clippy::unnecessary_wraps)]
-fn finish_dashboard_handoff(app: AppHandle) -> Result<(), String> {
-    if let Some(dashboard) = app.get_webview_window("main") {
-        let _ = dashboard.hide();
+        if let (Some(dashboard), Some((center, start_radius, end_radius))) =
+            (app.get_webview_window("main"), region)
+        {
+            // The square DWM shadow would outline the shrinking rect; the
+            // region shape replaces it until the next plain open.
+            let _ = dashboard.set_shadow(false);
+            let collapsing = dashboard.clone();
+            spawn_region_morph(
+                dashboard,
+                center,
+                start_radius,
+                end_radius,
+                std::time::Duration::from_millis(300),
+                move || {
+                    let _ = collapsing.hide();
+                },
+            );
+        }
     }
     Ok(())
 }
@@ -481,6 +497,120 @@ fn apply_tool_window_style(window: &tauri::WebviewWindow) {
 
 #[cfg(not(windows))]
 fn apply_tool_window_style(_window: &tauri::WebviewWindow) {}
+
+/// Pure ease-out cubic for the region morph: motion starts immediately
+/// (responsive to the click) and decelerates into the endpoint.
+fn ease_out_cubic(t: f64) -> f64 {
+    let clamped = t.clamp(0.0, 1.0);
+    1.0 - (1.0 - clamped).powi(3)
+}
+
+/// Circle radius of the morph at normalized time `t`, interpolating
+/// `start → end` with the eased progress. Pure, unit-tested.
+fn region_radius_at(t: f64, start: f64, end: f64) -> f64 {
+    start + (end - start) * ease_out_cubic(t)
+}
+
+/// The morph's circle geometry for one window and anchor: center in
+/// window-relative physical pixels, the starting radius (the bubble), and the
+/// ending radius (a circle that clears every window corner). None when the
+/// window geometry is not realized yet.
+fn morph_region_geometry(
+    window: &tauri::WebviewWindow,
+    anchor: &MorphAnchor,
+) -> Option<((i32, i32), f64, f64)> {
+    #[allow(clippy::cast_possible_truncation)]
+    fn to_i32(v: f64) -> i32 {
+        v.round() as i32
+    }
+
+    let scale = window.scale_factor().ok()?;
+    let scale = if scale > 0.0 { scale } else { 1.0 };
+    let outer = window.outer_position().ok()?;
+    let inner = window.inner_position().ok()?;
+    let size = window.outer_size().ok()?;
+    // The anchor is in client CSS pixels; the region is window-relative.
+    #[allow(clippy::cast_possible_wrap)]
+    let client_offset = (inner.x - outer.x, inner.y - outer.y);
+    let center = (
+        client_offset.0 + to_i32(anchor.x * scale),
+        client_offset.1 + to_i32(anchor.y * scale),
+    );
+    #[allow(clippy::cast_possible_wrap)]
+    let (width, height) = (
+        i32::try_from(size.width).unwrap_or(0),
+        i32::try_from(size.height).unwrap_or(0),
+    );
+    let dx = center.0.max(width - center.0);
+    let dy = center.1.max(height - center.1);
+    let end_radius = f64::from(dx * dx + dy * dy).sqrt() * 1.02;
+    let start_radius = anchor.diameter / 2.0 * scale;
+    Some((center, start_radius, end_radius))
+}
+
+/// The window-region morph owns the whole handoff on the Rust side: a
+/// `SetWindowRgn` circle clips the window's material AND content together
+/// (a CSS clip-path cannot clip the OS acrylic layer, which is what left a
+/// blank material rectangle behind the shrinking panel). Steps run on the
+/// async runtime; `on_done` fires at the end, before the region is cleared.
+#[allow(unsafe_code)]
+fn spawn_region_morph(
+    window: tauri::WebviewWindow,
+    center: (i32, i32),
+    start_radius: f64,
+    end_radius: f64,
+    duration: std::time::Duration,
+    on_done: impl FnOnce() + Send + 'static,
+) {
+    tauri::async_runtime::spawn(async move {
+        #[cfg(windows)]
+        {
+            #[allow(unsafe_code)]
+            #[link(name = "gdi32")]
+            unsafe extern "system" {
+                fn CreateEllipticRgn(left: i32, top: i32, right: i32, bottom: i32) -> isize;
+                fn DeleteObject(object: isize) -> bool;
+            }
+            #[allow(unsafe_code)]
+            #[link(name = "user32")]
+            unsafe extern "system" {
+                fn SetWindowRgn(hwnd: isize, region: isize, redraw: i32) -> i32;
+            }
+            let Ok(hwnd) = window.hwnd() else { return };
+            #[allow(clippy::cast_possible_wrap)]
+            let hwnd = hwnd.0 as usize as isize;
+            let steps: u32 = u32::try_from(duration.as_millis() / 16).unwrap_or(1).max(1);
+            for step in 1..=steps {
+                let t = f64::from(step) / f64::from(steps);
+                let radius = region_radius_at(t, start_radius, end_radius);
+                #[allow(clippy::cast_possible_truncation)]
+                let r = radius.round() as i32;
+                #[allow(unsafe_code)]
+                unsafe {
+                    let region =
+                        CreateEllipticRgn(center.0 - r, center.1 - r, center.0 + r, center.1 + r);
+                    if region != 0 {
+                        // The system owns the region once set; delete only on
+                        // a failed set.
+                        if SetWindowRgn(hwnd, region, 1) == 0 {
+                            DeleteObject(region);
+                        }
+                    }
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(16)).await;
+            }
+            on_done();
+            #[allow(unsafe_code)]
+            unsafe {
+                SetWindowRgn(hwnd, 0, 1);
+            }
+        }
+        #[cfg(not(windows))]
+        {
+            on_done();
+        }
+    });
+}
 
 /// Re-applies the bubble's tool-window style and configured size.
 ///
@@ -842,8 +972,6 @@ pub fn run() {
             get_bubble_position,
             save_bubble_position,
             open_dashboard,
-            finish_bubble_handoff,
-            finish_dashboard_handoff,
             hide_dashboard,
             minimize_dashboard,
             show_bubble,

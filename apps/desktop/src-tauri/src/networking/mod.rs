@@ -359,14 +359,20 @@ mod tests {
 
     #[test]
     fn request_error_mapping_is_stable_and_secret_free() {
-        let url = "https://provider.invalid.test/v1/usage";
+        // A refused loopback connection is a deterministic stand-in for an
+        // unreachable provider: a real DNS miss depends on the host resolver,
+        // and privacy proxies (fake-IP DNS) reclassify the failure.
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind ephemeral port");
+        let port = listener.local_addr().expect("local addr").port();
+        drop(listener);
+        let url = format!("http://127.0.0.1:{port}/v1/usage");
         let error = tauri::async_runtime::block_on(async {
             HttpClient::with_defaults()
                 .unwrap()
-                .get(url)
+                .get(&url)
                 .send()
                 .await
-                .expect_err("invalid host must fail")
+                .expect_err("refused connection must fail")
         });
         let mapped = map_request_error(error);
         assert!(
@@ -377,7 +383,7 @@ mod tests {
             "DNS/connect failures map to a stable category"
         );
         assert!(
-            !mapped.message.contains("provider.invalid.test"),
+            !mapped.message.contains(&format!("127.0.0.1:{port}")),
             "error text must not echo the URL"
         );
     }

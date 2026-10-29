@@ -8,7 +8,7 @@ import { IconOwl } from "../../components/icons";
 import { ProviderIcon } from "../../components/ProviderIcon";
 import { overallHealth, pressure, quotaRatio, quotaWindowTag } from "../../lib/format";
 import { isTauri, shell, tauriBridge } from "../../lib/tauri";
-import { onMorphToBubble, type MorphAnchor } from "../../lib/morph";
+import { onMorphFromBubble, onMorphToBubble, type MorphAnchor } from "../../lib/morph";
 import type { AccountHealth, AccountViewModel, DashboardBridge, QuotaViewModel } from "../../types";
 
 const DRAG_THRESHOLD_PX = 5;
@@ -162,19 +162,29 @@ export function BubbleView({ bridge = tauriBridge }: { bridge?: DashboardBridge 
 
   // A collapse from the dashboard arrives as an event on this window. The
   // bubble is already visible at this point (Rust shows it before emitting),
-  // so it starts scaled up from the dashboard's outgoing circle and settles
-  // into place — the reverse of the expansion the dashboard plays. The same
-  // moment re-applies the window's tool-window style and size: the shell
-  // rewrites window flags on show, and this lands after those writes settle.
+  // so it replays a small settle-in from the circle the dashboard shrank
+  // into. It must be OPAQUE from the first frame: a translucent entrance let
+  // the shrinking panel show through and read as a ghost. The same moment
+  // re-applies the window's tool-window style and size (the shell rewrites
+  // window flags on show).
+  const [exiting, setExiting] = useState(false);
   useEffect(() => {
     if (!isTauri()) return;
     return onMorphToBubble((anchor) => {
+      setExiting(false);
       setCollapseAnchor(anchor);
       void shell.stabilizeBubbleWindow().catch(() => null);
       // The anchor only seeds the entrance; clearing it keeps later
       // re-renders from replaying the scale.
       window.setTimeout(() => setCollapseAnchor(null), 600);
     });
+  }, []);
+
+  // When the dashboard expands over the bubble, the bubble fades out under
+  // the growing panel instead of being hidden mid-frame by the shell.
+  useEffect(() => {
+    if (!isTauri()) return;
+    return onMorphFromBubble(() => setExiting(true));
   }, []);
 
   const primary =
@@ -208,10 +218,12 @@ export function BubbleView({ bridge = tauriBridge }: { bridge?: DashboardBridge 
         initial={reduce ? false : { scale: 0.86, opacity: 0 }}
         animate={
           collapseAnchor
-            ? // Keyframes replay on every collapse: grow from the circle the
-              // dashboard just shrank into, instead of popping at full size.
-              { scale: [Math.max(1, collapseAnchor.diameter / 48), 1], opacity: [0.4, 1] }
-            : { scale: 1, opacity: 1 }
+            ? // Keyframes replay on every collapse: settle in from the circle
+              // the dashboard shrank into, fully opaque from frame one.
+              { scale: [1.08, 1], opacity: 1 }
+            : exiting
+              ? { opacity: 0 }
+              : { scale: 1, opacity: 1 }
         }
         transition={reduce ? { duration: 0 } : { type: "spring", stiffness: 300, damping: 26, mass: 0.8 }}
         whileHover={reduce ? undefined : { scale: 1.04 }}

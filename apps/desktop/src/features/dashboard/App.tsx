@@ -276,25 +276,25 @@ export function App({ bridge = tauriBridge }: AppProps = {}) {
 
   // A fresh expand anchor always restarts the reveal. The bubble is topmost,
   // so it would sit over the growing panel for the whole animation; the
-  // reveal covers the bubble's spot well before the tween ends, so the
-  // handoff hides it early (finish is idempotent).
+  // bubble fades itself out on the same event, and the shell hides it once
+  // the fade has landed (finish is idempotent).
   useEffect(() => {
     if (!anchor) return;
     setRevealDone(false);
     const timer = window.setTimeout(() => {
       void shell.finishBubbleHandoff().catch(() => null);
-    }, 140);
+    }, 200);
     return () => window.clearTimeout(timer);
   }, [anchor]);
 
-  // Mirror handoff for the collapse: once the shrinking circle is near the
-  // bubble's size, the panel's remaining tail is invisible under the bubble
-  // (topmost, already on screen), so the panel hides before the tween ends.
+  // Mirror handoff for the collapse: with the ease-out shrink the circle is
+  // down to the bubble's size by ~280ms, and the topmost bubble (opaque from
+  // frame one) covers the endpoint — the panel can leave the screen there.
   useEffect(() => {
     if (!collapseAnchor) return;
     const timer = window.setTimeout(() => {
       void shell.finishDashboardHandoff().catch(() => null);
-    }, 230);
+    }, 280);
     return () => window.clearTimeout(timer);
   }, [collapseAnchor]);
 
@@ -404,24 +404,25 @@ export function App({ bridge = tauriBridge }: AppProps = {}) {
   return (
     <motion.div
       className="window"
-      // The desktop window grows out of the bubble's circle; the bubble is
-      // still on screen underneath until the early handoff lands, so the two
-      // surfaces overlap and there is never a blank frame between them.
-      // Keyframes (from → to) make both directions replay on every anchor:
-      // expand always grows out of the bubble's small circle, collapse always
-      // pulls the full panel back into it — a plain animate target would
-      // interpolate from whatever was last painted and skip the path.
-      initial={reduce || !anchor ? false : { clipPath: clipCircle(anchor, anchor.diameter / 2), opacity: 0.35 }}
+      // The desktop window grows out of the bubble's circle; the bubble fades
+      // itself out under the growing panel, so the two surfaces overlap
+      // without a hard cut on either side. Keyframes (from → to) make both
+      // directions replay on every anchor: expand always grows out of the
+      // bubble's small circle, collapse always pulls the full panel back into
+      // it — a plain animate target would interpolate from whatever was last
+      // painted and skip the path. Both stay fully opaque throughout: a
+      // fading panel over the desktop read as ghosting.
+      initial={reduce || !anchor ? false : { clipPath: clipCircle(anchor, anchor.diameter / 2), opacity: 1 }}
       animate={
         collapseAnchor
           ? {
               clipPath: [idleClip, clipCircle(collapseAnchor, collapseAnchor.diameter / 2)],
-              opacity: [1, 0.35],
+              opacity: 1,
             }
           : anchor && !revealDone
             ? {
                 clipPath: [clipCircle(anchor, anchor.diameter / 2), clipCircle(anchor, revealRadius)],
-                opacity: [0.35, 1],
+                opacity: 1,
               }
             : { clipPath: idleClip, opacity: 1 }
       }
@@ -429,11 +430,11 @@ export function App({ bridge = tauriBridge }: AppProps = {}) {
         collapseAnchor
           ? reduce
             ? { duration: 0.12 }
-            : { duration: 0.32, ease: [0.32, 0.72, 0, 1] }
+            : { duration: 0.36, ease: [0.23, 1, 0.32, 1] }
           : anchor && !revealDone
             ? reduce
               ? { duration: 0 }
-              : { duration: 0.32, ease: [0.32, 0.72, 0, 1] }
+              : { duration: 0.42, ease: [0.23, 1, 0.32, 1] }
             : { duration: 0 }
       }
       onAnimationComplete={() => {

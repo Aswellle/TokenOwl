@@ -206,6 +206,15 @@ fn open_dashboard(app: AppHandle) -> Result<(), String> {
     // window is invisible; there is nothing to jump.
     if from_bubble && let Some(bubble) = app.get_webview_window("bubble") {
         center_dashboard_on_bubble(&dashboard, &bubble);
+        // The square DWM shadow would pop around the clip circle while the
+        // reveal is still small; bring it back once the reveal has covered
+        // the frame.
+        let _ = dashboard.set_shadow(false);
+        let raised = dashboard.clone();
+        tauri::async_runtime::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(650)).await;
+            let _ = raised.set_shadow(true);
+        });
     }
     let anchor = if from_bubble {
         morph_anchor(&app, false)

@@ -97,3 +97,24 @@ export function onMorphToBubble(handler: (anchor: MorphAnchor) => void): () => v
     void unlisten.then((dispose) => dispose?.());
   };
 }
+
+/**
+ * Registers a listener for the expand anchor on the bubble side: the bubble
+ * plays its own exit fade while the panel grows over it, so its hide is never
+ * a hard cut.
+ */
+export function onMorphFromBubble(handler: (anchor: MorphAnchor) => void): () => void {
+  if (!isTauri()) return () => {};
+  let disposed = false;
+  const unlisten = listen<MorphAnchorPayload>("window:morph-from-bubble", (event) => {
+    if (disposed) return;
+    const { x, y, diameter } = event.payload;
+    if (Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(diameter)) {
+      handler({ x, y, diameter });
+    }
+  }).catch(() => null);
+  return () => {
+    disposed = true;
+    void unlisten.then((dispose) => dispose?.());
+  };
+}

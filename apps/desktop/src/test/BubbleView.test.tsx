@@ -1,17 +1,24 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, act } from "@testing-library/react";
 
-const { mockStartDragging, mockOnMoved, mockOpenDashboard, mockPersistPosition, mockListAccounts } =
-  vi.hoisted(() => ({
-    mockStartDragging: vi.fn().mockResolvedValue(undefined),
-    // The real `onMoved` resolves directly to the unlisten FUNCTION (unlike
-    // `listen`, whose promise resolves to `{ unlisten }`); resolving to an
-    // object makes the effect cleanup call a non-function.
-    mockOnMoved: vi.fn((_callback: () => void) => Promise.resolve(vi.fn())),
-    mockOpenDashboard: vi.fn().mockResolvedValue(undefined),
-    mockPersistPosition: vi.fn().mockResolvedValue(undefined),
-    mockListAccounts: vi.fn(),
-  }));
+const {
+  mockStartDragging,
+  mockOnMoved,
+  mockOpenDashboard,
+  mockPersistPosition,
+  mockListAccounts,
+  mockStabilize,
+} = vi.hoisted(() => ({
+  mockStartDragging: vi.fn().mockResolvedValue(undefined),
+  // The real `onMoved` resolves directly to the unlisten FUNCTION (unlike
+  // `listen`, whose promise resolves to `{ unlisten }`); resolving to an
+  // object makes the effect cleanup call a non-function.
+  mockOnMoved: vi.fn((_callback: () => void) => Promise.resolve(vi.fn())),
+  mockOpenDashboard: vi.fn().mockResolvedValue(undefined),
+  mockPersistPosition: vi.fn().mockResolvedValue(undefined),
+  mockListAccounts: vi.fn(),
+  mockStabilize: vi.fn().mockResolvedValue(undefined),
+}));
 
 // The real icon pack ships emoji data as JSON imports that vitest's
 // transform rejects; the drag tests do not depend on the icon glyphs.
@@ -36,6 +43,7 @@ vi.mock("../lib/tauri", () => ({
   shell: {
     openDashboard: mockOpenDashboard,
     showBubble: vi.fn().mockResolvedValue(undefined),
+    stabilizeBubbleWindow: mockStabilize,
     persistBubblePosition: mockPersistPosition,
     openProjectPage: vi.fn(),
   },
@@ -214,5 +222,15 @@ describe("bubble ring geometry", () => {
     expect(document.querySelector(".bubble__mark--solo")).not.toBeNull();
     expect(document.querySelectorAll(".bubble__ring-track")).toHaveLength(0);
     expect(document.querySelectorAll(".bubble__ring-value")).toHaveLength(0);
+  });
+
+  it("re-applies the tool-window shape once the first load settles", async () => {
+    mockListAccounts.mockResolvedValue([]);
+    render(<BubbleView />);
+    await screen.findByRole("button");
+
+    // The shell rewrites window flags on every show, so the webview pins the
+    // tool-window style and 56×56 size back once its data has settled.
+    expect(mockStabilize).toHaveBeenCalled();
   });
 });

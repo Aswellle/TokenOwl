@@ -153,14 +153,24 @@ export function BubbleView({ bridge = tauriBridge }: { bridge?: DashboardBridge 
   const status: AccountHealth = overallHealth(accounts, phase);
   const reduce = useReducedMotion();
 
+  // First render covers the show paths that bypass the morph (e.g. a future
+  // direct-show): pin the window shape the same way the morph path does.
+  useEffect(() => {
+    if (!isTauri() || phase !== "ready") return;
+    void shell.stabilizeBubbleWindow().catch(() => null);
+  }, [phase]);
+
   // A collapse from the dashboard arrives as an event on this window. The
   // bubble is already visible at this point (Rust shows it before emitting),
   // so it starts scaled up from the dashboard's outgoing circle and settles
-  // into place — the reverse of the expansion the dashboard plays.
+  // into place — the reverse of the expansion the dashboard plays. The same
+  // moment re-applies the window's tool-window style and size: the shell
+  // rewrites window flags on show, and this lands after those writes settle.
   useEffect(() => {
     if (!isTauri()) return;
     return onMorphToBubble((anchor) => {
       setCollapseAnchor(anchor);
+      void shell.stabilizeBubbleWindow().catch(() => null);
       // The anchor only seeds the entrance; clearing it keeps later
       // re-renders from replaying the scale.
       window.setTimeout(() => setCollapseAnchor(null), 600);

@@ -260,6 +260,13 @@ fn show_bubble(app: AppHandle, state: State<'_, Arc<Mutex<RuntimeState>>>) -> Re
         .get_webview_window("bubble")
         .ok_or_else(|| "bubble window unavailable".to_string())?;
 
+    // tao rewrites a window's ex-style from its cached flags on show, which
+    // wipes the tool-window bit from setup; the OS minimum-width clamp the bit
+    // exempts us from then re-inflates the window on first paint. Re-apply the
+    // style and the configured size while the window is still hidden.
+    apply_tool_window_style(&bubble);
+    let _ = bubble.set_size(tauri::LogicalSize::new(56.0_f64, 56.0_f64));
+
     let saved = state
         .lock()
         .ok()
@@ -425,6 +432,63 @@ fn coordinate_to_i32(value: f64) -> i32 {
     #[allow(clippy::cast_possible_truncation)] // clamped to the i32 range first
     let result = clamped.round() as i32;
     result
+}
+
+/// Windows clamps every ordinary top-level window to the system minimum
+/// tracking width (`SM_CXMINTRACK`, ~136 logical px), which silently grew the
+/// 56-logical-px bubble to ~135 logical px of mostly transparent, click-eating
+/// surface. `WS_EX_TOOLWINDOW` windows are exempt from that clamp — and from
+/// Alt-Tab, which is where a floating widget belongs anyway — so the bubble
+/// window gets the style applied once at creation, while it is still hidden.
+///
+/// The crate-wide `unsafe_code` lint stays; this is the only raw-FFI site and
+/// it needs a targeted allow: tao's `skip_taskbar` only calls
+/// `ITaskbarList::DeleteTab`, which does not lift the OS minimum-width clamp,
+/// so two `user32` style calls are the entire surface.
+#[allow(unsafe_code)]
+#[cfg(windows)]
+fn apply_tool_window_style(window: &tauri::WebviewWindow) {
+    #[allow(unsafe_code)]
+    #[link(name = "user32")]
+    unsafe extern "system" {
+        fn GetWindowLongPtrW(hwnd: isize, index: i32) -> isize;
+        fn SetWindowLongPtrW(hwnd: isize, index: i32, value: isize) -> isize;
+    }
+
+    const GWL_EXSTYLE: i32 = -20;
+    const WS_EX_TOOLWINDOW: isize = 0x0080;
+
+    let Ok(hwnd) = window.hwnd() else {
+        return;
+    };
+    // HWND handles are pointer-sized; the raw user32 API takes them as isize.
+    #[allow(clippy::cast_possible_wrap)]
+    let hwnd = hwnd.0 as usize as isize;
+    unsafe {
+        let style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+        SetWindowLongPtrW(hwnd, GWL_EXSTYLE, style | WS_EX_TOOLWINDOW);
+    }
+}
+
+#[cfg(not(windows))]
+fn apply_tool_window_style(_window: &tauri::WebviewWindow) {}
+
+/// Re-applies the bubble's tool-window style and configured size.
+///
+/// tao rewrites a window's ex-style from its cached flags on every flag diff —
+/// show, hide, and topmost changes each do it — which wipes the bit applied at
+/// setup and lets the OS minimum-width clamp inflate the window again on the
+/// next paint. The bubble's webview calls this right after it becomes visible,
+/// once those flag writes have settled, so the style and the 56×56 logical
+/// size stick for the whole visible session.
+#[tauri::command]
+fn stabilize_bubble_window(app: AppHandle) -> Result<(), String> {
+    let bubble = app
+        .get_webview_window("bubble")
+        .ok_or_else(|| "bubble window unavailable".to_string())?;
+    apply_tool_window_style(&bubble);
+    let _ = bubble.set_size(tauri::LogicalSize::new(56.0_f64, 56.0_f64));
+    Ok(())
 }
 
 /// The two global hotkeys the app registers.
@@ -749,6 +813,14 @@ pub fn run() {
             for label in ["main", "bubble"] {
                 if let Some(window) = app.get_webview_window(label) {
                     let _ = window.set_icon(window_icon.clone());
+                    if label == "bubble" {
+                        apply_tool_window_style(&window);
+                        // The OS width clamp runs at creation, before the
+                        // style above exists; re-requesting the configured
+                        // size now that the clamp is lifted brings the window
+                        // down to its real 56×56 logical footprint.
+                        let _ = window.set_size(tauri::LogicalSize::new(56.0_f64, 56.0_f64));
+                    }
                 }
             }
             setup_tray(app)?;
@@ -766,6 +838,7 @@ pub fn run() {
             hide_dashboard,
             minimize_dashboard,
             show_bubble,
+            stabilize_bubble_window,
             persist_bubble_position,
             commands::accounts_list,
             commands::accounts_create,

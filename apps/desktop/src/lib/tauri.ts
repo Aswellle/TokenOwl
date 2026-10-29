@@ -69,6 +69,12 @@ export const shell = {
   hideDashboard: () => invoke<void>("hide_dashboard"),
   minimizeDashboard: () => invoke<void>("minimize_dashboard"),
   showBubble: () => invoke<void>("show_bubble"),
+  /**
+   * Re-applies the bubble window's tool-window style and 56×56 size after the
+   * shell's own flag writes settle; Rust-side detail, frontend just fires it
+   * whenever the bubble becomes visible.
+   */
+  stabilizeBubbleWindow: () => invoke<void>("stabilize_bubble_window"),
   /** Hides the bubble once the dashboard's expand animation has landed. */
   finishBubbleHandoff: () => invoke<void>("finish_bubble_handoff"),
   /** Hides the dashboard once its collapse animation has landed. */

@@ -241,6 +241,30 @@ describe("bubble ring geometry", () => {
     expect(value?.getAttribute("stroke-linecap")).toBe("butt");
   });
 
+  it("keeps drawing the last known rings while the account is stale", async () => {
+    mockListAccounts.mockResolvedValue([
+      { ...accountWith(windowedQuota("q-5h", 5, 40))[0], status: "stale" },
+    ]);
+    render(<BubbleView />);
+    const button = await screen.findByRole("button");
+    // Stale data is still the last known truth: the ring keeps its value
+    // instead of collapsing to zero.
+    expect(document.querySelectorAll(".quota-rings__value")).toHaveLength(1);
+    expect(document.querySelector('[data-ring-tone="outer"]')?.getAttribute("data-ring-consumed")).toBe(
+      "0.600",
+    );
+    expect(button.getAttribute("aria-label")).toContain("5h 60%");
+  });
+
+  it("shows only the owl when the local service is offline and nothing is cached", async () => {
+    mockListAccounts.mockRejectedValue(new Error("ipc down"));
+    render(<BubbleView />);
+    await screen.findByRole("button");
+    expect(document.querySelector(".bubble__mark--solo")).not.toBeNull();
+    expect(document.querySelectorAll(".quota-rings__value")).toHaveLength(0);
+    expect(document.querySelectorAll(".quota-rings__track")).toHaveLength(0);
+  });
+
   it("reports consumed percentages in the accessible name", async () => {
     mockListAccounts.mockResolvedValue(accountWith(windowedQuota("q-5h", 5, 40)));
     render(<BubbleView />);

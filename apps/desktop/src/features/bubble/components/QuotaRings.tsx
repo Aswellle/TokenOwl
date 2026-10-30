@@ -12,10 +12,11 @@
  * radius, width, gradient). `stroke-dashoffset` is owned by the GSAP timeline
  * in `useQuotaRingMotion` — no CSS transition may touch it.
  */
-import { useId } from "react";
+import { useId, useRef } from "react";
 import { IconOwl } from "../../../components/icons";
 import { ProviderIcon } from "../../../components/ProviderIcon";
 import { ringGeometry, ringIconSize, type RingDatum } from "../../../lib/rings";
+import { useQuotaRingMotion } from "../hooks/useQuotaRingMotion";
 
 const VIEWBOX = 50;
 const CENTER = VIEWBOX / 2;
@@ -53,13 +54,16 @@ export function bubbleDials(rings: RingDatum[], fallback: number | null): RingDa
 
 export function QuotaRings({ rings, fallback, providerId, reducedMotion }: QuotaRingsProps) {
   const instanceId = useId();
+  const svgRef = useRef<SVGSVGElement>(null);
   const dials = bubbleDials(rings, fallback);
   const geometry = ringGeometry(dials.length);
   const iconSize = ringIconSize(dials.length);
+  useQuotaRingMotion({ scope: svgRef, dials, reducedMotion });
 
   return (
     <>
       <svg
+        ref={svgRef}
         className="quota-rings"
         viewBox={`0 0 ${VIEWBOX} ${VIEWBOX}`}
         aria-hidden="true"
@@ -111,9 +115,8 @@ export function QuotaRings({ rings, fallback, providerId, reducedMotion }: Quota
                     strokeWidth={width}
                     stroke={`url(#${instanceId}-${ring.tone})`}
                     strokeDasharray={length}
-                    /* Initial paint only: the GSAP layer takes sole ownership
-                       of this attribute once mounted (see useQuotaRingMotion). */
-                    strokeDashoffset={length * (1 - consumed)}
+                    /* stroke-dashoffset is intentionally absent: GSAP owns it
+                       (see useQuotaRingMotion) so a data change never jumps. */
                     /* Butt caps at full consumption: two round caps meeting at
                        12 o'clock would bulge the seam. */
                     strokeLinecap={consumed >= 1 ? "butt" : "round"}

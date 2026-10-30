@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, act } from "@testing-library/react";
+import { render, screen, fireEvent, act, waitFor } from "@testing-library/react";
 
 const {
   mockStartDragging,
@@ -69,6 +69,7 @@ vi.mock("../lib/tauri", () => ({
 }));
 
 import { BubbleView } from "../features/bubble/BubbleView";
+import { gsap } from "../lib/animation/gsap";
 import type { AccountViewModel, QuotaViewModel } from "../types";
 
 describe("BubbleView drag interactions", () => {
@@ -232,7 +233,10 @@ describe("bubble ring geometry", () => {
 
     const value = document.querySelector(".quota-rings__value");
     expect(value).not.toBeNull();
-    expect(value?.getAttribute("stroke-dashoffset")).toBe("0");
+    // GSAP owns the offset; at 100% consumed the dial is fully drawn.
+    await waitFor(() =>
+      expect(Number(gsap.getProperty(value as Element, "strokeDashoffset"))).toBeCloseTo(0, 1),
+    );
     // Two round caps meeting at 12 o'clock would bulge the seam.
     expect(value?.getAttribute("stroke-linecap")).toBe("butt");
   });

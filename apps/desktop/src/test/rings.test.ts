@@ -206,7 +206,7 @@ describe("ringGeometry", () => {
       ["middle", 16, 4],
       ["inner", 11, 4],
     ]);
-    expect(ringIconSize(2)).toBe(19);
+    expect(ringIconSize(2)).toBe(17);
     expect(ringIconSize(3)).toBe(15);
   });
 });

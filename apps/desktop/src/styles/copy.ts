@@ -53,7 +53,7 @@ export const copy = {
   bubble: {
     openDashboard: "展开 TokenOwl 面板",
     loading: "正在获取额度",
-    rings: (parts: string) => `额度剩余：${parts}`,
+    rings: (parts: string) => `额度已用：${parts}`,
     noWindow: "该账户未上报按窗口计的额度",
     windowTag: (label: string) => `${label}窗口`,
   },

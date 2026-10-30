@@ -20,12 +20,17 @@ test.describe("bubble form", () => {
 
     // Two bands on the layered radii, each with its own unlit track, and no
     // shared channel circle underneath.
-    const values = page.locator(".bubble__ring-value");
+    const values = page.locator(".quota-rings__value");
     await expect(values).toHaveCount(2);
     await expect(values.nth(0)).toHaveAttribute("r", "21");
     await expect(values.nth(1)).toHaveAttribute("r", "14");
-    await expect(page.locator(".bubble__ring-track")).toHaveCount(2);
-    await expect(page.locator(".bubble__ring-channel")).toHaveCount(0);
+    await expect(page.locator(".quota-rings__track")).toHaveCount(2);
+    await expect(page.locator(".quota-rings__channel")).toHaveCount(0);
+    // Rings draw the consumed share: the demo 5h window used 128 of 800.
+    await expect(page.locator('[data-ring-tone="outer"]')).toHaveAttribute(
+      "data-ring-consumed",
+      "0.160",
+    );
   });
 
   test("renders the solo-owl empty state without any dial when no provider exists", async ({
@@ -34,8 +39,8 @@ test.describe("bubble form", () => {
     await page.goto("/?window=bubble&empty=1");
     await expect(page.locator(".bubble")).toBeVisible();
     await expect(page.locator(".bubble__mark--solo")).toBeVisible();
-    await expect(page.locator(".bubble__ring-track")).toHaveCount(0);
-    await expect(page.locator(".bubble__ring-value")).toHaveCount(0);
+    await expect(page.locator(".quota-rings__track")).toHaveCount(0);
+    await expect(page.locator(".quota-rings__value")).toHaveCount(0);
   });
 
   test("clicking the bubble returns to the dashboard and the morph lands", async ({ page }) => {
@@ -53,6 +58,18 @@ test.describe("bubble form", () => {
     await page.getByRole("button", { name: "Bubble", exact: true }).click();
     await expect(page).toHaveURL(/window=bubble/);
     await expect(page.locator(".bubble")).toBeVisible();
+  });
+
+  test("survives ten expand/collapse round trips without wedging", async ({ page }) => {
+    await page.goto("/");
+    for (let round = 0; round < 10; round += 1) {
+      await page.getByRole("button", { name: "Bubble", exact: true }).click();
+      await expect(page.locator(".bubble")).toBeVisible();
+      await page.locator(".bubble").click();
+      await expect(page.locator(".window")).toBeVisible();
+    }
+    // The dashboard is still interactive after the loop.
+    await expect(page.getByRole("heading", { name: "概览" })).toBeVisible();
   });
 
   test("the bubble window shows no dashboard chrome", async ({ page }) => {

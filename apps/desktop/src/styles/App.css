@@ -51,11 +51,6 @@
   --brand-ink: #0a8d80;
   --brand-soft: rgba(14, 181, 163, 0.14);
 
-  /* Bubble activity rings: vivid data hues on the dark channel, mutually
-     high-contrast (cyan vs pink) and far from the amber/red health hues. */
-  --bubble-ring-a: #22d3ee;
-  --bubble-ring-b: #f472b6;
-
   /* Status colors: text-safe variants for light backgrounds. */
   --ok: #167a3a;
   --ok-soft: rgba(52, 199, 89, 0.14);
@@ -221,8 +216,11 @@ body[data-window="bubble"][data-preview] .bubble {
   height: 128px;
 }
 
+/* The preview bubble is 128px instead of 56px: the centre mark scales by the
+   same 128/56 factor, so the preview is a faithful 1:1 enlargement of the
+   real window instead of a separately tuned composition. */
 body[data-window="bubble"][data-preview] .bubble__mark {
-  transform: scale(2.6);
+  transform: scale(2.286);
 }
 
 h1,
@@ -1408,7 +1406,7 @@ button:disabled {
   --bubble-accent: #17c6b1;
   background: radial-gradient(
     115% 115% at 50% 6%,
-    color-mix(in srgb, var(--bubble-accent) 26%, #0a1512) 0%,
+    color-mix(in srgb, var(--bubble-accent) 8%, #0a1512) 0%,
     #0a1512 58%,
     #070f0d 100%
   );
@@ -1469,27 +1467,6 @@ button:disabled {
 
 .bubble--syncing .bubble__mark {
   animation: pulse 1.4s ease-in-out infinite;
-}
-
-.bubble__ring {
-  position: absolute;
-  inset: 0;
-  transform: rotate(-90deg);
-}
-
-.bubble__ring circle {
-  fill: none;
-  stroke-width: 2.6;
-}
-
-.bubble__ring-track {
-  stroke: rgba(255, 255, 255, 0.3);
-}
-
-.bubble__ring-value {
-  stroke: rgba(255, 255, 255, 0.95);
-  stroke-linecap: round;
-  transition: stroke-dashoffset 600ms var(--ease-out);
 }
 
 .bubble__mark {
@@ -2347,39 +2324,40 @@ button:disabled {
 
 /* ---------- dual activity rings (bubble) ---------- */
 
-.bubble__rings {
+/* ---------- activity rings (bubble) ---------- */
+
+.quota-rings {
   position: absolute;
   inset: 0;
   transform: rotate(-90deg);
+  overflow: visible;
 }
 
-.bubble__rings circle {
+.quota-rings circle {
   fill: none;
 }
 
-/* Each band is its own dial: a faint unlit track under the value arc. No
-   shared channel circle underneath — it muddied the gap that separates the
-   two rings. */
-.bubble__rings .bubble__ring-track {
-  stroke: rgba(255, 255, 255, 0.14);
-  stroke-width: 5;
+/* Each band is its own dial: a dim same-hue track under the bright gradient
+   arc, with a clear gap between bands and no shared channel circle. Stroke
+   widths come from the SVG geometry so CSS never competes with it. */
+.quota-rings__track--outer {
+  stroke: rgba(232, 62, 116, 0.26);
 }
 
-.bubble__rings .bubble__ring-value {
-  stroke-width: 5;
+.quota-rings__track--middle {
+  stroke: rgba(182, 243, 74, 0.24);
+}
+
+.quota-rings__track--inner {
+  stroke: rgba(67, 201, 236, 0.26);
+}
+
+/* The progress arc stays fully opaque; the reference's dimension comes from
+   the round cap and gradient, not a blur halo. No transition here — GSAP is
+   the only owner of stroke-dashoffset. */
+.quota-rings__value {
   stroke-linecap: round;
-  transition: stroke-dashoffset 600ms var(--ease-out);
-}
-
-/* Two data hues, one per window: azure carries the short 5h window (outer
-   ring), lilac the long weekly window (inner ring) — distinguishable at a
-   glance and far from the amber/red health hues. */
-.bubble__rings .bubble__ring-value--0 {
-  stroke: var(--bubble-ring-a);
-}
-
-.bubble__rings .bubble__ring-value--1 {
-  stroke: var(--bubble-ring-b);
+  filter: drop-shadow(0 0 1px rgba(255, 255, 255, 0.3));
 }
 
 @media (max-width: 640px) {
@@ -2389,12 +2367,6 @@ button:disabled {
 
   .dock__item {
     min-width: 44px;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .bubble__rings .bubble__ring-value {
-    transition: none;
   }
 }
 

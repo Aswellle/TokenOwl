@@ -160,7 +160,11 @@ export function ringGeometry(count: number): RingGeometry[] {
   ];
 }
 
-/** Centre brand-mark size in CSS pixels for a given ring count. */
+/**
+ * Centre brand-mark size in CSS pixels for a given ring count. The two-ring
+ * layout leaves a 26px hole; 17px keeps a clear margin to the inner band. A
+ * third band tightens the hole, so the mark steps down again.
+ */
 export function ringIconSize(count: number): number {
-  return count >= 3 ? 15 : 19;
+  return count >= 3 ? 15 : 17;
 }

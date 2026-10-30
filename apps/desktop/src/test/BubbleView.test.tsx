@@ -192,26 +192,57 @@ describe("bubble ring geometry", () => {
 
     // The shortest window runs on the outer radius (21), the longer one on
     // the inner radius (14); each band carries its own unlit track.
-    const values = document.querySelectorAll(".bubble__ring-value");
+    const values = document.querySelectorAll(".quota-rings__value");
     expect(values).toHaveLength(2);
     expect(values[0].getAttribute("r")).toBe("21");
     expect(values[1].getAttribute("r")).toBe("14");
-    expect(document.querySelectorAll(".bubble__ring-track")).toHaveLength(2);
+    expect(document.querySelectorAll(".quota-rings__track")).toHaveLength(2);
     // No shared channel circle: the gap between the bands stays clean.
-    expect(document.querySelector(".bubble__ring-channel")).toBeNull();
+    expect(document.querySelector(".quota-rings__channel")).toBeNull();
+    // Tones carry the ring position, not the provider.
+    expect(values[0].getAttribute("class")).toContain("quota-rings__value--outer");
+    expect(values[1].getAttribute("class")).toContain("quota-rings__value--inner");
   });
 
   it("keeps the dial unlit instead of drawing a stray dot at zero or unknown", async () => {
     mockListAccounts.mockResolvedValue(
-      accountWith(windowedQuota("q-empty", 5, 0), windowedQuota("q-unknown", 168, null)),
+      // Remaining 100 of 100 → 0% consumed; a null ratio is unknown.
+      accountWith(windowedQuota("q-empty", 5, 100), windowedQuota("q-unknown", 168, null)),
     );
     render(<BubbleView />);
     await screen.findByRole("button");
 
     // Both bands still exist as tracks, but no value arc is drawn: a round
-    // line cap at zero would leave a dot on an empty dial.
-    expect(document.querySelectorAll(".bubble__ring-value")).toHaveLength(0);
-    expect(document.querySelectorAll(".bubble__ring-track")).toHaveLength(2);
+    // line cap at zero would leave a dot on an empty dial, and unknown must
+    // never be painted as empty progress.
+    expect(document.querySelectorAll(".quota-rings__value")).toHaveLength(0);
+    expect(document.querySelectorAll(".quota-rings__track")).toHaveLength(2);
+    expect(
+      document.querySelector('[data-ring-id="q-empty"]')?.getAttribute("data-ring-consumed"),
+    ).toBe("0.000");
+    expect(
+      document.querySelector('[data-ring-id="q-unknown"]')?.getAttribute("data-ring-consumed"),
+    ).toBe("unknown");
+  });
+
+  it("fills the dial and butts the seam when the quota is fully consumed", async () => {
+    mockListAccounts.mockResolvedValue(accountWith(windowedQuota("q-full", 5, 0)));
+    render(<BubbleView />);
+    await screen.findByRole("button");
+
+    const value = document.querySelector(".quota-rings__value");
+    expect(value).not.toBeNull();
+    expect(value?.getAttribute("stroke-dashoffset")).toBe("0");
+    // Two round caps meeting at 12 o'clock would bulge the seam.
+    expect(value?.getAttribute("stroke-linecap")).toBe("butt");
+  });
+
+  it("reports consumed percentages in the accessible name", async () => {
+    mockListAccounts.mockResolvedValue(accountWith(windowedQuota("q-5h", 5, 40)));
+    render(<BubbleView />);
+    const button = await screen.findByRole("button");
+    expect(button.getAttribute("aria-label")).toContain("额度已用：5h 60%");
+    expect(button.getAttribute("aria-label")).not.toContain("剩余");
   });
 
   it("renders only the owl when no provider is configured", async () => {
@@ -220,8 +251,8 @@ describe("bubble ring geometry", () => {
     await screen.findByRole("button");
 
     expect(document.querySelector(".bubble__mark--solo")).not.toBeNull();
-    expect(document.querySelectorAll(".bubble__ring-track")).toHaveLength(0);
-    expect(document.querySelectorAll(".bubble__ring-value")).toHaveLength(0);
+    expect(document.querySelectorAll(".quota-rings__track")).toHaveLength(0);
+    expect(document.querySelectorAll(".quota-rings__value")).toHaveLength(0);
   });
 
   it("re-applies the tool-window shape once the first load settles", async () => {

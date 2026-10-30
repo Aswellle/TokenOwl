@@ -9,6 +9,73 @@ Release notes are also published on the
 
 ## [Unreleased]
 
+## [1.4.0] — 2026-10-30
+
+### Added
+
+- Custom provider targets are configured by wire format: the setup form
+  groups every built-in provider under its request format (OpenAI-compatible,
+  Anthropic, Gemini) and lets a custom target pick one of the three, with the
+  default host and probe endpoints following the choice. Native Anthropic and
+  Gemini targets are probed by their adapters (key check plus rate-limit
+  headers) instead of pretending at quota endpoints.
+- Platform variants of one brand collapse into a single picker capsule with
+  an ellipsis expander: Zhipu ships 国内版 and 国际版, Kimi ships 国内版 and
+  国际版, and the Anthropic/Gemini OpenAI-compatible relays live behind the
+  same mechanism. Four manifests are new (`zhipu-international`,
+  `kimi-international` plus variant tags on the relays); every built-in
+  provider now renders its official brand icon, and the remaining two
+  gateways (one-api, litellm) keep the documented fallback glyph.
+- The floating bubble is a real overlay: its window leaves the taskbar and
+  Alt-Tab (`skipTaskbar` plus `WS_EX_TOOLWINDOW`, re-applied whenever the
+  shell rewrites window flags), keeps an exact 56×56 logical footprint
+  without the OS minimum-width inflation, and drops its square DWM shadow.
+- The bubble ↔ dashboard handoff is an OS window-region animation owned by
+  Rust: a `SetWindowRgn` circle grows out of the bubble's docked spot on
+  expand and pulls the panel — acrylic material and content together — back
+  into it on collapse. A CSS clip-path could not clip the OS material layer,
+  which is what left a blank rectangle behind the shrinking panel before.
+- The provider detail view is reachable from the account row (the card face
+  is a button) and from every provider, since the rail's overflow indicator
+  is now a real control; a back control and Escape return to the overview.
+- The updater check renders its result next to the check button, both
+  outcomes ("up to date", failure) included, each with a dismiss control and
+  a download button when a release is available.
+- A large dynamic title beside the brand names the live page, and section
+  headers stop repeating it; empty states across the dashboard carry copy
+  that matches their situation and next step.
+
+### Fixed
+
+- Setup form interaction: inline validation replaces the webview's
+  system-language bubbles with per-field focus movement; a failed connection
+  keeps the typed API key; a successful one confirms next to the submit
+  button and resets the form; the variant menu dismisses on Escape, outside
+  presses, and focus loss and paints on an opaque surface; the ellipsis
+  expander meets the 24px target size.
+- The detail view shows the provider's measured capability level from the
+  embedded matrix instead of a hardcoded placeholder, and the usage cards
+  stay neutral ("—") while their query is in flight instead of reading as
+  "no records".
+- Notification preferences roll back the edit that failed to save; the
+  filtered-empty state has its own copy; touch hover suppression applies
+  regardless of transparency settings.
+- The empty bubble is a solo owl sized to the circle (no transform hack)
+  with a reduced-motion-aware idle breath; quota rings are two separated
+  bands (r=21/14, 2-unit gap, no channel circle) that draw no arc at zero or
+  unknown remaining.
+- The updater result is announced once (a nested status region made screen
+  readers double-report it), and the tray icon is set while left clicks keep
+  opening the dashboard.
+- Refresh correctness: the single-flight lease releases through scope even
+  when the refresh future is cancelled; credential-create rollback routes
+  deletions through the startup cleanup queue; unknown reset times stay
+  unknown; `stale_after` doubles as the tested refresh-cadence input;
+  account ids derive from nanoid instead of the wall clock.
+- Manifest registration validates the full request contract (relative
+  endpoint paths, header names, registration base URLs) at both load
+  boundaries; the taskbar icon renders from a high-resolution bitmap.
+
 ### Security
 
 - Upgraded `rustls` to 0.23.46 (four advisories: debug-secret redaction, Brotli
@@ -25,6 +92,16 @@ Release notes are also published on the
   and zip (via tauri-plugin-updater, whose archive is minisign-verified before
   extraction). Remove each entry as soon as `cargo update` can reach the
   patched versions.
+
+### Compatibility
+
+- No SQLite schema migration; v1.3.x local data reads as-is.
+- New IPC command `stabilize_bubble_window` (the bubble webview re-asserts
+  its own window style); `accounts_create` gained an optional `apiFormat`
+  field and the manifest view model optional `brand`/`variant` fields — all
+  additive, no shapes removed. The two former handoff commands
+  (`finish_bubble_handoff`, `finish_dashboard_handoff`) are gone; their
+  caller was the bundled frontend only.
 
 ## [1.3.0] — 2026-10-24
 

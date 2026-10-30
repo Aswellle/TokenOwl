@@ -60,6 +60,20 @@ test.describe("bubble form", () => {
     await expect(page.locator(".bubble")).toBeVisible();
   });
 
+  test("reduced motion lands ring progress without a tween", async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await page.goto("/?window=bubble");
+    const value = page.locator(".quota-rings__value--outer");
+    await expect(value).toHaveCount(1);
+    // Demo 5h window: 128 used of 800 → 0.16 consumed → dashoffset is 84% of
+    // the circumference, written immediately with no transition running.
+    const offset = await value.evaluate((el) => Number(getComputedStyle(el).strokeDashoffset.replace("px", "")));
+    const circumference = 2 * Math.PI * 21;
+    expect(offset).toBeCloseTo(circumference * (1 - 0.16), 0);
+    const transition = await value.evaluate((el) => getComputedStyle(el).transitionProperty);
+    expect(transition).not.toContain("stroke-dashoffset");
+  });
+
   test("survives ten expand/collapse round trips without wedging", async ({ page }) => {
     await page.goto("/");
     for (let round = 0; round < 10; round += 1) {

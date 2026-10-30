@@ -38,9 +38,18 @@ with MIT and are recorded in `apps/desktop/src-tauri/Cargo.lock` (Rust) and
 | :--- | :--- | :--- |
 | `react` / `react-dom` | MIT | UI rendering |
 | `motion` | MIT | Animation |
+| `gsap` | GSAP Standard "No Charge" License — https://gsap.com/community/standard-license/ | Quota-ring progress and bubble morph timelines inside the WebView |
+| `@gsap/react` | GSAP Standard "No Charge" License — https://gsap.com/community/standard-license/ | `useGSAP()` React lifecycle integration |
 | `recharts` | MIT | Trend charts |
 | `@tauri-apps/api` | MIT OR Apache-2.0 | IPC bindings |
 | `@lobehub/icons` | MIT | Provider brand icons |
+
+GSAP is **not** MIT-licensed: it is distributed under the GSAP Standard
+"No Charge" License, which permits use in websites, web apps and digital
+interfaces and restricts building competing no-code animation tools with it.
+TokenOwl is a desktop application whose UI renders in a WebView and is not an
+animation authoring tool; the distribution scenario should still be reviewed
+against that license by the project maintainer before each release.
 
 ## Assets
 

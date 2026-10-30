@@ -14,8 +14,10 @@
     "tauri": "tauri"
   },
   "dependencies": {
+    "@gsap/react": "^2.1.2",
     "@lobehub/icons": "^5.23.0",
     "@tauri-apps/api": "^2.11.1",
+    "gsap": "^3.15.0",
     "motion": "^14.1.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",

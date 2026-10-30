@@ -92,6 +92,10 @@ export function useQuotaRingMotion({ scope, dials, reducedMotion }: QuotaRingMot
             overwrite: "auto",
           });
         } else {
+          // Mark before animating: a refresh that lands on the frame the
+          // reveal finishes must tween from the current value, not restart
+          // from an empty dial because `onComplete` had not fired yet.
+          revealed.current.add(target.id);
           gsap.fromTo(
             target.node,
             { strokeDashoffset: target.full },
@@ -101,7 +105,6 @@ export function useQuotaRingMotion({ scope, dials, reducedMotion }: QuotaRingMot
               ease: EASE,
               delay: revealIndex * FIRST_REVEAL_STAGGER,
               overwrite: "auto",
-              onComplete: () => revealed.current.add(target.id),
             },
           );
           revealIndex += 1;
@@ -109,5 +112,52 @@ export function useQuotaRingMotion({ scope, dials, reducedMotion }: QuotaRingMot
       }
     },
     { scope, dependencies: [signature, reducedMotion] },
+  );
+}
+
+
+export type BubbleMorphPhase = "idle" | "settle" | "exit";
+
+export interface BubbleMorphBeatOptions {
+  scope: RefObject<SVGSVGElement | null>;
+  phase: BubbleMorphPhase;
+  /** Increments on every collapse so repeated settles replay. */
+  token: number;
+  reducedMotion: boolean;
+}
+
+/**
+ * The bubble's local half of the window morph. Rust owns the OS window
+ * region; this only breathes the ring group while that region animation runs:
+ * the rings compress as the panel grows over them, and settle outward again
+ * when the panel collapses back. `token` makes each collapse replay even when
+ * the phase string is unchanged.
+ */
+export function useBubbleMorphBeat({ scope, phase, token, reducedMotion }: BubbleMorphBeatOptions) {
+  useGSAP(
+    () => {
+      const geometry = scope.current?.querySelector(".quota-rings__geometry");
+      if (!geometry) return;
+      if (reducedMotion || phase === "idle") {
+        gsap.set(geometry, { scale: 1, opacity: 1 });
+        return;
+      }
+      if (phase === "exit") {
+        gsap.to(geometry, {
+          scale: 0.94,
+          opacity: 0.5,
+          duration: 0.18,
+          ease: "power1.in",
+          overwrite: "auto",
+        });
+        return;
+      }
+      gsap.fromTo(
+        geometry,
+        { scale: 0.94, opacity: 0.55 },
+        { scale: 1, opacity: 1, duration: 0.26, ease: "power2.out", overwrite: "auto" },
+      );
+    },
+    { scope, dependencies: [phase, token, reducedMotion] },
   );
 }

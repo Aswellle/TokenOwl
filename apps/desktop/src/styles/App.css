@@ -2337,6 +2337,13 @@ button:disabled {
   fill: none;
 }
 
+/* The morph beat scales the ring group around the dial's centre; fill-box
+   keeps that origin correct in SVG coordinates. */
+.quota-rings__geometry {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
 /* Each band is its own dial: a dim same-hue track under the bright gradient
    arc, with a clear gap between bands and no shared channel circle. Stroke
    widths come from the SVG geometry so CSS never competes with it. */

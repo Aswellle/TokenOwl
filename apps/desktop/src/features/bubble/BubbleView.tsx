@@ -119,10 +119,14 @@ export function BubbleView({ bridge = tauriBridge }: { bridge?: DashboardBridge 
   // re-applies the window's tool-window style and size (the shell rewrites
   // window flags on show).
   const [exiting, setExiting] = useState(false);
+  // Bumped per collapse: the ring settle must replay even when the anchor
+  // happens to be identical.
+  const [settleToken, setSettleToken] = useState(0);
   useEffect(() => {
     if (!isTauri()) return;
     return onMorphToBubble((anchor) => {
       setExiting(false);
+      setSettleToken((token) => token + 1);
       setCollapseAnchor(anchor);
       void shell.stabilizeBubbleWindow().catch(() => null);
       // The anchor only seeds the entrance; clearing it keeps later
@@ -203,6 +207,8 @@ export function BubbleView({ bridge = tauriBridge }: { bridge?: DashboardBridge 
           fallback={fallbackRatio}
           providerId={primary ? primary.providerId : null}
           reducedMotion={reduce ?? false}
+          morphPhase={exiting ? "exit" : collapseAnchor ? "settle" : "idle"}
+          morphToken={settleToken}
         />
       </motion.button>
     </div>

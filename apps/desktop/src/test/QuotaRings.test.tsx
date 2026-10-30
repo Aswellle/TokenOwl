@@ -18,7 +18,13 @@ function ring(id: string, label: string, consumed: number | null, tone: RingTone
 
 function renderRings(
   rings: RingDatum[],
-  options: { fallback?: number | null; reducedMotion?: boolean; wrapper?: typeof StrictMode } = {},
+  options: {
+    fallback?: number | null;
+    reducedMotion?: boolean;
+    wrapper?: typeof StrictMode;
+    morphPhase?: "idle" | "settle" | "exit";
+    morphToken?: number;
+  } = {},
 ) {
   const ui: ReactNode = (
     <QuotaRings
@@ -26,9 +32,17 @@ function renderRings(
       fallback={options.fallback ?? null}
       providerId="openai:acc"
       reducedMotion={options.reducedMotion ?? false}
+      morphPhase={options.morphPhase ?? "idle"}
+      morphToken={options.morphToken ?? 0}
     />
   );
   return render(options.wrapper ? <options.wrapper>{ui}</options.wrapper> : ui);
+}
+
+function geometry(): SVGGElement {
+  const node = document.querySelector<SVGGElement>(".quota-rings__geometry");
+  if (!node) throw new Error("missing ring geometry");
+  return node;
 }
 
 function offsetOf(selector: string): number {
@@ -155,6 +169,52 @@ describe("QuotaRings", () => {
     expect(document.querySelectorAll(".quota-rings__track")).toHaveLength(1);
     expect(valueNode("outer").getAttribute("r")).toBe("21");
     expect(document.querySelector('[data-ring-id="fallback"]')).not.toBeNull();
+  });
+
+  it("compresses the rings during the expand exit", async () => {
+    renderRings([ring("a", "5h", 0.2, "outer")], { morphPhase: "exit" });
+    await waitFor(() => {
+      expect(Number(gsap.getProperty(geometry(), "scale"))).toBeCloseTo(0.94, 2);
+      expect(Number(gsap.getProperty(geometry(), "opacity"))).toBeCloseTo(0.5, 2);
+    });
+  });
+
+  it("settles the rings back out on every collapse, replaying per token", async () => {
+    const { rerender } = renderRings([ring("a", "5h", 0.2, "outer")], {
+      morphPhase: "settle",
+      morphToken: 1,
+    });
+    await waitFor(() => {
+      expect(Number(gsap.getProperty(geometry(), "scale"))).toBeCloseTo(1, 2);
+      expect(Number(gsap.getProperty(geometry(), "opacity"))).toBeCloseTo(1, 2);
+    });
+
+    rerender(
+      <QuotaRings
+        rings={[ring("a", "5h", 0.2, "outer")]}
+        fallback={null}
+        providerId="openai:acc"
+        reducedMotion={false}
+        morphPhase="settle"
+        morphToken={2}
+      />,
+    );
+    await waitFor(() => expect(Number(gsap.getProperty(geometry(), "scale"))).toBeCloseTo(1, 2));
+    expect(gsap.getTweensOf(geometry()).length).toBeLessThanOrEqual(1);
+  });
+
+  it("skips the morph beat under reduced motion", async () => {
+    renderRings([ring("a", "5h", 0.2, "outer")], {
+      morphPhase: "exit",
+      reducedMotion: true,
+    });
+    await waitFor(() => expect(Number(gsap.getProperty(geometry(), "scale"))).toBeCloseTo(1, 2));
+    expect(gsap.getTweensOf(geometry())).toHaveLength(0);
+  });
+
+  it("leaves the ring group untouched while idle", () => {
+    renderRings([ring("a", "5h", 0.2, "outer")]);
+    expect(gsap.getTweensOf(geometry())).toHaveLength(0);
   });
 
   it("renders the solo owl when no provider is configured", () => {

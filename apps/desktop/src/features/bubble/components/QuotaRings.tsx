@@ -16,7 +16,7 @@ import { useId, useRef } from "react";
 import { IconOwl } from "../../../components/icons";
 import { ProviderIcon } from "../../../components/ProviderIcon";
 import { ringGeometry, ringIconSize, type RingDatum } from "../../../lib/rings";
-import { useQuotaRingMotion } from "../hooks/useQuotaRingMotion";
+import { useBubbleMorphBeat, useQuotaRingMotion, type BubbleMorphPhase } from "../hooks/useQuotaRingMotion";
 
 const VIEWBOX = 50;
 const CENTER = VIEWBOX / 2;
@@ -40,6 +40,10 @@ export interface QuotaRingsProps {
   /** Provider of the primary account; null renders the solo owl. */
   providerId: string | null;
   reducedMotion: boolean;
+  /** Local morph beat driven by the shell's morph events. */
+  morphPhase?: BubbleMorphPhase;
+  /** Bumped per collapse so repeated settles replay. */
+  morphToken?: number;
 }
 
 /**
@@ -52,13 +56,21 @@ export function bubbleDials(rings: RingDatum[], fallback: number | null): RingDa
   return [{ id: "fallback", label: "", consumedRatio: fallback, tone: "outer" }];
 }
 
-export function QuotaRings({ rings, fallback, providerId, reducedMotion }: QuotaRingsProps) {
+export function QuotaRings({
+  rings,
+  fallback,
+  providerId,
+  reducedMotion,
+  morphPhase = "idle",
+  morphToken = 0,
+}: QuotaRingsProps) {
   const instanceId = useId();
   const svgRef = useRef<SVGSVGElement>(null);
   const dials = bubbleDials(rings, fallback);
   const geometry = ringGeometry(dials.length);
   const iconSize = ringIconSize(dials.length);
   useQuotaRingMotion({ scope: svgRef, dials, reducedMotion });
+  useBubbleMorphBeat({ scope: svgRef, phase: morphPhase, token: morphToken, reducedMotion });
 
   return (
     <>

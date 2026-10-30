@@ -553,6 +553,7 @@ fn morph_region_geometry(
 /// (a CSS clip-path cannot clip the OS acrylic layer, which is what left a
 /// blank material rectangle behind the shrinking panel). Steps run on the
 /// async runtime; `on_done` fires at the end, before the region is cleared.
+#[cfg(windows)]
 #[allow(unsafe_code)]
 fn spawn_region_morph(
     window: tauri::WebviewWindow,
@@ -563,53 +564,60 @@ fn spawn_region_morph(
     on_done: impl FnOnce() + Send + 'static,
 ) {
     tauri::async_runtime::spawn(async move {
-        #[cfg(windows)]
-        {
-            #[allow(unsafe_code)]
-            #[link(name = "gdi32")]
-            unsafe extern "system" {
-                fn CreateEllipticRgn(left: i32, top: i32, right: i32, bottom: i32) -> isize;
-                fn DeleteObject(object: isize) -> bool;
-            }
-            #[allow(unsafe_code)]
-            #[link(name = "user32")]
-            unsafe extern "system" {
-                fn SetWindowRgn(hwnd: isize, region: isize, redraw: i32) -> i32;
-            }
-            let Ok(hwnd) = window.hwnd() else { return };
-            #[allow(clippy::cast_possible_wrap)]
-            let hwnd = hwnd.0 as usize as isize;
-            let steps: u32 = u32::try_from(duration.as_millis() / 16).unwrap_or(1).max(1);
-            for step in 1..=steps {
-                let t = f64::from(step) / f64::from(steps);
-                let radius = region_radius_at(t, start_radius, end_radius);
-                #[allow(clippy::cast_possible_truncation)]
-                let r = radius.round() as i32;
-                #[allow(unsafe_code)]
-                unsafe {
-                    let region =
-                        CreateEllipticRgn(center.0 - r, center.1 - r, center.0 + r, center.1 + r);
-                    if region != 0 {
-                        // The system owns the region once set; delete only on
-                        // a failed set.
-                        if SetWindowRgn(hwnd, region, 1) == 0 {
-                            DeleteObject(region);
-                        }
-                    }
-                }
-                tokio::time::sleep(std::time::Duration::from_millis(16)).await;
-            }
-            on_done();
+        #[allow(unsafe_code)]
+        #[link(name = "gdi32")]
+        unsafe extern "system" {
+            fn CreateEllipticRgn(left: i32, top: i32, right: i32, bottom: i32) -> isize;
+            fn DeleteObject(object: isize) -> bool;
+        }
+        #[allow(unsafe_code)]
+        #[link(name = "user32")]
+        unsafe extern "system" {
+            fn SetWindowRgn(hwnd: isize, region: isize, redraw: i32) -> i32;
+        }
+        let Ok(hwnd) = window.hwnd() else { return };
+        #[allow(clippy::cast_possible_wrap)]
+        let hwnd = hwnd.0 as usize as isize;
+        let steps: u32 = u32::try_from(duration.as_millis() / 16).unwrap_or(1).max(1);
+        for step in 1..=steps {
+            let t = f64::from(step) / f64::from(steps);
+            let radius = region_radius_at(t, start_radius, end_radius);
+            #[allow(clippy::cast_possible_truncation)]
+            let r = radius.round() as i32;
             #[allow(unsafe_code)]
             unsafe {
-                SetWindowRgn(hwnd, 0, 1);
+                let region =
+                    CreateEllipticRgn(center.0 - r, center.1 - r, center.0 + r, center.1 + r);
+                if region != 0 {
+                    // The system owns the region once set; delete only on
+                    // a failed set.
+                    if SetWindowRgn(hwnd, region, 1) == 0 {
+                        DeleteObject(region);
+                    }
+                }
             }
+            tokio::time::sleep(std::time::Duration::from_millis(16)).await;
         }
-        #[cfg(not(windows))]
-        {
-            on_done();
+        on_done();
+        #[allow(unsafe_code)]
+        unsafe {
+            SetWindowRgn(hwnd, 0, 1);
         }
     });
+}
+
+/// Non-Windows fallback: the platform has no region animation yet, so the
+/// handoff completes immediately and the plain show/hide path takes over.
+#[cfg(not(windows))]
+fn spawn_region_morph(
+    _window: tauri::WebviewWindow,
+    _center: (i32, i32),
+    _start_radius: f64,
+    _end_radius: f64,
+    _duration: std::time::Duration,
+    on_done: impl FnOnce() + Send + 'static,
+) {
+    on_done();
 }
 
 /// Re-applies the bubble's tool-window style and configured size.

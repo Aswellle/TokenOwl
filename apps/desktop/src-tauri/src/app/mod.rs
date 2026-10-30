@@ -499,7 +499,9 @@ fn apply_tool_window_style(window: &tauri::WebviewWindow) {
 fn apply_tool_window_style(_window: &tauri::WebviewWindow) {}
 
 /// Pure ease-out cubic for the region morph: motion starts immediately
-/// (responsive to the click) and decelerates into the endpoint.
+/// (responsive to the click) and decelerates into the endpoint. Used by the
+/// Windows region animation; other platforms fall back to the plain handoff.
+#[cfg(windows)]
 fn ease_out_cubic(t: f64) -> f64 {
     let clamped = t.clamp(0.0, 1.0);
     1.0 - (1.0 - clamped).powi(3)
@@ -507,6 +509,7 @@ fn ease_out_cubic(t: f64) -> f64 {
 
 /// Circle radius of the morph at normalized time `t`, interpolating
 /// `start → end` with the eased progress. Pure, unit-tested.
+#[cfg(windows)]
 fn region_radius_at(t: f64, start: f64, end: f64) -> f64 {
     start + (end - start) * ease_out_cubic(t)
 }

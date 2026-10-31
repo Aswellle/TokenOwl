@@ -1801,21 +1801,63 @@ button:disabled {
   padding-top: 10px;
 }
 
+/* Disclosure header: chevron + title + live state summary. The native
+   <details> marker is suppressed; the caret rotates instead. */
 .notif-settings summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   cursor: pointer;
   color: var(--ink-2);
   font-size: var(--step-1);
   user-select: none;
+  list-style: none;
+  min-width: 0;
+}
+
+.notif-settings summary::-webkit-details-marker {
+  display: none;
 }
 
 .notif-settings summary:hover {
   color: var(--ink);
 }
 
+.notif-settings__chev {
+  flex: none;
+  width: 0;
+  height: 0;
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+  border-left: 5px solid currentColor;
+  transition: rotate 0.15s cubic-bezier(0.2, 0, 0, 1);
+}
+
+.notif-settings[open] .notif-settings__chev {
+  rotate: 90deg;
+}
+
+.notif-settings__title {
+  font-weight: 500;
+  color: var(--ink);
+  white-space: nowrap;
+}
+
+/* Trailing-edge summary of the current state; supplementary (the full
+   values live inside), so it truncates rather than wrapping the header. */
+.notif-settings__state {
+  margin-inline-start: auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
 .notif-settings__body {
   display: grid;
-  gap: 10px;
-  padding-top: 10px;
+  /* Inter-group spacing is 2x the gap inside a group. */
+  gap: 20px;
+  padding-top: 12px;
 }
 
 .notif-settings__fields {
@@ -1823,11 +1865,32 @@ button:disabled {
   margin: 0;
   padding: 0;
   display: grid;
-  gap: 10px;
+  gap: 20px;
 }
 
 .notif-settings__fields:disabled {
   opacity: 0.5;
+}
+
+.notif-group {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.notif-group legend {
+  padding: 0;
+  margin-bottom: 6px;
+  font-size: var(--step-0);
+  color: var(--ink-3);
+}
+
+.notif-group__checks {
+  display: grid;
+  gap: 10px;
 }
 
 .notif-check {

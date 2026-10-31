@@ -160,3 +160,25 @@ test.describe("notification preferences", () => {
     );
   });
 });
+
+test.describe("notification settings disclosure", () => {
+  test("the collapsed header summarizes state and the panel groups by kind", async ({
+    page,
+  }) => {
+    await openNotifications(page);
+    // Demo prefs: alerting on, quiet hours 22:00–08:00 — the collapsed row
+    // answers both without opening the panel.
+    await expect(page.locator(".notif-settings__state")).toHaveText(
+      "已启用 · 安静时段 22:00–08:00",
+    );
+    await openSettingsDetails(page);
+    for (const legend of ["系统通知", "提醒条件", "提醒时机", "安静时段"]) {
+      await expect(page.locator(".notif-group legend", { hasText: legend })).toBeVisible();
+    }
+    // The 5–1440 minute window constraint is visible copy now, not only an
+    // input attribute.
+    await expect(page.locator(".notif-settings__body")).toContainText("5–1440 分钟");
+    // Native disclosure semantics: the summary reports the expanded state.
+    await expect(page.locator(".notif-settings")).toHaveAttribute("open", "");
+  });
+});

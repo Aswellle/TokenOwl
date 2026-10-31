@@ -207,3 +207,42 @@ describe("NotificationSection", () => {
     expect(screen.getByText("1 条未读")).toBeInTheDocument();
   });
 });
+
+describe("notification settings disclosure", () => {
+  it("summarizes the live state on the collapsed header", async () => {
+    const bridge = makeBridge();
+    render(<NotificationSection bridge={bridge} reloadSignal={0} />);
+    // The fixture runs with alerting on and quiet hours 22:00–08:00: the
+    // collapsed row answers both questions without opening the panel.
+    await screen.findByText("通知设置", { selector: ".notif-settings__title" });
+    expect(
+      document.querySelector(".notif-settings__state"),
+    ).toHaveTextContent("已启用 · 安静时段 22:00–08:00");
+  });
+
+  it("flips the summary to disabled and mutes every control when alerting is off", async () => {
+    const bridge = makeBridge();
+    render(<NotificationSection bridge={bridge} reloadSignal={0} />);
+    fireEvent.click(await screen.findByRole("checkbox", { name: /启用通知/ }));
+    await waitFor(() =>
+      expect(bridge.setNotificationPreferences).toHaveBeenCalledWith(
+        expect.objectContaining({ enabled: false }),
+      ),
+    );
+    expect(screen.getByText("已停用")).toBeInTheDocument();
+    // The nested groups inherit the fieldset's disable, so one flag mutes all.
+    expect(screen.getByLabelText(/低额度阈值/)).toBeDisabled();
+    expect(screen.getByLabelText(/静默模式/)).toBeDisabled();
+  });
+
+  it("groups the controls under named legends", async () => {
+    const bridge = makeBridge();
+    render(<NotificationSection bridge={bridge} reloadSignal={0} />);
+    await screen.findByText("通知设置", { selector: ".notif-settings__title" });
+    for (const legend of ["系统通知", "提醒条件", "提醒时机", "安静时段"]) {
+      expect(screen.getByText(legend, { selector: "legend" })).toBeInTheDocument();
+    }
+    // The 5–1440 minute constraint is visible, not just an input attribute.
+    expect(screen.getByText(/5–1440 分钟/)).toBeInTheDocument();
+  });
+});

@@ -672,6 +672,14 @@ pub struct FieldMapping {
     pub value: String,
     pub unit: Option<String>,
     pub currency: Option<String>,
+    /// Which snapshot slot the mapped value feeds: `used` (default),
+    /// `remaining`, or `limit`. Providers report different sides of the same
+    /// figure — `OpenRouter` hands out remaining credits, others spent.
+    #[serde(default)]
+    pub role: Option<String>,
+    /// Display name for a `metrics` entry (`充值余额`, `赠送余额`, …).
+    #[serde(default)]
+    pub name: Option<String>,
 }
 
 /// Quota-bearing field mappings a manifest may declare.
@@ -680,6 +688,12 @@ pub struct FieldMapping {
 pub struct FieldMappings {
     pub balance: Option<FieldMapping>,
     pub usage: Option<FieldMapping>,
+    /// Additional named value mappings read from the SAME response — for
+    /// providers that report several account figures at once (`DeepSeek`'s
+    /// granted/topped-up split, `SiliconFlow`'s balance/charge/total). Each
+    /// entry becomes its own snapshot labeled by `name`.
+    #[serde(default)]
+    pub metrics: Vec<FieldMapping>,
 }
 
 impl FieldMapping {
@@ -726,8 +740,8 @@ pub fn parse_openai_compatible_with_mappings(
         .map_err(|error| ProviderError::parser_failed(format!("invalid JSON response: {error}")))?;
 
     let build = |mapping: &FieldMapping, metric: &str| -> Option<QuotaSnapshot> {
-        let used = mapping.as_f64(&value);
-        used.and_then(|used| {
+        let value = mapping.as_f64(&value);
+        value.and_then(|value| {
             let unit = mapping.unit.as_deref().and_then(|unit| match unit {
                 "token" | "tokens" => Some(QuotaUnit::Token),
                 "credit" | "credits" => Some(QuotaUnit::Credit),
@@ -741,10 +755,17 @@ pub fn parse_openai_compatible_with_mappings(
             let mut snapshot = QuotaSnapshot::unknown();
             snapshot.id = Some(format!("{metric}-mapped"));
             snapshot.metric_id = Some(metric.to_owned());
-            snapshot.metric_name = Some(metric.to_owned());
+            snapshot.metric_name = Some(mapping.name.clone().unwrap_or_else(|| metric.to_owned()));
             snapshot.unit = Some(unit);
             snapshot.currency.clone_from(&mapping.currency);
-            snapshot.used = Some(used);
+            // The mapping author picks the slot: a "remaining" mapping must
+            // not masquerade as consumption, or a 88.88 CNY balance would
+            // read as "used 88.88 of nothing".
+            match mapping.role.as_deref() {
+                Some("remaining") => snapshot.remaining = Some(value),
+                Some("limit") => snapshot.limit = Some(value),
+                _ => snapshot.used = Some(value),
+            }
             snapshot.status = SnapshotStatus::Partial;
             snapshot.source = DataSource::CustomEndpoint;
             Some(snapshot)
@@ -757,6 +778,9 @@ pub fn parse_openai_compatible_with_mappings(
     }
     if let Some(usage) = mappings.usage.as_ref() {
         snapshots.extend(build(usage, "usage"));
+    }
+    for metric in &mappings.metrics {
+        snapshots.extend(build(metric, metric.name.as_deref().unwrap_or("metric")));
     }
     if snapshots.is_empty() {
         return Ok(None);
@@ -781,6 +805,84 @@ pub fn parse_openai_compatible_lenient(
         return Ok(None);
     }
     Ok(Some(QuotaSnapshotSet::new(snapshots)))
+}
+
+/// Parses the balance envelope several providers use for their billing
+/// endpoint, most notably `DeepSeek`:
+///
+/// ```json
+/// { "is_available": false,
+///   "balance_infos": [{ "currency": "CNY", "total_balance": "-0.23" }] }
+/// ```
+///
+/// The generic name-based parser only looks at top-level `remaining`/`balance`
+/// fields, so a built-in provider that declares a balance endpoint would
+/// otherwise fail every refresh despite a valid 200 response. Each currency
+/// becomes one currency snapshot; an entry without a numeric `total_balance`
+/// is skipped rather than zero-filled.
+pub fn parse_balance_response(
+    response: &ProviderResponse,
+) -> ProviderResult<Option<QuotaSnapshotSet>> {
+    classify_http_status(response)?;
+    let value: Value = serde_json::from_str(&response.body)
+        .map_err(|error| ProviderError::parser_failed(format!("invalid JSON response: {error}")))?;
+    let Some(infos) = value.get("balance_infos").and_then(Value::as_array) else {
+        return Ok(None);
+    };
+    let mut snapshots = Vec::with_capacity(infos.len());
+    for info in infos {
+        let Some(total) = info.get("total_balance").and_then(value_as_f64) else {
+            continue;
+        };
+        let currency = info
+            .get("currency")
+            .and_then(Value::as_str)
+            .map(str::to_owned);
+        let suffix = currency.clone().unwrap_or_else(|| "unknown".to_owned());
+        let mut snapshot = QuotaSnapshot::unknown();
+        snapshot.id = Some(format!("balance-{suffix}"));
+        snapshot.metric_id = Some("balance".to_owned());
+        snapshot.metric_name = Some("balance".to_owned());
+        snapshot.unit = Some(QuotaUnit::Currency);
+        snapshot.currency.clone_from(&currency);
+        snapshot.remaining = Some(total);
+        snapshot.status = SnapshotStatus::Available;
+        snapshot.source = DataSource::CustomEndpoint;
+        snapshots.push(snapshot);
+        // The official envelope also splits the total into granted (gift)
+        // and topped-up parts; surface both when the provider reports them
+        // so a user can see how much of the balance actually expires.
+        for (field, name) in [
+            ("granted_balance", "赠送余额"),
+            ("topped_up_balance", "充值余额"),
+        ] {
+            let Some(part) = info.get(field).and_then(value_as_f64) else {
+                continue;
+            };
+            let mut part_snapshot = QuotaSnapshot::unknown();
+            part_snapshot.id = Some(format!("balance-{field}-{suffix}"));
+            part_snapshot.metric_id = Some(field.to_owned());
+            part_snapshot.metric_name = Some(name.to_owned());
+            part_snapshot.unit = Some(QuotaUnit::Currency);
+            part_snapshot.currency.clone_from(&currency);
+            part_snapshot.remaining = Some(part);
+            part_snapshot.status = SnapshotStatus::Partial;
+            part_snapshot.source = DataSource::CustomEndpoint;
+            snapshots.push(part_snapshot);
+        }
+    }
+    if snapshots.is_empty() {
+        return Ok(None);
+    }
+    Ok(Some(QuotaSnapshotSet::new(snapshots)))
+}
+
+fn value_as_f64(value: &Value) -> Option<f64> {
+    match value {
+        Value::Number(number) => number.as_f64().filter(|number| number.is_finite()),
+        Value::String(text) => text.trim().parse::<f64>().ok().filter(|n| n.is_finite()),
+        _ => None,
+    }
 }
 
 fn classify_http_status(response: &ProviderResponse) -> ProviderResult<()> {
@@ -825,7 +927,17 @@ fn snapshot_from_object(object: &Map<String, Value>) -> ProviderResult<Option<Qu
     let limit = number(object, &["limit", "max", "quota"])?;
     let remaining = number(object, &["remaining", "left", "balance"])?;
     let reset_at = string(object, &["reset_at", "resetAt", "resets_at", "resetsAt"]);
-    let recognized = used.is_some() || limit.is_some() || remaining.is_some() || reset_at.is_some();
+    // Window identity is quota data too: a window with no numbers still earns
+    // an honest unknown snapshot instead of being dropped (the same rule
+    // `reset_at` follows).
+    let starts_at = string(object, &["starts_at", "startsAt"]);
+    let ends_at = string(object, &["ends_at", "endsAt"]);
+    let recognized = used.is_some()
+        || limit.is_some()
+        || remaining.is_some()
+        || reset_at.is_some()
+        || starts_at.is_some()
+        || ends_at.is_some();
     if !recognized {
         return Ok(None);
     }
@@ -843,8 +955,10 @@ fn snapshot_from_object(object: &Map<String, Value>) -> ProviderResult<Option<Qu
         "percent" | "%" => Some(QuotaUnit::Percent),
         _ => None,
     });
-    let window = if reset_at.is_some() {
+    let window = if reset_at.is_some() || starts_at.is_some() || ends_at.is_some() {
         Some(QuotaWindow {
+            starts_at,
+            ends_at,
             reset_at: reset_at.clone(),
             ..QuotaWindow::default()
         })
@@ -1272,12 +1386,17 @@ mod tests {
                 value: "result.balance".to_owned(),
                 unit: Some("currency".to_owned()),
                 currency: Some("CNY".to_owned()),
+                role: None,
+                name: None,
             }),
             usage: Some(FieldMapping {
                 value: "usage.totalTokens".to_owned(),
                 unit: Some("token".to_owned()),
                 currency: None,
+                role: None,
+                name: None,
             }),
+            metrics: Vec::new(),
         };
         let set = parse_openai_compatible_with_mappings(&response, &mappings)
             .expect("parse")
@@ -1310,12 +1429,17 @@ mod tests {
                 value: "data.1.remaining".to_owned(),
                 unit: Some("credit".to_owned()),
                 currency: None,
+                role: None,
+                name: None,
             }),
             usage: Some(FieldMapping {
                 value: "missing.path".to_owned(),
                 unit: Some("token".to_owned()),
                 currency: None,
+                role: None,
+                name: None,
             }),
+            metrics: Vec::new(),
         };
         let set = parse_openai_compatible_with_mappings(&response, &mappings)
             .expect("parse")
@@ -1333,12 +1457,17 @@ mod tests {
                 value: "b".to_owned(),
                 unit: Some("widgets".to_owned()),
                 currency: None,
+                role: None,
+                name: None,
             }),
             usage: Some(FieldMapping {
                 value: "u".to_owned(),
                 unit: Some("token".to_owned()),
                 currency: None,
+                role: None,
+                name: None,
             }),
+            metrics: Vec::new(),
         };
         // "lots" is not numeric -> balance skipped; "12" is a numeric string
         // and an explicit mapping declares its semantics, so usage parses.
@@ -1348,5 +1477,114 @@ mod tests {
         assert_eq!(set.len(), 1);
         assert_eq!(set.snapshots[0].metric_id.as_deref(), Some("usage"));
         assert_eq!(set.snapshots[0].used, Some(12.0));
+    }
+
+    #[test]
+    fn parses_the_deepseek_balance_envelope() {
+        // Captured from the real DeepSeek `/user/balance` response: the value
+        // is a negative remaining balance in a currency, with no limit.
+        let response = ProviderResponse::new(
+            200,
+            r#"{"is_available":false,"balance_infos":[{"currency":"CNY","total_balance":"-0.23","granted_balance":"0.00","topped_up_balance":"-0.23"}]}"#,
+        );
+        let set = parse_balance_response(&response)
+            .expect("parse")
+            .expect("snapshots");
+        assert_eq!(set.len(), 3, "total + granted + topped-up");
+        let snapshot = &set.snapshots[0];
+        assert_eq!(snapshot.remaining, Some(-0.23));
+        assert_eq!(snapshot.unit, Some(QuotaUnit::Currency));
+        assert_eq!(snapshot.currency.as_deref(), Some("CNY"));
+        assert_eq!(snapshot.metric_name.as_deref(), Some("balance"));
+        assert_eq!(snapshot.status, SnapshotStatus::Available);
+        // The official envelope's granted/topped-up split surfaces as its own
+        // labeled metrics (0 granted is real data and stays).
+        let granted = &set.snapshots[1];
+        assert_eq!(granted.metric_name.as_deref(), Some("赠送余额"));
+        assert_eq!(granted.remaining, Some(0.0));
+        assert_eq!(granted.status, SnapshotStatus::Partial);
+        let topped = &set.snapshots[2];
+        assert_eq!(topped.metric_name.as_deref(), Some("充值余额"));
+        assert_eq!(topped.remaining, Some(-0.23));
+    }
+
+    #[test]
+    fn mappings_honor_roles_and_emit_named_metrics() {
+        // OpenRouter-shaped: the key endpoint reports usage spent plus the
+        // remaining credits; the remaining figure must land in the remaining
+        // slot, and the extra named metrics must keep their own labels.
+        let response = ProviderResponse::new(
+            200,
+            r#"{"data":{"usage":0.11,"limit":50,"limit_remaining":49.89,"usage_daily":0.02}}"#,
+        );
+        let mappings = FieldMappings {
+            usage: Some(FieldMapping {
+                value: "data.usage".to_owned(),
+                unit: Some("currency".to_owned()),
+                currency: Some("USD".to_owned()),
+                role: Some("used".to_owned()),
+                name: None,
+            }),
+            metrics: vec![
+                FieldMapping {
+                    value: "data.limit_remaining".to_owned(),
+                    unit: Some("currency".to_owned()),
+                    currency: Some("USD".to_owned()),
+                    role: Some("remaining".to_owned()),
+                    name: Some("剩余额度".to_owned()),
+                },
+                FieldMapping {
+                    value: "data.usage_daily".to_owned(),
+                    unit: Some("currency".to_owned()),
+                    currency: Some("USD".to_owned()),
+                    role: Some("used".to_owned()),
+                    name: Some("今日已用".to_owned()),
+                },
+            ],
+            balance: None,
+        };
+        let set = parse_openai_compatible_with_mappings(&response, &mappings)
+            .expect("parse")
+            .expect("snapshots");
+        assert_eq!(set.snapshots.len(), 3);
+        let used = &set.snapshots[0];
+        assert_eq!(used.metric_name.as_deref(), Some("usage"));
+        assert_eq!(used.used, Some(0.11));
+        assert_eq!(used.remaining, None);
+        let remaining = &set.snapshots[1];
+        assert_eq!(remaining.metric_name.as_deref(), Some("剩余额度"));
+        assert_eq!(remaining.remaining, Some(49.89));
+        assert_eq!(
+            remaining.used, None,
+            "a remaining figure is not consumption"
+        );
+        let daily = &set.snapshots[2];
+        assert_eq!(daily.metric_name.as_deref(), Some("今日已用"));
+        assert_eq!(daily.used, Some(0.02));
+    }
+
+    #[test]
+    fn balance_parser_handles_multiple_currencies_and_skips_unusable_entries() {
+        let response = ProviderResponse::new(
+            200,
+            r#"{"balance_infos":[{"currency":"CNY","total_balance":12.5},{"currency":"USD","total_balance":"3.25"},{"currency":"EUR"}]}"#,
+        );
+        let set = parse_balance_response(&response)
+            .expect("parse")
+            .expect("snapshots");
+        assert_eq!(set.len(), 2);
+        assert_eq!(set.snapshots[0].id.as_deref(), Some("balance-CNY"));
+        assert_eq!(set.snapshots[0].remaining, Some(12.5));
+        assert_eq!(set.snapshots[1].id.as_deref(), Some("balance-USD"));
+        assert_eq!(set.snapshots[1].remaining, Some(3.25));
+    }
+
+    #[test]
+    fn balance_parser_ignores_unrelated_json() {
+        let response = ProviderResponse::new(200, r#"{"remaining":42}"#);
+        assert!(
+            parse_balance_response(&response).expect("parse").is_none(),
+            "a non-balance envelope must fall back to the generic parser"
+        );
     }
 }

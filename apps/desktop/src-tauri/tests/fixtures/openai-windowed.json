@@ -1,0 +1,26 @@
+{
+  "data": [
+    {
+      "id": "prompt-window-5h",
+      "metric_name": "Prompt tokens (5h window)",
+      "unit": "tokens",
+      "used": 420000,
+      "limit": 1000000,
+      "remaining": 580000,
+      "starts_at": "2026-10-31T09:00:00Z",
+      "ends_at": "2026-10-31T14:00:00Z",
+      "reset_at": "2026-10-31T14:00:00Z"
+    },
+    {
+      "id": "prompt-window-7d",
+      "metric_name": "Prompt tokens (7d window)",
+      "unit": "tokens",
+      "used": 8200000,
+      "limit": 10000000,
+      "remaining": 1800000,
+      "starts_at": "2026-10-27T00:00:00Z",
+      "ends_at": "2026-11-03T00:00:00Z",
+      "reset_at": "2026-11-03T00:00:00Z"
+    }
+  ]
+}

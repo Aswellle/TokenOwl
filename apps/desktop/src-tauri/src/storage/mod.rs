@@ -288,9 +288,35 @@ impl LocalRepository {
             .map_err(StorageError::from)
     }
 
+    /// Deletes the account and, when this was its last referencing account,
+    /// the per-account provider record with it. Snapshots, refresh state and
+    /// history points follow the account through `ON DELETE CASCADE`; the
+    /// provider foreign key only cascades in the opposite direction, so the
+    /// row must be removed here — otherwise a deleted account leaves a stale
+    /// provider entry behind that no account can ever refresh again.
     pub fn delete_account(&self, account_id: &str) -> Result<(), StorageError> {
-        self.connection
-            .execute("DELETE FROM accounts WHERE id = ?1", [account_id])?;
+        let transaction = self.connection.unchecked_transaction()?;
+        let provider_id: Option<String> = transaction
+            .query_row(
+                "SELECT provider_id FROM accounts WHERE id = ?1",
+                [account_id],
+                |row| row.get(0),
+            )
+            .optional()?;
+        transaction.execute("DELETE FROM accounts WHERE id = ?1", [account_id])?;
+        if let Some(provider_id) = provider_id {
+            // Deleting a provider row cascades to its accounts, so a row still
+            // referenced by another account must survive this deletion.
+            let references: i64 = transaction.query_row(
+                "SELECT COUNT(*) FROM accounts WHERE provider_id = ?1",
+                [&provider_id],
+                |row| row.get(0),
+            )?;
+            if references == 0 {
+                transaction.execute("DELETE FROM providers WHERE id = ?1", [&provider_id])?;
+            }
+        }
+        transaction.commit()?;
         Ok(())
     }
 
@@ -1002,6 +1028,42 @@ mod tests {
             repository.history_samples(0, late + 1).expect("samples"),
             [],
             "history rows cascade with the account"
+        );
+    }
+
+    #[test]
+    fn deleting_the_last_account_removes_its_provider_record() {
+        let repository = LocalRepository::open_in_memory().expect("database");
+        repository.upsert_provider(&config(), 1).expect("provider");
+        repository.upsert_account(&account(), 1).expect("account");
+        repository.delete_account("account-1").expect("delete");
+        assert!(
+            repository.provider("generic").expect("provider").is_none(),
+            "the provider row outlived its last account"
+        );
+        assert!(
+            repository.accounts().expect("accounts").is_empty(),
+            "the account must be gone"
+        );
+    }
+
+    #[test]
+    fn a_provider_shared_by_two_accounts_survives_one_deletion() {
+        let repository = LocalRepository::open_in_memory().expect("database");
+        repository.upsert_provider(&config(), 1).expect("provider");
+        repository.upsert_account(&account(), 1).expect("account");
+        let mut second = account();
+        second.id = "account-2".to_owned();
+        repository.upsert_account(&second, 2).expect("account");
+        repository.delete_account("account-1").expect("delete");
+        assert!(
+            repository.provider("generic").expect("provider").is_some(),
+            "a referenced provider row must not be cascade-deleted away"
+        );
+        repository.delete_account("account-2").expect("delete");
+        assert!(
+            repository.provider("generic").expect("provider").is_none(),
+            "the row goes once its last account goes"
         );
     }
 }

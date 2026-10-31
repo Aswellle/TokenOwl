@@ -9,13 +9,40 @@ baseUrl: https://openrouter.ai/api/v1
 apiKeyHeader: Authorization
 endpoints:
   models: /models
-  usage: /api/v1/key
+  usage: /key
 network:
   timeoutMs: 15000
   followRedirects: false
+mapping:
+  usage:
+    value: data.usage
+    unit: currency
+    currency: USD
+    role: used
+  metrics:
+    - name: 剩余额度
+      value: data.limit_remaining
+      unit: currency
+      currency: USD
+      role: remaining
+    - name: 今日已用
+      value: data.usage_daily
+      unit: currency
+      currency: USD
+      role: used
+    - name: 本周已用
+      value: data.usage_weekly
+      unit: currency
+      currency: USD
+      role: used
+    - name: 本月已用
+      value: data.usage_monthly
+      unit: currency
+      currency: USD
+      role: used
 capability:
   level: L4
   accountTypes: [prepaid, api]
-  quotaUnits: [currency, token]
-  targetWindows: [balance, usage]
+  quotaUnits: [currency]
+  targetWindows: [balance, usage, daily, weekly, monthly]
   priority: P0

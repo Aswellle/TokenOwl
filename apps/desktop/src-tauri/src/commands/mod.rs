@@ -472,6 +472,7 @@ pub async fn accounts_create(
 #[tauri::command]
 pub fn accounts_delete(
     account_id: String,
+    app: tauri::AppHandle,
     state: State<'_, Arc<AppRuntime>>,
 ) -> Result<(), String> {
     let repository = state.repository().map_err(String::from)?;
@@ -497,7 +498,11 @@ pub fn accounts_delete(
     }
     repository
         .delete_account(&account_id)
-        .map_err(|error| error.to_string())
+        .map_err(|error| error.to_string())?;
+    // The bubble would keep drawing the removed account's rings until the
+    // next scheduler tick; tell it the account set changed now.
+    let _ = app.emit("quota:updated", ());
+    Ok(())
 }
 
 /// Settings key holding credential deletions that failed and must be retried.
@@ -761,6 +766,13 @@ pub(crate) async fn refresh_accounts(
         return Err(CommandError::InvalidInput(
             "failed to refresh account".to_owned(),
         ));
+    }
+    // The bubble is a separate webview and never sees this command's return
+    // value; error snapshots and account changes reach it only through this
+    // event, so it must fire on the manual and first-refresh paths too — not
+    // just on the scheduler and hotkey callers that emit on their own.
+    if let Some(handle) = handle {
+        let _ = handle.emit("quota:updated", ());
     }
     list_accounts(runtime)
 }
@@ -1732,6 +1744,21 @@ fn normalize_endpoint(value: &str) -> Result<String, CommandError> {
 /// quota. Last known values count regardless of snapshot age — freshness is
 /// surfaced separately in the UI.
 fn account_data_grade(snapshots: &[SnapshotViewDto]) -> Option<HealthGrade> {
+    // A negative balance is a hard failure even when the provider reports no
+    // limit to form a ratio: the account cannot pay for the next request.
+    // DeepSeek reports exactly this shape (`total_balance: "-0.23"` with
+    // `is_available: false`), and calling it healthy would hide the problem.
+    if snapshots.iter().any(|view| {
+        matches!(
+            view.snapshot.status,
+            SnapshotStatus::Available | SnapshotStatus::Partial
+        ) && view
+            .snapshot
+            .remaining
+            .is_some_and(|remaining| remaining < 0.0)
+    }) {
+        return Some(HealthGrade::Critical);
+    }
     worst_grade(snapshots.iter().map(|view| match view.snapshot.status {
         SnapshotStatus::Available | SnapshotStatus::Partial => remaining_ratio(
             view.snapshot.remaining,
@@ -1966,6 +1993,35 @@ mod tests {
             RefreshStatus::Idle,
         );
         assert_eq!(status_of(at_bound), "attention");
+    }
+
+    #[test]
+    fn a_negative_balance_without_a_limit_is_critical() {
+        // DeepSeek reports a negative currency balance with no limit; the
+        // absence of a ratio must not make the account look healthy.
+        let overdrawn = view_with(
+            vec![snapshot_view(
+                Some(-0.23),
+                None,
+                None,
+                SnapshotStatus::Available,
+                Freshness::Fresh,
+            )],
+            RefreshStatus::Idle,
+        );
+        assert_eq!(status_of(overdrawn), "critical");
+
+        let funded = view_with(
+            vec![snapshot_view(
+                Some(12.5),
+                None,
+                None,
+                SnapshotStatus::Available,
+                Freshness::Fresh,
+            )],
+            RefreshStatus::Idle,
+        );
+        assert_eq!(status_of(funded), "healthy");
     }
 
     #[test]

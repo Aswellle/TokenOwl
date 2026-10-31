@@ -13,8 +13,8 @@ use crate::credentials::{CredentialError, CredentialStore};
 use crate::domain::provider::{
     AccountContext, AccountIdentity, Confidence, FetchContext, HealthStatus,
     OpenAiCompatibleConfig, ProviderAdapter, ProviderDescriptor, ProviderError, ProviderErrorKind,
-    ProviderResult, QuotaSnapshot, QuotaSnapshotSet, SnapshotStatus, UsagePoint, UsageRange,
-    WindowType,
+    ProviderResult, QuotaSnapshot, QuotaSnapshotSet, QuotaUnit, SnapshotStatus, UsagePoint,
+    UsageRange, WindowType,
 };
 use crate::networking::{HttpClient, HttpClientConfig};
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
@@ -25,11 +25,33 @@ const DEFAULT_TIMEOUT: Duration = Duration::from_secs(15);
 const DEFAULT_MAX_RESPONSE_BYTES: usize = 512 * 1024;
 /// The API version header Anthropic documents for every REST call.
 const ANTHROPIC_VERSION: &str = "2023-06-01";
-/// `anthropic-ratelimit-unified-5h-*` / `...-7d-*` header prefixes, per the
-/// official rate-limits documentation.
-const RATE_LIMIT_PREFIXES: [(&str, &str, i64); 2] = [
-    ("anthropic-ratelimit-unified-5h", "5h", 5 * 3600),
-    ("anthropic-ratelimit-unified-7d", "7d", 7 * 86_400),
+/// Rate-limit response headers per the official rate-limits documentation:
+/// `anthropic-ratelimit-unified-5h-*` / `...-7d-*` carry the platform's 5 h
+/// rolling and weekly windows; `anthropic-ratelimit-tokens-*` reports whichever
+/// token limit is currently most restrictive and `anthropic-ratelimit-requests-*`
+/// the request-per-minute window. Each entry: (prefix, tag, known span in
+/// seconds, unit). A zero span means the window identity is unknown — the
+/// snapshot then carries only the reset instant, never an invented span.
+const RATE_LIMIT_PREFIXES: [(&str, &str, i64, QuotaUnit); 4] = [
+    (
+        "anthropic-ratelimit-unified-5h",
+        "5h",
+        5 * 3600,
+        QuotaUnit::Token,
+    ),
+    (
+        "anthropic-ratelimit-unified-7d",
+        "7d",
+        7 * 86_400,
+        QuotaUnit::Token,
+    ),
+    ("anthropic-ratelimit-tokens", "tokens", 0, QuotaUnit::Token),
+    (
+        "anthropic-ratelimit-requests",
+        "requests",
+        0,
+        QuotaUnit::Request,
+    ),
 ];
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -214,7 +236,7 @@ fn ratelimit_snapshots(
     observed_at: u64,
 ) -> Vec<QuotaSnapshot> {
     let mut snapshots = Vec::new();
-    for (prefix, tag, span_seconds) in RATE_LIMIT_PREFIXES {
+    for (prefix, tag, span_seconds, unit) in RATE_LIMIT_PREFIXES {
         let limit = header_value(headers, &format!("{prefix}-limit"));
         let remaining = header_value(headers, &format!("{prefix}-remaining"));
         let reset = header_value(headers, &format!("{prefix}-reset"));
@@ -228,16 +250,23 @@ fn ratelimit_snapshots(
         snapshot.id = Some(format!("anthropic-{tag}"));
         snapshot.metric_id = Some(format!("ratelimit-{tag}"));
         snapshot.metric_name = Some(format!("Anthropic {tag} 速率窗口"));
-        snapshot.unit = Some(crate::domain::provider::QuotaUnit::Request);
+        snapshot.unit = Some(unit);
         snapshot.limit = Some(limit);
         snapshot.remaining = Some(remaining);
         if remaining <= limit {
             snapshot.used = Some((limit - remaining).max(0.0));
         }
         // The reset header is an RFC 3339 instant per the rate-limits docs.
+        // A zero span means the docs do not pin a window length: keep the
+        // reset but leave the window type unset instead of guessing.
+        let (window_type, duration) = if span_seconds > 0 {
+            (Some(WindowType::Rolling), Some(span_seconds))
+        } else {
+            (None, None)
+        };
         snapshot.window = Some(crate::domain::provider::QuotaWindow {
-            window_type: Some(WindowType::Rolling),
-            duration_seconds: Some(span_seconds),
+            window_type,
+            duration_seconds: duration,
             starts_at: None,
             ends_at: None,
             reset_at: reset.clone(),
@@ -407,6 +436,7 @@ mod tests {
         assert_eq!(five.limit, Some(800.0));
         assert_eq!(five.remaining, Some(672.0));
         assert_eq!(five.used, Some(128.0));
+        assert_eq!(five.unit, Some(QuotaUnit::Token));
         assert_eq!(
             five.window.as_ref().and_then(|w| w.duration_seconds),
             Some(5 * 3600)
@@ -422,6 +452,52 @@ mod tests {
             weekly.window.as_ref().and_then(|w| w.duration_seconds),
             Some(7 * 86_400)
         );
+    }
+
+    #[test]
+    fn documented_tokens_and_requests_headers_become_snapshots() {
+        // The plain `anthropic-ratelimit-tokens-*` / `-requests-*` headers are
+        // the ones the current rate-limits page documents; their window span
+        // is provider-defined, so no span may be invented.
+        let headers = BTreeMap::from([
+            (
+                "anthropic-ratelimit-tokens-limit".to_owned(),
+                "40000".to_owned(),
+            ),
+            (
+                "anthropic-ratelimit-tokens-remaining".to_owned(),
+                "30000".to_owned(),
+            ),
+            (
+                "anthropic-ratelimit-tokens-reset".to_owned(),
+                "2026-11-01T12:00:00Z".to_owned(),
+            ),
+            (
+                "anthropic-ratelimit-requests-limit".to_owned(),
+                "50".to_owned(),
+            ),
+            (
+                "anthropic-ratelimit-requests-remaining".to_owned(),
+                "45".to_owned(),
+            ),
+            (
+                "anthropic-ratelimit-requests-reset".to_owned(),
+                "2026-11-01T09:05:00Z".to_owned(),
+            ),
+        ]);
+        let snapshots = ratelimit_snapshots(&headers, 1_790_000_000);
+        assert_eq!(snapshots.len(), 2);
+        let tokens = &snapshots[0];
+        assert_eq!(tokens.unit, Some(QuotaUnit::Token));
+        assert_eq!(tokens.limit, Some(40_000.0));
+        assert_eq!(tokens.remaining, Some(30_000.0));
+        let window = tokens.window.as_ref().expect("window present");
+        assert_eq!(window.duration_seconds, None, "no span may be invented");
+        assert_eq!(window.window_type, None);
+        assert_eq!(window.reset_at.as_deref(), Some("2026-11-01T12:00:00Z"));
+        let requests = &snapshots[1];
+        assert_eq!(requests.unit, Some(QuotaUnit::Request));
+        assert_eq!(requests.used, Some(5.0));
     }
 
     #[test]

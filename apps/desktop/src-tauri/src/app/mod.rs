@@ -514,6 +514,18 @@ fn region_radius_at(t: f64, start: f64, end: f64) -> f64 {
     start + (end - start) * ease_out_cubic(t)
 }
 
+/// Region-morph step count for a `duration`: ~16 ms per frame while the OS
+/// allows animation, exactly one step (the end state) when the accessibility
+/// switch turns animation off. Never zero — a zero-step loop would leave the
+/// window region unowned.
+#[cfg(windows)]
+fn morph_step_count(duration: std::time::Duration, animation_enabled: bool) -> u32 {
+    if !animation_enabled {
+        return 1;
+    }
+    u32::try_from(duration.as_millis() / 16).unwrap_or(1).max(1)
+}
+
 /// The morph's circle geometry for one window and anchor: center in
 /// window-relative physical pixels, the starting radius (the bubble), and the
 /// ending radius (a circle that clears every window corner). None when the
@@ -551,6 +563,32 @@ fn morph_region_geometry(
     Some((center, start_radius, end_radius))
 }
 
+/// Monotonic owner token for the window-region morph.
+///
+/// Expand and collapse each spawn their own stepping task. Without an owner,
+/// a rapid collapse can start while the expand task is still mid-flight, and
+/// the older task's final `SetWindowRgn(.., 0, ..)` (or a late step) then
+/// overwrites the newer shape — the hidden dashboard was observed keeping a
+/// full-size elliptical region after an interrupted expand. Only the newest
+/// task may touch the region or run its completion hook.
+#[cfg(windows)]
+static MORPH_EPOCH: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+#[cfg(windows)]
+#[derive(Clone, Copy)]
+struct MorphEpoch(u64);
+
+#[cfg(windows)]
+impl MorphEpoch {
+    fn begin() -> Self {
+        Self(MORPH_EPOCH.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1)
+    }
+
+    fn is_current(self) -> bool {
+        MORPH_EPOCH.load(std::sync::atomic::Ordering::SeqCst) == self.0
+    }
+}
+
 /// The window-region morph owns the whole handoff on the Rust side: a
 /// `SetWindowRgn` circle clips the window's material AND content together
 /// (a CSS clip-path cannot clip the OS acrylic layer, which is what left a
@@ -566,6 +604,9 @@ fn spawn_region_morph(
     duration: std::time::Duration,
     on_done: impl FnOnce() + Send + 'static,
 ) {
+    // Claimed synchronously: the task that starts last must win even if the
+    // runtime schedules the two bodies out of order.
+    let epoch = MorphEpoch::begin();
     tauri::async_runtime::spawn(async move {
         #[allow(unsafe_code)]
         #[link(name = "gdi32")]
@@ -581,8 +622,15 @@ fn spawn_region_morph(
         let Ok(hwnd) = window.hwnd() else { return };
         #[allow(clippy::cast_possible_wrap)]
         let hwnd = hwnd.0 as usize as isize;
-        let steps: u32 = u32::try_from(duration.as_millis() / 16).unwrap_or(1).max(1);
+        // "Show animations in Windows" is the OS-wide reduced-motion switch:
+        // WebView2 maps it to `prefers-reduced-motion` for the webviews, and
+        // the native region morph must honor it the same way instead of
+        // animating for ~300 ms after the user asked the system not to.
+        let steps = morph_step_count(duration, client_area_animation_enabled());
         for step in 1..=steps {
+            if !epoch.is_current() {
+                return;
+            }
             let t = f64::from(step) / f64::from(steps);
             let radius = region_radius_at(t, start_radius, end_radius);
             #[allow(clippy::cast_possible_truncation)]
@@ -599,12 +647,21 @@ fn spawn_region_morph(
                     }
                 }
             }
-            tokio::time::sleep(std::time::Duration::from_millis(16)).await;
+            if steps > 1 {
+                tokio::time::sleep(std::time::Duration::from_millis(16)).await;
+            }
+        }
+        // A newer morph owns the window now: its own hook and clear will run,
+        // and this task's stale hook would fight it.
+        if !epoch.is_current() {
+            return;
         }
         on_done();
-        #[allow(unsafe_code)]
-        unsafe {
-            SetWindowRgn(hwnd, 0, 1);
+        if epoch.is_current() {
+            #[allow(unsafe_code)]
+            unsafe {
+                SetWindowRgn(hwnd, 0, 1);
+            }
         }
     });
 }
@@ -621,6 +678,28 @@ fn spawn_region_morph(
     on_done: impl FnOnce() + Send + 'static,
 ) {
     on_done();
+}
+
+/// Windows' "Show animations in Windows" accessibility setting
+/// (`SPI_GETCLIENTAREAANIMATION`). Defaults to enabled when the query fails,
+/// so a broken query can never silently freeze the shell animations off.
+#[cfg(windows)]
+fn client_area_animation_enabled() -> bool {
+    #[allow(unsafe_code)]
+    #[link(name = "user32")]
+    unsafe extern "system" {
+        fn SystemParametersInfoW(
+            action: u32,
+            ui_param: u32,
+            pv_param: *mut i32,
+            win_ini: u32,
+        ) -> i32;
+    }
+    const SPI_GETCLIENTAREAANIMATION: u32 = 0x1042;
+    let mut value: i32 = 1;
+    #[allow(unsafe_code)]
+    let ok = unsafe { SystemParametersInfoW(SPI_GETCLIENTAREAANIMATION, 0, &raw mut value, 0) };
+    ok == 0 || value != 0
 }
 
 /// Re-applies the bubble's tool-window style and configured size.
@@ -1017,6 +1096,18 @@ pub fn run() {
 mod tests {
     use super::*;
 
+    #[cfg(windows)]
+    #[test]
+    fn a_new_morph_epoch_supersedes_the_previous_owner() {
+        // Rapid expand→collapse used to let the older task's final clear
+        // overwrite the newer shape; only the latest owner may touch the
+        // region now.
+        let first = MorphEpoch::begin();
+        let second = MorphEpoch::begin();
+        assert!(!first.is_current());
+        assert!(second.is_current());
+    }
+
     #[test]
     fn centered_origin_puts_the_bubble_center_at_the_window_center() {
         // A 760×720 dashboard centered on a bubble at (1000, 500); the
@@ -1065,6 +1156,68 @@ mod tests {
         assert_eq!(
             clamp_anchor_to_rect(-100.0, 800.0, 760.0, 720.0),
             (0.0, 720.0)
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn region_radius_starts_at_the_bubble_and_ends_clearing_the_corners() {
+        // The endpoints are exact by construction (ease 0 and 1); compare
+        // with a hair of tolerance to keep the linter happy.
+        assert!((region_radius_at(0.0, 28.0, 749.0) - 28.0).abs() < 1e-9);
+        assert!((region_radius_at(1.0, 28.0, 749.0) - 749.0).abs() < 1e-9);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn region_radius_is_monotonic_and_eases_through_the_middle() {
+        let mut previous = 28.0;
+        for step in 1..=20 {
+            let t = f64::from(step) / 20.0;
+            let radius = region_radius_at(t, 28.0, 749.0);
+            assert!(radius > previous, "radius must grow with t");
+            previous = radius;
+        }
+        // Ease-out moves faster than linear early on: at the half-way mark
+        // the radius is already well past the linear midpoint.
+        let halfway = region_radius_at(0.5, 28.0, 749.0);
+        assert!(halfway > f64::midpoint(28.0, 749.0));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn region_radius_tolerates_out_of_range_progress() {
+        // A stray step beyond [0, 1] must clamp, not extrapolate past the
+        // corner-clearing radius.
+        assert!((region_radius_at(-0.5, 28.0, 749.0) - 28.0).abs() < 1e-9);
+        assert!((region_radius_at(1.5, 28.0, 749.0) - 749.0).abs() < 1e-9);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn morph_step_count_scales_with_duration_while_animation_is_on() {
+        assert_eq!(
+            morph_step_count(std::time::Duration::from_millis(380), true),
+            23
+        );
+        assert_eq!(
+            morph_step_count(std::time::Duration::from_millis(300), true),
+            18
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn morph_step_count_never_returns_zero_and_honors_the_os_switch() {
+        // Sub-frame durations still own the region for one step.
+        assert_eq!(
+            morph_step_count(std::time::Duration::from_millis(5), true),
+            1
+        );
+        // Reduced motion: exactly one step — the end state, no easing frames.
+        assert_eq!(
+            morph_step_count(std::time::Duration::from_millis(380), false),
+            1
         );
     }
 }

@@ -256,6 +256,19 @@ pub struct ManifestProfile {
     pub endpoints: crate::providers::manifest::ManifestEndpoints,
 }
 
+/// True when an account's provider id names an embedded manifest.
+///
+/// Account ids are `"<manifest-id>:<account-id>"`; custom accounts use
+/// `"generic.openai_compatible:<account-id>"`. The OpenAI-compatible adapter
+/// uses this to label built-in traffic as the official API instead of
+/// "custom endpoint" in the UI.
+pub fn is_builtin_provider_id(id: &str) -> bool {
+    let prefix = id.split(':').next().unwrap_or(id);
+    BUILTIN_MANIFESTS
+        .iter()
+        .any(|(manifest_id, _)| *manifest_id == prefix)
+}
+
 /// Setup profiles for all embedded manifests, in manifest order.
 ///
 /// # Panics
@@ -424,7 +437,11 @@ mod tests {
                 .clone()
                 .expect("implemented rows carry a level")
         };
-        assert_eq!(level_of("openai"), "L4");
+        // OpenAI is L2 on the official surface: the models probe works with a
+        // plain key, while the Usage/Cost admin APIs need admin scope plus
+        // required query timestamps the plain-path endpoint model cannot
+        // express. An honest L2 beats two guaranteed-404 probes.
+        assert_eq!(level_of("openai"), "L2");
         assert_eq!(level_of("anthropic"), "L2");
         assert_eq!(level_of("gemini"), "L2");
         assert_eq!(level_of("deepseek"), "L3");
@@ -479,5 +496,15 @@ mod tests {
         let descriptor = adapter.descriptor();
         assert!(descriptor.capabilities.api_key);
         assert!(descriptor.capabilities.open_ai_compatible);
+    }
+
+    #[test]
+    fn builtin_id_detection_uses_the_manifest_prefix() {
+        assert!(is_builtin_provider_id("deepseek:account-1"));
+        assert!(is_builtin_provider_id("openai"));
+        assert!(!is_builtin_provider_id(
+            "generic.openai_compatible:account-1"
+        ));
+        assert!(!is_builtin_provider_id("acme:account-1"));
     }
 }

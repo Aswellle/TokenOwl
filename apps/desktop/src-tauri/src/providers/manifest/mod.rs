@@ -80,6 +80,10 @@ pub struct ManifestEndpoints {
 pub struct ManifestMapping {
     pub balance: Option<ManifestFieldMapping>,
     pub usage: Option<ManifestFieldMapping>,
+    /// Extra named value mappings from the same response (a provider that
+    /// reports several account figures at once); each becomes its own metric.
+    #[serde(default)]
+    pub metrics: Option<Vec<ManifestFieldMapping>>,
 }
 
 /// Single field mapping.
@@ -89,6 +93,11 @@ pub struct ManifestFieldMapping {
     pub value: String,
     pub unit: Option<String>,
     pub currency: Option<String>,
+    /// Which snapshot slot the value feeds: `used` (default), `remaining`,
+    /// or `limit`.
+    pub role: Option<String>,
+    /// Display name for a `metrics` entry (`充值余额`, `赠送余额`, …).
+    pub name: Option<String>,
 }
 
 /// Network configuration.
@@ -174,6 +183,29 @@ impl ProviderManifest {
                 {
                     return Err(format!(
                         "mapping.{kind}.value must be 1-128 characters without whitespace"
+                    ));
+                }
+            }
+            for (index, metric) in mapping.metrics.iter().flatten().enumerate() {
+                if metric.value.trim().is_empty()
+                    || metric.value.chars().count() > 128
+                    || metric.value.chars().any(char::is_whitespace)
+                {
+                    return Err(format!(
+                        "mapping.metrics[{index}].value must be 1-128 characters without whitespace"
+                    ));
+                }
+                let name = metric.name.as_deref().unwrap_or_default().trim();
+                if name.is_empty() || name.chars().count() > 64 {
+                    return Err(format!(
+                        "mapping.metrics[{index}].name must be 1-64 characters"
+                    ));
+                }
+                if let Some(role) = metric.role.as_deref()
+                    && !matches!(role, "used" | "remaining" | "limit")
+                {
+                    return Err(format!(
+                        "mapping.metrics[{index}].role `{role}` must be used, remaining, or limit"
                     ));
                 }
             }
@@ -269,25 +301,20 @@ impl ProviderManifest {
         // transport's per-adapter limits.
         let default_refresh = Duration::from_secs(300);
 
-        let field_mappings =
-            self.mapping
-                .as_ref()
-                .map(|mapping| crate::domain::provider::FieldMappings {
-                    balance: mapping.balance.as_ref().map(|field| {
-                        crate::domain::provider::FieldMapping {
-                            value: field.value.clone(),
-                            unit: field.unit.clone(),
-                            currency: field.currency.clone(),
-                        }
-                    }),
-                    usage: mapping.usage.as_ref().map(|field| {
-                        crate::domain::provider::FieldMapping {
-                            value: field.value.clone(),
-                            unit: field.unit.clone(),
-                            currency: field.currency.clone(),
-                        }
-                    }),
-                });
+        let field_mappings = self.mapping.as_ref().map(|mapping| {
+            let to_domain = |field: &ManifestFieldMapping| crate::domain::provider::FieldMapping {
+                value: field.value.clone(),
+                unit: field.unit.clone(),
+                currency: field.currency.clone(),
+                role: field.role.clone(),
+                name: field.name.clone(),
+            };
+            crate::domain::provider::FieldMappings {
+                balance: mapping.balance.as_ref().map(to_domain),
+                usage: mapping.usage.as_ref().map(to_domain),
+                metrics: mapping.metrics.iter().flatten().map(to_domain).collect(),
+            }
+        });
         OpenAiCompatibleConfig {
             id: self.id.clone(),
             display_name: self.name.clone(),

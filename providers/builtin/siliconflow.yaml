@@ -9,7 +9,24 @@ baseUrl: https://api.siliconflow.cn/v1
 apiKeyHeader: Authorization
 endpoints:
   models: /models
-  balance: /v1/user/balance
+  balance: /user/info
+mapping:
+  balance:
+    value: data.totalBalance
+    unit: currency
+    currency: CNY
+    role: remaining
+  metrics:
+    - name: 充值余额
+      value: data.chargeBalance
+      unit: currency
+      currency: CNY
+      role: remaining
+    - name: 赠送余额
+      value: data.balance
+      unit: currency
+      currency: CNY
+      role: remaining
 apiFormat: openai-compatible
 network:
   timeoutMs: 15000

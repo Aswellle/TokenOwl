@@ -7,7 +7,7 @@
 
 use crate::credentials::{CredentialError, CredentialStore};
 use crate::domain::provider::{
-    AccountContext, AccountIdentity, AuthMethod, FetchContext, HealthStatus,
+    AccountContext, AccountIdentity, AuthMethod, DataSource, FetchContext, HealthStatus,
     OpenAiCompatibleConfig, ProviderAdapter, ProviderDescriptor, ProviderError, ProviderErrorKind,
     ProviderResult, QuotaSnapshot, QuotaSnapshotSet, SnapshotStatus, UsagePoint, UsageRange,
 };
@@ -108,11 +108,21 @@ impl OpenAiCompatibleAdapter {
         for (kind, endpoint) in &endpoints {
             outcomes.push((
                 *kind,
-                self.fetch_endpoint(config, endpoint, credentials).await,
+                self.fetch_endpoint(config, endpoint, credentials, kind)
+                    .await,
             ));
         }
         let mut snapshots = merge_endpoint_outcomes(outcomes)?;
+        // The parsers are shared by custom and built-in accounts and default
+        // to `CustomEndpoint`. A built-in manifest's traffic is the provider's
+        // official API, and the UI's source label should say so.
+        let source = if crate::providers::builtin::is_builtin_provider_id(&config.id) {
+            DataSource::OfficialApi
+        } else {
+            DataSource::CustomEndpoint
+        };
         for snapshot in &mut snapshots {
+            snapshot.source = source;
             if snapshot.account_id.is_none() {
                 snapshot.account_id = Some(account_id.to_owned());
             }
@@ -129,6 +139,7 @@ impl OpenAiCompatibleAdapter {
         config: &OpenAiCompatibleConfig,
         endpoint: &str,
         credentials: &CredentialStore,
+        kind: EndpointKind,
     ) -> EndpointOutcome {
         let url = match endpoint_url(config, endpoint) {
             Ok(url) => url,
@@ -149,13 +160,18 @@ impl OpenAiCompatibleAdapter {
         let outcome = self.client.send_capped(request).await;
         match outcome {
             Ok(response) => {
-                let parsed = match config.field_mappings.as_ref() {
-                    Some(mappings) => {
-                        crate::domain::provider::parse_openai_compatible_with_mappings(
-                            &response, mappings,
-                        )
+                // Balance endpoints use a dedicated envelope parser first
+                // (DeepSeek and similar `balance_infos` responses); anything
+                // it does not recognize falls back to the generic mapping /
+                // lenient path so custom balance shapes keep working.
+                let parsed = if kind == "balance" {
+                    match crate::domain::provider::parse_balance_response(&response) {
+                        Ok(Some(set)) => Ok(Some(set)),
+                        Ok(None) => parse_configured(config, &response),
+                        Err(error) => Err(error),
                     }
-                    None => crate::domain::provider::parse_openai_compatible_lenient(&response),
+                } else {
+                    parse_configured(config, &response)
                 };
                 match parsed {
                     Ok(Some(set)) => EndpointOutcome::Snapshots(set),
@@ -165,6 +181,18 @@ impl OpenAiCompatibleAdapter {
             }
             Err(error) => EndpointOutcome::Failed(error),
         }
+    }
+}
+
+fn parse_configured(
+    config: &OpenAiCompatibleConfig,
+    response: &crate::domain::provider::ProviderResponse,
+) -> ProviderResult<Option<QuotaSnapshotSet>> {
+    match config.field_mappings.as_ref() {
+        Some(mappings) => {
+            crate::domain::provider::parse_openai_compatible_with_mappings(response, mappings)
+        }
+        None => crate::domain::provider::parse_openai_compatible_lenient(response),
     }
 }
 

@@ -11,7 +11,24 @@ baseUrl: https://api.moonshot.cn/v1
 apiKeyHeader: Authorization
 endpoints:
   models: /models
-  usage: /users/me/balance
+  balance: /users/me/balance
+mapping:
+  balance:
+    value: data.available_balance
+    unit: currency
+    currency: CNY
+    role: remaining
+  metrics:
+    - name: 代金券余额
+      value: data.voucher_balance
+      unit: currency
+      currency: CNY
+      role: remaining
+    - name: 现金余额
+      value: data.cash_balance
+      unit: currency
+      currency: CNY
+      role: remaining
 network:
   timeoutMs: 15000
   followRedirects: false

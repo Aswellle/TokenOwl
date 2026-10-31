@@ -9,13 +9,12 @@ baseUrl: https://dashscope.aliyuncs.com/api/v1
 apiKeyHeader: Authorization
 endpoints:
   models: /models
-  usage: /usage
 network:
   timeoutMs: 15000
   followRedirects: false
 capability:
-  level: L3
+  level: L1
   accountTypes: [coding, token, api]
-  quotaUnits: [token, credit]
-  targetWindows: [5h, 7d, balance]
+  quotaUnits: [token]
+  targetWindows: [provider-defined]
   priority: P0

@@ -32,6 +32,25 @@ fn openai_partial_fixture_preserves_missing_as_none() {
 }
 
 #[test]
+fn openai_windowed_fixture_parses_window_spans() {
+    let body = read_fixture("openai-windowed.json");
+    let set = parse_openai_compatible_response(200, &body).expect("windowed fixture");
+    assert_eq!(set.snapshots.len(), 2);
+    let five_hour = &set.snapshots[0];
+    assert_eq!(five_hour.used, Some(420_000.0));
+    assert_eq!(five_hour.limit, Some(1_000_000.0));
+    assert_eq!(five_hour.remaining, Some(580_000.0));
+    let window = five_hour.window.as_ref().expect("5h window present");
+    assert_eq!(window.starts_at.as_deref(), Some("2026-10-31T09:00:00Z"));
+    assert_eq!(window.ends_at.as_deref(), Some("2026-10-31T14:00:00Z"));
+    assert_eq!(five_hour.reset_at.as_deref(), Some("2026-10-31T14:00:00Z"));
+    let week = &set.snapshots[1];
+    let window = week.window.as_ref().expect("7d window present");
+    assert_eq!(window.starts_at.as_deref(), Some("2026-10-27T00:00:00Z"));
+    assert_eq!(window.ends_at.as_deref(), Some("2026-11-03T00:00:00Z"));
+}
+
+#[test]
 fn openai_unauthorized_fixture_maps_to_auth_error() {
     let body = read_fixture("openai-unauthorized.json");
     let error = parse_openai_compatible_response(401, &body).expect_err("unauthorized");

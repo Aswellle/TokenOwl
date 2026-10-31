@@ -9,14 +9,12 @@ baseUrl: https://api.openai.com/v1
 apiKeyHeader: Authorization
 endpoints:
   models: /v1/models
-  usage: /v1/usage
-  quota: /v1/quota
 network:
   timeoutMs: 10000
   followRedirects: false
 capability:
-  level: L4
-  accountTypes: [api, usage]
-  quotaUnits: [currency, token]
-  targetWindows: [monthly, custom]
+  level: L2
+  accountTypes: [api]
+  quotaUnits: [token]
+  targetWindows: [provider-defined]
   priority: P0

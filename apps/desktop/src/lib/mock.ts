@@ -10,6 +10,13 @@ import type {
   ProviderMatrixRowViewModel,
   UsageWindowsViewModel,
 } from "../types";
+import {
+  hasScenario,
+  scenarioAccounts,
+  scenarioHistory,
+  scenarioLatencyMs,
+  scenarioNotifications,
+} from "./mockScenarios";
 
 /**
  * Demo data for `vite dev` in a plain browser, where the Tauri commands do not
@@ -22,11 +29,13 @@ const hour = 3_600_000;
 
 // `?empty=1` renders the first-run experience: zero accounts, no history,
 // no notifications — so the empty states stay reviewable in a plain browser.
-const emptyPreview = new URLSearchParams(window.location.search).has("empty");
+// `?scenario=` fixtures (mockScenarios.ts) cover the degraded states.
+const emptyPreview =
+  new URLSearchParams(window.location.search).has("empty") || hasScenario("empty");
 
 function demoAccounts(now: number): AccountViewModel[] {
   if (emptyPreview) return [];
-  return [
+  const accounts: AccountViewModel[] = [
     {
       id: "demo-primary",
       providerId: "openai:demo-primary",
@@ -174,11 +183,12 @@ function demoAccounts(now: number): AccountViewModel[] {
       ],
     },
   ];
+  return scenarioAccounts(accounts, now);
 }
 
 function demoNotifications(now: number): NotificationViewModel[] {
   if (emptyPreview) return [];
-  return [
+  return scenarioNotifications([
     {
       id: "demo-ntf-1",
       kind: "low_quota",
@@ -212,7 +222,7 @@ function demoNotifications(now: number): NotificationViewModel[] {
       createdAt: now - 3 * hour,
       readAt: now - 2 * hour,
     },
-  ];
+  ]);
 }
 
 const demoPreferences: NotificationPreferencesViewModel = {
@@ -280,25 +290,26 @@ function demoHistory(now: number): HistorySummaryViewModel {
       hasData,
     });
   }
-  return {
+  return scenarioHistory({
     days,
     totalTokens,
     totalCost: totalCost > 0 ? Math.round(totalCost * 100) / 100 : null,
     currency: totalCost > 0 ? "¥" : null,
     activeDays,
     rangeDays,
-  };
+  });
 }
 
 export function createMockBridge(): DashboardBridge {
   let accounts = demoAccounts(Date.now());
   let notifications = demoNotifications(Date.now());
   let preferences: NotificationPreferencesViewModel = { ...demoPreferences };
-  const latency = () => 180 + Math.random() * 260;
+  const latency = () => scenarioLatencyMs() + 180 + Math.random() * 260;
 
   return {
     async listAccounts() {
       await new Promise((resolve) => setTimeout(resolve, latency()));
+      if (hasScenario("offline")) throw new Error("模拟离线：无法连接本地服务");
       return structuredClone(accounts);
     },
     async accountTargetIsLan(baseUrl: string) {
@@ -316,11 +327,13 @@ export function createMockBridge(): DashboardBridge {
     async lanConsentBegin(baseUrl: string) {
       // Preview mirror of the consent flow: LAN targets get a one-time demo
       // token, everything else needs no consent.
+      if (hasScenario("lan-fail")) throw new Error("模拟分类失败");
       const lan = await this.accountTargetIsLan(baseUrl);
       return lan ? `demo-consent-${Date.now()}` : null;
     },
     async createAccount(input: GenericOpenAiAccountInput) {
       await new Promise((resolve) => setTimeout(resolve, latency()));
+      if (hasScenario("create-fail")) throw new Error("模拟创建失败");
       const account: AccountViewModel = {
         id: `demo-${Date.now()}`,
         providerId: input.providerId,
@@ -337,10 +350,12 @@ export function createMockBridge(): DashboardBridge {
     },
     async deleteAccount(accountId) {
       await new Promise((resolve) => setTimeout(resolve, latency()));
+      if (hasScenario("delete-fail")) throw new Error("模拟删除失败");
       accounts = accounts.filter((account) => account.id !== accountId);
     },
     async refresh(accountId) {
       await new Promise((resolve) => setTimeout(resolve, latency() + 220));
+      if (hasScenario("refresh-fail")) throw new Error("模拟刷新失败：上游 503");
       const fresh = demoAccounts(Date.now());
       accounts = fresh.map((account, index) => {
         if (index === 2 && accountId !== "demo-backup") {
@@ -355,17 +370,23 @@ export function createMockBridge(): DashboardBridge {
     },
     async checkForUpdate() {
       await new Promise((resolve) => setTimeout(resolve, latency()));
+      if (hasScenario("update-fail")) throw new Error("模拟更新检查失败");
+      if (hasScenario("update-available")) {
+        return { version: "1.5.0", notes: "模拟更新说明", publishedAt: new Date().toISOString() };
+      }
       return null;
     },
     async installUpdate() {
-      /* demo no-op */
+      if (hasScenario("install-fail")) throw new Error("模拟安装失败");
     },
     async listNotifications(limit?: number) {
       await new Promise((resolve) => setTimeout(resolve, latency()));
+      if (hasScenario("notifications-fail")) throw new Error("模拟通知读取失败");
       return structuredClone(notifications.slice(0, limit ?? 50));
     },
     async markNotificationsRead(ids?: string[]) {
       await new Promise((resolve) => setTimeout(resolve, latency()));
+      if (hasScenario("notifications-mark-fail")) throw new Error("模拟标记已读失败");
       const now = Date.now();
       notifications = notifications.map((notification) =>
         ids && ids.length > 0
@@ -377,14 +398,17 @@ export function createMockBridge(): DashboardBridge {
     },
     async getNotificationPreferences() {
       await new Promise((resolve) => setTimeout(resolve, latency()));
+      if (hasScenario("prefs-load-fail")) throw new Error("模拟偏好读取失败");
       return structuredClone(preferences);
     },
     async setNotificationPreferences(prefs: NotificationPreferencesViewModel) {
       await new Promise((resolve) => setTimeout(resolve, latency()));
+      if (hasScenario("prefs-fail")) throw new Error("模拟偏好保存失败");
       preferences = { ...prefs };
     },
     async historySummary(days?: number) {
       await new Promise((resolve) => setTimeout(resolve, latency()));
+      if (hasScenario("history-fail")) throw new Error("模拟历史读取失败");
       const summary = demoHistory(Date.now());
       return structuredClone({ ...summary, rangeDays: days ?? summary.rangeDays });
     },
@@ -419,33 +443,33 @@ export function createMockBridge(): DashboardBridge {
         ...options,
       });
       const profiles: ManifestProfileViewModel[] = [
-        profile("openai", "OpenAI", "https://api.openai.com/v1", "L4", {
+        // Mirrors the corrected providers/builtin/*.yaml values: OpenAI's
+        // admin Usage API needs admin scope plus required query timestamps,
+        // so its honest level is L2 (models + health), not the fabricated
+        // L4 /v1/usage + /v1/quota probes that always 404'd.
+        profile("openai", "OpenAI", "https://api.openai.com/v1", "L2", {
           models: "/v1/models",
-          usage: "/v1/usage",
-          quota: "/v1/quota",
         }),
-        profile("anthropic", "Anthropic", "https://api.anthropic.com/v1", "L4", {
+        profile("anthropic", "Anthropic", "https://api.anthropic.com/v1", "L2", {
           models: "/v1/models",
-          usage: "/v1/usage",
         }, { apiFormat: "anthropic", accountTypes: ["subscription", "api"], brand: "anthropic" }),
         profile("gemini", "Google Gemini", "https://generativelanguage.googleapis.com/v1beta", "L2", {
           models: "/v1beta/models",
         }, { apiFormat: "google-ai", accountTypes: ["api"], brand: "gemini" }),
         profile("openrouter", "OpenRouter", "https://openrouter.ai/api/v1", "L4", {
           models: "/models",
-          usage: "/api/v1/key",
+          usage: "/key",
         }),
         profile("deepseek", "DeepSeek", "https://api.deepseek.com/v1", "L3", {
           models: "/models",
           balance: "/user/balance",
         }),
-        profile("qwen", "Qwen / Alibaba", "https://dashscope.aliyuncs.com/api/v1", "L3", {
+        profile("qwen", "Qwen / Alibaba", "https://dashscope.aliyuncs.com/api/v1", "L1", {
           models: "/models",
-          usage: "/usage",
         }),
         profile("kimi", "Kimi / Moonshot", "https://api.moonshot.cn/v1", "L3", {
           models: "/models",
-          usage: "/users/me/balance",
+          balance: "/users/me/balance",
         }, { brand: "kimi", variant: "国内版" }),
         profile("minimax", "MiniMax", "https://api.minimax.chat/v1", "L2", {
           models: "/models",
@@ -471,7 +495,7 @@ export function createMockBridge(): DashboardBridge {
         }),
         profile("siliconflow", "SiliconFlow", "https://api.siliconflow.cn/v1", "L3", {
           models: "/models",
-          balance: "/v1/user/balance",
+          balance: "/user/info",
         }),
         profile("stepfun", "StepFun", "https://api.stepfun.com/v1", "L2", {
           models: "/models",
@@ -500,10 +524,16 @@ export function createMockBridge(): DashboardBridge {
           models: "/v1/models",
         }, { brand: "anthropic", variant: "OpenAI 兼容" }),
       ];
-      return { profiles, skipped: [] };
+      return {
+        profiles,
+        skipped: hasScenario("manifest-skipped")
+          ? ["broken.yaml: 缺少必填字段 provider", "old-pack.yaml: 版本不受支持"]
+          : [],
+      };
     },
     async providerMatrix() {
       await new Promise((resolve) => setTimeout(resolve, latency()));
+      if (hasScenario("matrix-fail")) throw new Error("模拟能力矩阵读取失败");
       const row = (
         id: string,
         name: string,
@@ -525,11 +555,14 @@ export function createMockBridge(): DashboardBridge {
         implemented,
       });
       return [
-        row("openai", "OpenAI", "L4", ["api", "usage"], ["currency", "token"], ["monthly", "custom"], "P0"),
-        row("anthropic", "Anthropic", "L4", ["subscription", "api"], ["token"], ["5h", "7d", "usage"], "P0"),
+        // Mirror the corrected manifests: OpenAI's Usage/Cost admin APIs need
+        // admin scope + query timestamps (honest L2); Anthropic's quota
+        // surface is the models probe plus ratelimit headers (L2).
+        row("openai", "OpenAI", "L2", ["api"], ["token"], ["provider-defined"], "P0"),
+        row("anthropic", "Anthropic", "L2", ["subscription", "api"], ["token"], ["provider-defined"], "P0"),
         row("openrouter", "OpenRouter", "L4", ["prepaid", "api"], ["currency", "token"], ["balance", "usage"], "P0"),
         row("deepseek", "DeepSeek", "L3", ["prepaid", "api"], ["currency", "token"], ["balance", "usage"], "P0"),
-        row("qwen", "Qwen / Alibaba", "L3", ["coding", "token", "api"], ["token", "credit"], ["5h", "7d", "balance"], "P0"),
+        row("qwen", "Qwen / Alibaba", "L1", ["coding", "token", "api"], ["token"], ["provider-defined"], "P0"),
         row("kimi", "Kimi / Moonshot", "L3", ["subscription", "api"], ["token", "balance"], ["5h", "7d", "balance"], "P0"),
         row("gemini", "Google Gemini", "L3", ["subscription", "api"], ["quota", "token"], ["provider-defined"], "P0"),
         row("minimax", "MiniMax", "L2", ["coding", "api"], ["token", "credit"], ["provider-defined"], "P0"),
@@ -543,6 +576,7 @@ export function createMockBridge(): DashboardBridge {
     },
     async historyBreakdown(days?: number) {
       await new Promise((resolve) => setTimeout(resolve, latency()));
+      if (hasScenario("history-fail")) throw new Error("模拟历史读取失败");
       const range = days ?? 30;
       const summary = demoHistory(Date.now());
       const rand = mulberry32(42);
@@ -573,6 +607,7 @@ export function createMockBridge(): DashboardBridge {
     },
     async usageWindows(accountId?: string) {
       await new Promise((resolve) => setTimeout(resolve, latency()));
+      if (hasScenario("usage-fail")) throw new Error("模拟用量读取失败");
       void accountId;
       const now = Date.now();
       const rand = mulberry32(Math.floor(now / 3_600_000));

@@ -48,6 +48,12 @@ export default defineConfig(() => ({
     globals: true,
     setupFiles: ["./src/test/setup.ts"],
     css: true,
+    // jsdom + React mounts cost ~0.6–2.4 s per test even in isolation; under
+    // parallel workers the 5 s default turns CPU contention into flaky
+    // failures (SetupForm/NotificationSection timed out at random). The
+    // timeout guards hangs, not machine speed.
+    testTimeout: 20_000,
+    hookTimeout: 20_000,
     exclude: ["**/node_modules/**", "**/e2e/**"],
   },
   resolve: {

@@ -21,8 +21,9 @@ test.describe("TokenOwl dashboard smoke", () => {
     // The titlebar heading names the account once its detail view is open.
     await expect(page.getByRole("heading", { name: "OpenAI 官方" })).toBeVisible();
     // The capability chip comes from the provider matrix, not a hardcoded
-    // placeholder — OpenAI's measured level is L4.
-    await expect(page.getByText("L4 · 完整额度")).toBeVisible();
+    // placeholder — OpenAI's honest level is L2 after the fabricated usage
+    // probes were removed (the admin Usage API needs query params).
+    await expect(page.getByText("L2 · 健康/模型")).toBeVisible();
     // Escape walks back to the overview like a desktop app's Back.
     await page.keyboard.press("Escape");
     await expect(page.getByRole("heading", { name: "概览" })).toBeVisible();

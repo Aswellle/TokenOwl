@@ -153,4 +153,28 @@ describe("AccountRow", () => {
     const icon = document.querySelector(".provider-icon");
     expect(icon).toBeInTheDocument();
   });
+
+  it("explains a first refresh failure instead of claiming old values exist", () => {
+    render(
+      <AccountRow
+        account={{
+          ...mockAccount,
+          status: "error",
+          freshness: "unknown",
+          snapshots: [],
+        }}
+        index={0}
+        now={Date.now()}
+        refreshing={false}
+        deleting={false}
+        onOpen={() => {}}
+        onRefresh={() => {}}
+        onDelete={() => {}}
+      />,
+    );
+    expect(screen.getByText(/首次刷新失败/)).toBeInTheDocument();
+    expect(screen.queryByText("刷新失败，下方显示的是最近一次成功的数据。")).not.toBeInTheDocument();
+    // The generic "click refresh" empty hint would repeat the failure notice.
+    expect(screen.queryByText("点击刷新以获取该账户的第一个快照。")).not.toBeInTheDocument();
+  });
 });

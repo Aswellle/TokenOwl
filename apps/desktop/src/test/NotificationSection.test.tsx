@@ -151,7 +151,7 @@ describe("NotificationSection", () => {
     );
   });
 
-  it("hides the settings form when preferences cannot be loaded", async () => {
+  it("explains unreadable preferences while keeping the log usable", async () => {
     const bridge = makeBridge({
       getNotificationPreferences: vi.fn(async () => {
         throw new Error("offline");
@@ -159,7 +159,9 @@ describe("NotificationSection", () => {
     });
     render(<NotificationSection bridge={bridge} reloadSignal={0} />);
     expect(await screen.findByText("额度紧张", { selector: ".notif__title" })).toBeInTheDocument();
-    expect(screen.queryByText("通知设置")).not.toBeInTheDocument();
+    // The failure is named instead of silently hiding the settings section.
+    expect(screen.getByText(/通知设置暂时无法读取/)).toBeInTheDocument();
+    expect(document.querySelector(".notif-settings")).toBeNull();
   });
 
   it("shows an error and rolls back when saving preferences fails", async () => {
@@ -175,5 +177,33 @@ describe("NotificationSection", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("保存失败");
     // The checkbox shows the persisted value again, not the rejected edit.
     expect(toggle).toBeChecked();
+  });
+
+  it("reports a failed log read instead of showing a false empty inbox", async () => {
+    const bridge = makeBridge({
+      listNotifications: vi.fn(async () => {
+        throw new Error("offline");
+      }),
+    });
+    render(<NotificationSection bridge={bridge} reloadSignal={0} />);
+    expect(await screen.findByText("通知暂时无法读取，请稍后重试。")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "重试" })).toBeInTheDocument();
+    expect(
+      screen.queryByText("一切正常，暂无需要处理的事项。额度告警、预测耗尽与恢复通知会出现在这里。"),
+    ).toBeNull();
+  });
+
+  it("surfaces a failed mark-read instead of silently keeping the badge", async () => {
+    const bridge = makeBridge({
+      markNotificationsRead: vi.fn(async () => {
+        throw new Error("rejected");
+      }),
+    });
+    render(<NotificationSection bridge={bridge} reloadSignal={0} />);
+    fireEvent.click(
+      await screen.findByRole("button", { name: "标记通知已读：额度紧张" }),
+    );
+    expect(await screen.findByRole("alert")).toHaveTextContent("标记已读失败");
+    expect(screen.getByText("1 条未读")).toBeInTheDocument();
   });
 });

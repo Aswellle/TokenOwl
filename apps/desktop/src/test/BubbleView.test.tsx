@@ -20,8 +20,13 @@ const {
   mockStabilize: vi.fn().mockResolvedValue(undefined),
 }));
 
+// Event handlers registered through `listen`, captured so tests can deliver
+// the Rust shell's morph events (`window:morph-to-bubble` /
+// `window:morph-from-bubble`) exactly as the real backend would.
+const eventHandlers = new Map<string, (event: { payload: unknown }) => void>();
+
 // The real icon pack ships emoji data as JSON imports that vitest's
-// transform rejects; the drag tests do not depend on the icon glyphs.
+// transform rejects; the tests below do not depend on the icon glyphs.
 vi.mock("@lobehub/icons", () => ({ ProviderIcon: () => null }));
 
 vi.mock("@tauri-apps/api/window", () => ({
@@ -33,7 +38,10 @@ vi.mock("@tauri-apps/api/window", () => ({
 }));
 
 vi.mock("@tauri-apps/api/event", () => ({
-  listen: () => new Promise(() => {}),
+  listen: vi.fn((event: string, handler: (event: { payload: unknown }) => void) => {
+    eventHandlers.set(event, handler);
+    return Promise.resolve(() => {});
+  }),
 }));
 
 vi.mock("../lib/tauri", () => ({
@@ -259,10 +267,11 @@ describe("bubble ring geometry", () => {
   it("shows only the owl when the local service is offline and nothing is cached", async () => {
     mockListAccounts.mockRejectedValue(new Error("ipc down"));
     render(<BubbleView />);
-    await screen.findByRole("button");
+    const button = await screen.findByRole("button");
     expect(document.querySelector(".bubble__mark--solo")).not.toBeNull();
     expect(document.querySelectorAll(".quota-rings__value")).toHaveLength(0);
     expect(document.querySelectorAll(".quota-rings__track")).toHaveLength(0);
+    expect(button.getAttribute("aria-label")).toContain("暂时无法读取账户");
   });
 
   it("reports consumed percentages in the accessible name", async () => {
@@ -276,11 +285,14 @@ describe("bubble ring geometry", () => {
   it("renders only the owl when no provider is configured", async () => {
     mockListAccounts.mockResolvedValue([]);
     render(<BubbleView />);
-    await screen.findByRole("button");
+    const button = await screen.findByRole("button");
 
     expect(document.querySelector(".bubble__mark--solo")).not.toBeNull();
     expect(document.querySelectorAll(".quota-rings__track")).toHaveLength(0);
     expect(document.querySelectorAll(".quota-rings__value")).toHaveLength(0);
+    // No account exists, so the name must not imply one is merely missing data.
+    expect(button.getAttribute("aria-label")).toContain("等待添加第一个供应商");
+    expect(button.getAttribute("aria-label")).not.toContain("该账户未上报");
   });
 
   it("re-applies the tool-window shape once the first load settles", async () => {
@@ -289,7 +301,185 @@ describe("bubble ring geometry", () => {
     await screen.findByRole("button");
 
     // The shell rewrites window flags on every show, so the webview pins the
-    // tool-window style and 56×56 size back once its data has settled.
+    // tool-window style and 56×56 size back once its data has settled. The
+    // pin runs in a passive effect, so assert through React's flush, not on
+    // the same tick the button appears.
+    await waitFor(() => expect(mockStabilize).toHaveBeenCalled());
+  });
+});
+
+function emitMorph(event: string, payload: unknown) {
+  return act(async () => {
+    eventHandlers.get(event)?.({ payload });
+  });
+}
+
+const ANCHOR = { x: 28, y: 28, diameter: 56 };
+
+describe("bubble morph handoff", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    eventHandlers.clear();
+  });
+
+  it("stays unmounted until the first account load settles", () => {
+    // Rendering the no-data look during the initial fetch would read as a
+    // phantom empty state; the view holds back entirely instead.
+    mockListAccounts.mockReturnValue(new Promise(() => {}));
+    const { container } = render(<BubbleView />);
+    expect(container).toBeEmptyDOMElement();
+  });
+
+  it("settles the rings when the dashboard collapses into the bubble", async () => {
+    mockListAccounts.mockResolvedValue(accountWith(windowedQuota("q-5h", 5, 60)));
+    render(<BubbleView />);
+    await screen.findByRole("button");
+    mockStabilize.mockClear();
+
+    await emitMorph("window:morph-to-bubble", ANCHOR);
+
+    // The same moment re-pins the tool-window style through the shell.
     expect(mockStabilize).toHaveBeenCalled();
+    expect(
+      document.querySelector("svg.quota-rings")?.getAttribute("data-morph-phase"),
+    ).toBe("settle");
+    const geometry = document.querySelector(".quota-rings__geometry");
+    expect(geometry).not.toBeNull();
+    await waitFor(() => {
+      expect(Number(gsap.getProperty(geometry as Element, "opacity"))).toBeCloseTo(1, 3);
+      expect(Number(gsap.getProperty(geometry as Element, "scale"))).toBeCloseTo(1, 3);
+    });
+  });
+
+  it("compresses the rings while the panel expands over the bubble", async () => {
+    mockListAccounts.mockResolvedValue(accountWith(windowedQuota("q-5h", 5, 60)));
+    render(<BubbleView />);
+    await screen.findByRole("button");
+
+    await emitMorph("window:morph-from-bubble", ANCHOR);
+
+    expect(
+      document.querySelector("svg.quota-rings")?.getAttribute("data-morph-phase"),
+    ).toBe("exit");
+    const geometry = document.querySelector(".quota-rings__geometry");
+    await waitFor(() => {
+      expect(Number(gsap.getProperty(geometry as Element, "opacity"))).toBeCloseTo(0.5, 2);
+      expect(Number(gsap.getProperty(geometry as Element, "scale"))).toBeCloseTo(0.94, 2);
+    });
+  });
+
+  it("replays the settle on every collapse and returns to idle afterwards", async () => {
+    mockListAccounts.mockResolvedValue(accountWith(windowedQuota("q-5h", 5, 60)));
+    render(<BubbleView />);
+    await screen.findByRole("button");
+    // The initial ready pin already ran; count only the collapse handoffs.
+    mockStabilize.mockClear();
+
+    await emitMorph("window:morph-to-bubble", ANCHOR);
+    expect(
+      document.querySelector("svg.quota-rings")?.getAttribute("data-morph-phase"),
+    ).toBe("settle");
+
+    // A second identical anchor must replay (the token exists exactly for
+    // that), not be swallowed by an unchanged phase string.
+    await emitMorph("window:morph-to-bubble", ANCHOR);
+    expect(mockStabilize).toHaveBeenCalledTimes(2);
+    expect(
+      document.querySelector("svg.quota-rings")?.getAttribute("data-morph-phase"),
+    ).toBe("settle");
+
+    // The anchor only seeds the entrance; after its window passes the bubble
+    // is back in its idle phase.
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 700));
+    });
+    expect(
+      document.querySelector("svg.quota-rings")?.getAttribute("data-morph-phase"),
+    ).toBe("idle");
+  });
+});
+
+describe("bubble centre mark", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("renders the owl glyph as the solo centre mark when unconfigured", async () => {
+    mockListAccounts.mockResolvedValue([]);
+    render(<BubbleView />);
+    await screen.findByRole("button");
+
+    const mark = document.querySelector(".bubble__mark--solo");
+    expect(mark?.querySelector("svg")).not.toBeNull();
+    expect(mark?.querySelector(".provider-icon")).toBeNull();
+    expect(document.querySelector("svg.quota-rings")?.getAttribute("data-ring-count")).toBe(
+      "0",
+    );
+  });
+
+  it("declares the two-ring layout on the mark for a configured provider", async () => {
+    mockListAccounts.mockResolvedValue(
+      accountWith(windowedQuota("q-5h", 5, 60), windowedQuota("q-7d", 168, 80)),
+    );
+    render(<BubbleView />);
+    await screen.findByRole("button");
+
+    expect(document.querySelector("svg.quota-rings")?.getAttribute("data-ring-count")).toBe(
+      "2",
+    );
+    expect(document.querySelector(".bubble__mark")?.getAttribute("data-ring-count")).toBe(
+      "2",
+    );
+    // With a real account the solo owl is replaced by the provider mark.
+    expect(document.querySelector(".bubble__mark--solo")).toBeNull();
+  });
+
+  it("draws rings from the primary account only, never a merge", async () => {
+    // Two healthy accounts both report a "5h" window. Merging would collide
+    // the tags and draw an arbitrary mix; the bubble answers for the primary
+    // account's 90 % consumed window instead.
+    const primary = accountWith(windowedQuota("q-a-5h", 5, 10))[0];
+    const secondary: AccountViewModel = {
+      ...primary,
+      id: "acc-2",
+      providerId: "anthropic:acc-2",
+      label: "Secondary",
+      snapshots: [windowedQuota("q-b-5h", 5, 90)],
+    };
+    mockListAccounts.mockResolvedValue([primary, secondary]);
+    render(<BubbleView />);
+    const button = await screen.findByRole("button");
+
+    expect(
+      document.querySelector('[data-ring-tone="outer"]')?.getAttribute("data-ring-consumed"),
+    ).toBe("0.900");
+    expect(button.getAttribute("aria-label")).toContain("5h 90%");
+  });
+
+  it("skips an errored account when picking the primary", async () => {
+    const errored = {
+      ...accountWith(windowedQuota("q-dead", 5, 50))[0],
+      status: "error" as const,
+      freshness: "expired" as const,
+      snapshots: [],
+    };
+    const healthy: AccountViewModel = {
+      ...errored,
+      id: "acc-2",
+      providerId: "anthropic:acc-2",
+      status: "healthy",
+      freshness: "fresh",
+      snapshots: [windowedQuota("q-live-5h", 5, 70)],
+    };
+    mockListAccounts.mockResolvedValue([errored, healthy]);
+    render(<BubbleView />);
+    const button = await screen.findByRole("button");
+
+    // The ring comes from the healthy account (30 % consumed); the errored
+    // one contributes nothing, not even a zeroed dial.
+    expect(
+      document.querySelector('[data-ring-tone="outer"]')?.getAttribute("data-ring-consumed"),
+    ).toBe("0.300");
+    expect(button.getAttribute("aria-label")).toContain("5h 30%");
   });
 });

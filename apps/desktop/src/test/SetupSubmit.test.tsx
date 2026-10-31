@@ -66,6 +66,14 @@ describe("setup form submit wiring", () => {
     expect(button.closest("form")).not.toBeNull();
   });
 
+  it("masks the API key field as a password control", async () => {
+    await openSetupForm();
+    // `-webkit-text-security` hides the characters visually but leaves the
+    // value exposed to accessibility tools; a real password input protects
+    // both surfaces.
+    expect(screen.getByLabelText(/API 密钥|API key/i)).toHaveAttribute("type", "password");
+  });
+
   it("creates the account through the form's submit path", async () => {
     mockCreateAccount.mockResolvedValue({
       id: "acc-1",

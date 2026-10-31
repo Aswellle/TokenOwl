@@ -77,6 +77,17 @@ describe("Dashboard state machine", () => {
     await waitFor(() => expect(screen.getByText("Test Account")).toBeInTheDocument());
   });
 
+  it("close light collapses to the bubble instead of plain hiding", async () => {
+    const tauri = await import("../lib/tauri");
+    vi.mocked(tauri.isTauri).mockReturnValue(true);
+    vi.mocked(tauri.shell.showBubble).mockResolvedValue(undefined);
+    mockListAccounts.mockResolvedValue([mockAccount]);
+    render(<App />);
+    await waitFor(() => expect(screen.getByText("Test Account")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "关闭面板（回到 Bubble）" }));
+    expect(tauri.shell.showBubble).toHaveBeenCalled();
+  });
+
   it("transitions to offline on load failure", async () => {
     mockListAccounts.mockRejectedValue(new Error("network error"));
     render(<App />);
@@ -106,7 +117,7 @@ describe("Dashboard state machine", () => {
     await waitFor(() => expect(mockRefresh).toHaveBeenCalled());
   });
 
-  it("handles refresh failure with a retained-data notice", async () => {
+  it("handles refresh failure with an actionable first-refresh notice", async () => {
     mockListAccounts.mockResolvedValue([mockAccount]);
     mockRefresh.mockRejectedValue(new Error("refresh failed"));
     render(<App />);
@@ -115,7 +126,7 @@ describe("Dashboard state machine", () => {
     fireEvent.click(screen.getByRole("button", { name: /全部刷新/ }));
 
     await waitFor(() =>
-      expect(screen.getByText(/刷新失败|refresh failed/i)).toBeInTheDocument(),
+      expect(screen.getByText(/首次刷新失败/)).toBeInTheDocument(),
     );
   });
 

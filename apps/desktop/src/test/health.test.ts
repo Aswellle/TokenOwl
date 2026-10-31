@@ -83,4 +83,10 @@ describe("overallHealth", () => {
   it("falls back to healthy only when no account signals a problem", () => {
     expect(overallHealth([account("healthy")], "ready")).toBe("healthy");
   });
+
+  it("never calls an empty account list healthy", () => {
+    expect(overallHealth([], "ready")).toBe("unconfigured");
+    expect(overallHealth([], "loading")).toBe("syncing");
+    expect(overallHealth([], "offline")).toBe("offline");
+  });
 });

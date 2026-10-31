@@ -135,4 +135,17 @@ describe("HistorySection", () => {
     expect(document.activeElement).not.toBe(first);
     expect(document.activeElement?.className).toContain("heat-cell");
   });
+
+  it("reports a failed read with a retry instead of an endless skeleton", async () => {
+    const bridge = makeBridge(summaryWithData);
+    bridge.historySummary = vi.fn(async () => {
+      throw new Error("offline");
+    });
+    render(<HistorySection bridge={bridge} accounts={[]} reloadSignal={0} />);
+    expect(
+      await screen.findByText("历史数据暂时无法读取，请稍后重试。"),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "重试" })).toBeInTheDocument();
+    expect(document.querySelector(".history-section .skeleton")).toBeNull();
+  });
 });

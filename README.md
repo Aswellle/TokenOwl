@@ -21,6 +21,7 @@
 <p align="center">
   <a href="https://github.com/Aswellle/TokenOwl/actions/workflows/ci-rust.yml"><img src="https://img.shields.io/github/actions/workflow/status/Aswellle/TokenOwl/ci-rust.yml?branch=main&label=rust%20CI&style=flat-square" alt="Rust CI" /></a>
   <a href="https://github.com/Aswellle/TokenOwl/actions/workflows/ci-frontend.yml"><img src="https://img.shields.io/github/actions/workflow/status/Aswellle/TokenOwl/ci-frontend.yml?branch=main&label=frontend%20CI&style=flat-square" alt="Frontend CI" /></a>
+  <a href="https://github.com/Aswellle/TokenOwl/releases"><img src="https://img.shields.io/github/downloads/Aswellle/TokenOwl/total?label=downloads&style=flat-square" alt="Downloads" /></a>
   <a href="https://github.com/Aswellle/TokenOwl/releases"><img src="https://img.shields.io/github/v/tag/Aswellle/TokenOwl?label=release&style=flat-square" alt="Release" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" alt="MIT License" /></a>
   <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS-blue?style=flat-square" alt="Platform" />

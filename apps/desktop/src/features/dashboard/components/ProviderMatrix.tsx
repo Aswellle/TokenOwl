@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { copy } from "../../../styles/copy";
+import { IconRefresh } from "../../../components/icons";
 import type { DashboardBridge, ProviderMatrixRowViewModel } from "../../../types";
 
 /** Level → chip treatment, shared with the provider detail view. */
@@ -20,21 +21,19 @@ function levelLabel(level: string): string {
  */
 export function ProviderMatrix({ bridge }: { bridge: DashboardBridge }) {
   const [rows, setRows] = useState<ProviderMatrixRowViewModel[] | null>(null);
+  const [failed, setFailed] = useState(false);
 
-  useEffect(() => {
-    let active = true;
+  const load = useCallback(() => {
+    setFailed(false);
     bridge
       .providerMatrix()
-      .then((value) => {
-        if (active) setRows(value);
-      })
-      .catch(() => {
-        if (active) setRows([]);
-      });
-    return () => {
-      active = false;
-    };
+      .then((value) => setRows(value))
+      .catch(() => setFailed(true));
   }, [bridge]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
 
   return (
     <section className="section matrix" aria-label={copy.a11y.matrixRegion}>
@@ -44,11 +43,23 @@ export function ProviderMatrix({ bridge }: { bridge: DashboardBridge }) {
         <summary className="matrix__summary">
           <span className="matrix__summary-title">{copy.matrix.title}</span>
           <span className="matrix__summary-count">
-            {rows === null ? copy.matrix.loading : copy.matrix.rowCount(rows.length)}
+            {failed
+              ? copy.matrix.loadFailedShort
+              : rows === null
+                ? copy.matrix.loading
+                : copy.matrix.rowCount(rows.length)}
           </span>
         </summary>
         <p className="matrix__intro">{copy.matrix.intro}</p>
-        {rows === null ? (
+        {failed ? (
+          <div className="matrix__failure">
+            <p className="section__empty">{copy.matrix.loadFailed}</p>
+            <button className="btn btn--quiet" type="button" onClick={load}>
+              <IconRefresh size={14} />
+              {copy.actions.retry}
+            </button>
+          </div>
+        ) : rows === null ? (
         <div className="skeleton" aria-hidden="true">
           <div className="skeleton__line skeleton__line--short" />
           <div className="skeleton__line" />

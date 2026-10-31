@@ -80,6 +80,7 @@ export function QuotaRings({
         viewBox={`0 0 ${VIEWBOX} ${VIEWBOX}`}
         aria-hidden="true"
         data-ring-count={dials.length}
+        data-morph-phase={morphPhase}
         data-reduced-motion={reducedMotion ? "true" : "false"}
       >
         <defs>

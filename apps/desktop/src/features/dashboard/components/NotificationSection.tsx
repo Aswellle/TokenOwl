@@ -325,6 +325,9 @@ export function NotificationSection({
 }) {
   const [items, setItems] = useState<NotificationViewModel[] | null>(null);
   const [prefs, setPrefs] = useState<NotificationPreferencesViewModel | null>(null);
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [prefsFailed, setPrefsFailed] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
   // Type filter: the log is the only place a user can audit *what kind* of
   // alerting their setup produces, and after a few weeks it holds every kind.
@@ -340,11 +343,16 @@ export function NotificationSection({
     const [list, loadedPrefs] = results;
     if (list.status === "fulfilled") {
       setItems(list.value);
+      setLoadFailed(false);
     } else {
       setItems((current) => current ?? []);
+      setLoadFailed(true);
     }
     if (loadedPrefs.status === "fulfilled") {
       setPrefs(loadedPrefs.value);
+      setPrefsFailed(false);
+    } else {
+      setPrefsFailed(true);
     }
   }, [bridge]);
 
@@ -367,13 +375,23 @@ export function NotificationSection({
       : (items ?? []).filter((item) => item.kind === kindFilter);
 
   const handleMarkRead = async (id: string) => {
-    await bridge.markNotificationsRead([id]);
-    void load();
+    setActionError(null);
+    try {
+      await bridge.markNotificationsRead([id]);
+      void load();
+    } catch {
+      setActionError(copy.notifications.markReadFailed);
+    }
   };
 
   const handleMarkAllRead = async () => {
-    await bridge.markNotificationsRead();
-    void load();
+    setActionError(null);
+    try {
+      await bridge.markNotificationsRead();
+      void load();
+    } catch {
+      setActionError(copy.notifications.markReadFailed);
+    }
   };
 
   return (
@@ -415,7 +433,26 @@ export function NotificationSection({
         </div>
       </div>
 
-      {items === null ? (
+      {actionError && (
+        <p className="notif-section__error" role="alert">
+          {actionError}
+        </p>
+      )}
+      {loadFailed && (items?.length ?? 0) > 0 && (
+        <div className="notice notice--warning">{copy.notifications.loadFailed}</div>
+      )}
+      {prefsFailed && !prefs && (
+        <div className="notice notice--warning">{copy.notifications.preferencesLoadFailed}</div>
+      )}
+
+      {loadFailed && (items?.length ?? 0) === 0 ? (
+        <div className="notif__failure">
+          <p className="section__empty">{copy.notifications.loadFailed}</p>
+          <button className="btn btn--quiet" type="button" onClick={() => void load()}>
+            {copy.actions.retry}
+          </button>
+        </div>
+      ) : items === null ? (
         <div className="skeleton" aria-hidden="true">
           <div className="skeleton__line skeleton__line--short" />
           <div className="skeleton__line" />

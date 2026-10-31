@@ -222,6 +222,7 @@ export const healthIcons: Record<string, HealthIcon> = {
   offline: IconCloudOff,
   syncing: IconRefresh,
   unavailable: IconClock,
+  unconfigured: IconCircleUser,
 };
 
 /** Settings: a gear, for the dock's settings entry. */

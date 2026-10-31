@@ -12,6 +12,14 @@ export function timestamp(value: string | number | null | undefined): number | n
 
 export function formatValue(value: number | null | undefined, quota: QuotaViewModel): string {
   if (value === null || value === undefined || !Number.isFinite(value)) return copy.quota.none;
+  // Percent quotas read as a share, not a count: "82%" not "82".
+  if (quota.unit === "percent") {
+    return `${new Intl.NumberFormat("zh-CN", { maximumFractionDigits: 1 }).format(value)}%`;
+  }
+  // Token counts get the 万/亿 scale; a raw 1,820,000 forces counting zeros.
+  if (quota.unit === "token" && Math.abs(value) >= 10_000) {
+    return formatCompact(value);
+  }
   const number = new Intl.NumberFormat("zh-CN", { maximumFractionDigits: 2 }).format(value);
   return quota.unit === "currency" && quota.currency ? `${quota.currency} ${number}` : number;
 }
@@ -86,6 +94,9 @@ export function accountResetAt(account: AccountViewModel): string | number | nul
 export function overallHealth(accounts: AccountViewModel[], phase: "loading" | "ready" | "offline"): AccountHealth {
   if (phase === "loading" && accounts.length === 0) return "syncing";
   if (phase === "offline" && accounts.length === 0) return "offline";
+  // Zero accounts on a ready shell is not "healthy": nothing is being
+  // monitored yet, and a green check would overstate the app's state.
+  if (accounts.length === 0) return "unconfigured";
   if (accounts.some((account) => account.status === "error")) return "error";
   if (accounts.some((account) => account.status === "critical")) return "critical";
   if (accounts.some((account) => account.status === "attention")) return "attention";

@@ -106,6 +106,9 @@ export function AccountRow({
       {account.status === "error" && hasSnapshots && (
         <Notice tone="danger">{copy.notices.accountError}</Notice>
       )}
+      {account.status === "error" && !hasSnapshots && (
+        <Notice tone="danger">{copy.notices.accountErrorEmpty}</Notice>
+      )}
       {account.status === "stale" && hasSnapshots && (
         <Notice tone="warning">{copy.notices.accountStale}</Notice>
       )}
@@ -116,7 +119,7 @@ export function AccountRow({
             <QuotaMetric key={quota.id} quota={quota} now={now} />
           ))}
         </ul>
-      ) : (
+      ) : account.status === "error" ? null : (
         <div className="notice notice--inline">
           <span className="notice__icon">
             <IconAlert size={14} />

@@ -566,7 +566,7 @@ export function SetupForm({
             className="field__input secret-input"
             id="api-key"
             ref={apiKeyRef}
-            type="text"
+            type="password"
             autoComplete="off"
             aria-describedby="api-key-help"
             placeholder={copy.form.apiKeyPlaceholder}

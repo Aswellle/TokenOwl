@@ -19,7 +19,8 @@ export type AccountHealth =
   | "error"
   | "offline"
   | "syncing"
-  | "unavailable";
+  | "unavailable"
+  | "unconfigured";
 
 export type Freshness = "fresh" | "stale" | "expired" | "unknown";
 

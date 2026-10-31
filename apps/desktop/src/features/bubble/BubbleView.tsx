@@ -162,7 +162,11 @@ export function BubbleView({ bridge = tauriBridge }: { bridge?: DashboardBridge 
         )
       : fallbackRatio !== null
         ? copy.bubble.rings(`${Math.round(fallbackRatio * 100)}%`)
-        : copy.bubble.noWindow;
+        : accounts.length === 0
+          ? phase === "offline"
+            ? copy.bubble.offline
+            : copy.bubble.noAccount
+          : copy.bubble.noWindow;
 
   // Hold the bubble back until the first account load settles: rendering the
   // no-data look during the initial fetch reads as a phantom empty state.

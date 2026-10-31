@@ -292,18 +292,56 @@ export function ProviderView({
       </motion.div>
 
       {account.snapshots.length > 0 ? (
-        <ul className="quotas">
-          {account.snapshots.map((quota) => (
-            <QuotaMetric key={quota.id} quota={quota} now={now} />
-          ))}
-        </ul>
+        <QuotaSections account={account} now={now} />
       ) : (
         <div className="notice notice--inline">
           <span>
-            {account.status === "unavailable" ? copy.quota.emptyUnavailable : copy.quota.emptyBody}
+            {account.status === "error"
+              ? copy.notices.accountErrorEmpty
+              : account.status === "unavailable"
+                ? copy.quota.emptyUnavailable
+                : copy.quota.emptyBody}
           </span>
         </div>
       )}
     </section>
+  );
+}
+
+/**
+ * Metric cards grouped by quota kind: time-windowed dials (5h rolling, 7d
+ * fixed, calendar periods) answer "how much is left and when does it reset",
+ * while windowless figures (prepaid balances, credits, lifetime totals) answer
+ * "how much is in the account". One flat list mixed both vocabularies; the
+ * two sections let each kind keep its own reading.
+ */
+function QuotaSections({ account, now }: { account: AccountViewModel; now: number }) {
+  const isWindowed = (quota: (typeof account.snapshots)[number]): boolean =>
+    Boolean(quota.window?.type) || quotaWindowTag(quota) !== null;
+  const windowed = account.snapshots.filter(isWindowed);
+  const metered = account.snapshots.filter((quota) => !isWindowed(quota));
+  return (
+    <>
+      {windowed.length > 0 && metered.length > 0 && (
+        <h3 className="quotas__section">{copy.quota.windowedSection}</h3>
+      )}
+      {windowed.length > 0 && (
+        <ul className="quotas">
+          {windowed.map((quota) => (
+            <QuotaMetric key={quota.id} quota={quota} now={now} />
+          ))}
+        </ul>
+      )}
+      {windowed.length > 0 && metered.length > 0 && (
+        <h3 className="quotas__section">{copy.quota.meteredSection}</h3>
+      )}
+      {metered.length > 0 && (
+        <ul className="quotas">
+          {metered.map((quota) => (
+            <QuotaMetric key={quota.id} quota={quota} now={now} />
+          ))}
+        </ul>
+      )}
+    </>
   );
 }

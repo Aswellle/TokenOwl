@@ -5,6 +5,7 @@ import {
   formatCountdown,
   formatValue,
   quotaRatio,
+  quotaWindowTag,
   ratioTone,
 } from "../../../lib/format";
 import type { QuotaViewModel } from "../../../types";
@@ -50,9 +51,16 @@ export function QuotaMetric({ quota, now }: { quota: QuotaViewModel; now: number
   // Endpoint kind ids ("quota"/"usage"/"balance") localize through copy.metrics;
   // provider-supplied metric names pass through untouched.
   const metricName = copy.metrics[quota.metricName] ?? quota.metricName;
-  const windowLabel = quota.window?.type
-    ? (copy.windowTypes[quota.window.type] ?? quota.window.type)
-    : null;
+  // Window identity drives the chip: the type ("滚动窗口") plus the span tag
+  // ("5h"/"7d") when the provider reports start/end. A windowless metric
+  // (balance, credits, lifetime totals) shows no time chip at all — and no
+  // invented reset countdown.
+  const windowType = quota.window?.type ? (copy.windowTypes[quota.window.type] ?? null) : null;
+  const span = quotaWindowTag(quota);
+  const windowLabel =
+    windowType && span && span !== windowType
+      ? `${windowType} · ${span}`
+      : (windowType ?? span);
   const state = quota.status ?? "available";
   return (
     <li className="quota">
@@ -61,7 +69,14 @@ export function QuotaMetric({ quota, now }: { quota: QuotaViewModel; now: number
           {metricName}
           {unit && <span className="quota__unit">{unit}</span>}
         </h4>
-        {windowLabel && <span className="quota__window">{windowLabel}</span>}
+        {windowLabel && (
+          <span
+            className="quota__window"
+            title={quota.window ? copy.quota.windowSpan(span ?? "") : copy.quota.noWindow}
+          >
+            {windowLabel}
+          </span>
+        )}
       </div>
       <QuotaValues quota={quota} />
       {ratio !== null && tone && (

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent a
 import { motion } from "motion/react";
 import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { copy } from "../../../styles/copy";
+import { IconRefresh } from "../../../components/icons";
 import { ProviderIcon } from "../../../components/ProviderIcon";
 import { formatCompact, quotaRatio, quotaWindowTag } from "../../../lib/format";
 import type {
@@ -143,10 +144,12 @@ export function HistorySection({
 }) {
   const [summary, setSummary] = useState<HistorySummaryViewModel | null>(null);
   const [breakdown, setBreakdown] = useState<Map<number, HistoryDayAccountViewModel[]>>(new Map());
+  const [failed, setFailed] = useState(false);
   const cellRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const [focusIndex, setFocusIndex] = useState<number | null>(null);
 
   const load = useCallback(async () => {
+    setFailed(false);
     try {
       const [loaded, days] = await Promise.all([
         bridge.historySummary(RANGE_DAYS),
@@ -155,7 +158,9 @@ export function HistorySection({
       setSummary(loaded);
       setBreakdown(new Map(days.map((day) => [day.dayStart, day.accounts])));
     } catch {
-      // The global offline notice covers the failure; keep prior data visible.
+      // A failed read is a terminal, explained state: an endless skeleton
+      // reads as "still loading" forever and hides the problem.
+      setFailed(true);
     }
   }, [bridge]);
 
@@ -288,17 +293,29 @@ export function HistorySection({
     <section className="section history-section" aria-label={copy.a11y.historyRegion}>
 
       {summary === null ? (
-        <div className="skeleton" aria-hidden="true">
-          <div className="skeleton__line skeleton__line--short" />
-          <div className="skeleton__line" />
-        </div>
+        failed ? (
+          <div className="history__failure">
+            <p className="section__empty">{copy.history.loadFailed}</p>
+            <button className="btn btn--quiet" type="button" onClick={() => void load()}>
+              <IconRefresh size={14} />
+              {copy.actions.retry}
+            </button>
+          </div>
+        ) : (
+          <div className="skeleton" aria-hidden="true">
+            <div className="skeleton__line skeleton__line--short" />
+            <div className="skeleton__line" />
+          </div>
+        )
       ) : (
-        <motion.div
-          className="history__layout"
-          variants={fadeVariants}
-          initial="hidden"
-          animate="show"
-        >
+        <>
+          {failed && <div className="notice notice--warning">{copy.history.loadFailed}</div>}
+          <motion.div
+            className="history__layout"
+            variants={fadeVariants}
+            initial="hidden"
+            animate="show"
+          >
           <div className="history__stats">
             <div className="history__stat">
               <span>{copy.history.tokens30}</span>
@@ -449,7 +466,8 @@ export function HistorySection({
             <p className="section__empty">{copy.history.empty}</p>
           )}
           <p className="history__note">{copy.history.intro}</p>
-        </motion.div>
+          </motion.div>
+        </>
       )}
     </section>
   );

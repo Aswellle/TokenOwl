@@ -55,6 +55,8 @@ export const copy = {
     loading: "正在获取额度",
     rings: (parts: string) => `额度已用：${parts}`,
     noWindow: "该账户未上报按窗口计的额度",
+    noAccount: "等待添加第一个供应商",
+    offline: "暂时无法读取账户",
     windowTag: (label: string) => `${label}窗口`,
   },
 
@@ -68,6 +70,7 @@ export const copy = {
     configuredLocally: "仅存本机",
     needsAttention: (count: number) => `${count} 个需要处理`,
     waitingData: "等待首次数据",
+    noWindow: "未上报窗口额度",
     knownWindow: "已知窗口",
     unknown: "未知",
     none: "—",
@@ -105,6 +108,7 @@ export const copy = {
     offline: "本地服务不可用",
     syncing: "正在同步",
     unavailable: "暂无数据，等待首次刷新",
+    unconfigured: "尚未连接",
   } as Record<string, string>,
 
   quota: {
@@ -118,6 +122,10 @@ export const copy = {
     firstRunTitle: "连接你的第一个供应商",
     emptyBody: "点击刷新以获取该账户的第一个快照。",
     emptyUnavailable: "该账户已连接，但接口没有返回可识别的额度字段。",
+    windowedSection: "窗口额度",
+    meteredSection: "余额与用量",
+    windowSpan: (span: string) => `窗口跨度 ${span}`,
+    noWindow: "无时间窗口",
   },
 
   freshness: {
@@ -144,7 +152,7 @@ export const copy = {
     token: "Token",
     currency: "金额",
     request: "请求",
-    credit: "额度",
+    credit: "积分",
     percent: "百分比",
     compute_unit: "算力",
     character: "字符",
@@ -188,6 +196,8 @@ export const copy = {
     deleteFailed: "移除失败，请稍后重试。",
     accountStale: "该快照已偏旧，数值仍然可用，但要等下一次成功刷新才可靠。",
     accountError: "刷新失败，下方显示的是最近一次成功的数据。",
+    accountErrorEmpty:
+      "首次刷新失败，尚未获得任何额度数据。请检查接口地址与密钥，或确认该供应商是否提供额度接口。",
     bridgeUnavailable: "本地服务不可用",
     localOnly: "数据仅保存在本机",
     offlineTitle: "本地服务不可用",
@@ -269,6 +279,7 @@ export const copy = {
     title: "历史趋势",
     intro: "从本机开始记录后逐日积累；没有记录的日期不代表零消耗。",
     empty: "历史从每次自动刷新开始逐日累积。添加一个账户并等待下一次刷新，这里就会出现第一天的用量。",
+    loadFailed: "历史数据暂时无法读取，请稍后重试。",
     tokens30: "近 30 天 Tokens",
     cost30: "近 30 天计费",
     activeDays: "活跃天数",
@@ -284,6 +295,8 @@ export const copy = {
     loading: "加载中",
     rowCount: (count: number) => `${count} 个供应商`,
     title: "供应商能力矩阵",
+    loadFailed: "供应商能力矩阵暂时无法读取，请稍后重试。",
+    loadFailedShort: "读取失败",
     protocol: "协议",
     intro:
       "能力等级按 docs/09 首发规划：L4 完整额度（含重置）· L3 用量/余额 · L2 健康/模型 · L1 自定义接入。规划中的行以实测 fixture 为准，不预先标注等级。",
@@ -302,6 +315,9 @@ export const copy = {
     title: "通知",
     empty: "一切正常，暂无需要处理的事项。额度告警、预测耗尽与恢复通知会出现在这里。",
     filteredEmpty: "该类型下暂无通知；切换类型或等待新的提醒。",
+    loadFailed: "通知暂时无法读取，请稍后重试。",
+    markReadFailed: "标记已读失败，请稍后重试。",
+    preferencesLoadFailed: "通知设置暂时无法读取，通知历史仍可查看。",
     markAllRead: "全部已读",
     markRead: "标为已读",
     unreadSuffix: (count: number) => `${count} 条未读`,

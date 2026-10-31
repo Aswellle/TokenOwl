@@ -556,6 +556,12 @@ button:disabled {
   background: var(--accent-soft);
 }
 
+.chip--unconfigured {
+  color: var(--ink-2);
+  border-color: var(--hairline-strong);
+  background: var(--surface);
+}
+
 .chip__icon {
   display: inline-flex;
   flex: 0 0 auto;
@@ -936,6 +942,27 @@ button:disabled {
   text-align: center;
 }
 
+/* Terminal read failures keep the retry affordance next to the explanation
+   instead of an endless skeleton or a false empty state. */
+.history__failure,
+.notif__failure,
+.matrix__failure {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 0 10px;
+}
+
+.notif-section__error {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  color: var(--danger);
+  background: var(--danger-soft);
+  font-size: var(--step-1);
+}
+
 /* ---------- segmented control ---------- */
 
 .seg {
@@ -1111,6 +1138,15 @@ button:disabled {
 }
 
 /* ---------- quota rows ---------- */
+
+/* Section header between windowed dials and windowless balances/credits. */
+.quotas__section {
+  margin: 18px 0 0;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--text-tertiary);
+}
 
 .quotas {
   margin-top: 10px;
@@ -1441,7 +1477,8 @@ button:disabled {
 }
 
 .bubble--offline,
-.bubble--unavailable {
+.bubble--unavailable,
+.bubble--unconfigured {
   --bubble-accent: #8a8a90;
   color: var(--ink-2);
   box-shadow:

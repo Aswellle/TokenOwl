@@ -82,13 +82,24 @@ function AnimatedNumber({ value, format }: { value: number; format?: (value: num
 
 
 function TrafficLights() {
+  // The close light returns to the bubble — same collapse-to-bubble handoff
+  // as the header pill — because the label promises it and a plain hide would
+  // leave no visible affordance (only the tray or the hotkey) to come back.
+  const collapseToBubble = () => {
+    if (!isTauri()) {
+      // Plain-browser preview: morph to the bubble in this document.
+      window.dispatchEvent(new CustomEvent("tokenowl:show-bubble"));
+      return;
+    }
+    void shell.showBubble().catch(() => null);
+  };
   return (
     <div className="lights">
       <button
         className="light light--close"
         type="button"
         aria-label={copy.titlebar.close}
-        onClick={() => void shell.hideDashboard().catch(() => null)}
+        onClick={collapseToBubble}
       >
         <IconClose size={9} strokeWidth={2.2} />
       </button>
@@ -416,7 +427,7 @@ export function App({ bridge = tauriBridge }: AppProps = {}) {
         </nav>
       )}
 
-      <div className="content">
+      <main className="content" aria-label={copy.a11y.dashboardRegion}>
         <AnimatePresence initial={false}>
           {notice && !(phase === "offline" && accounts.length === 0) && (
             <Notice key="notice" tone={notice.tone}>
@@ -457,7 +468,11 @@ export function App({ bridge = tauriBridge }: AppProps = {}) {
                       </strong>
                     </span>
                     <span className="stat__hint">
-                      {summary.pressure !== null ? copy.summary.knownWindow : copy.summary.waitingData}
+                      {summary.pressure !== null
+                        ? copy.summary.knownWindow
+                        : accounts.some((account) => account.snapshots.length > 0)
+                          ? copy.summary.noWindow
+                          : copy.summary.waitingData}
                     </span>
                   </div>
                   <div className="stat">
@@ -708,7 +723,7 @@ export function App({ bridge = tauriBridge }: AppProps = {}) {
             )}
           </motion.div>
         </AnimatePresence>
-      </div>
+      </main>
 
       <nav className="dock" aria-label={copy.a11y.dockRegion}>
         {dockItems.map((item) => (

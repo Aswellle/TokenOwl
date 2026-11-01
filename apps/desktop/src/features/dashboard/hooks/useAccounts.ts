@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import { copy } from "../../../styles/copy";
+import { bridgeErrorCode, bridgeErrorText } from "../../../lib/tauri";
 import type {
   AccountViewModel,
   DashboardBridge,
@@ -88,7 +89,7 @@ export function useAccounts(bridge: DashboardBridge) {
         setAccounts((current) => (accountId ? mergeAccounts(current, updated) : updated));
         setPhase("ready");
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
+        const message = bridgeErrorText(error);
         setAccounts((current) =>
           current.map((account) =>
             accountId && account.id !== accountId
@@ -100,7 +101,15 @@ export function useAccounts(bridge: DashboardBridge) {
                 },
           ),
         );
-        setNotice({ text: message || copy.notices.refreshFailed, tone: "warning" });
+        // An expired key has its own recovery path now: point at the row's
+        // update-key action instead of a generic retry loop.
+        setNotice({
+          text:
+            bridgeErrorCode(error) === "AuthExpired"
+              ? copy.notices.keyExpired
+              : message || copy.notices.refreshFailed,
+          tone: "warning",
+        });
       } finally {
         setRefreshingId(null);
       }

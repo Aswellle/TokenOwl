@@ -14,12 +14,40 @@ import type {
   ManifestProfilesViewModel,
 } from "../types";
 
+/** Shape every Rust command rejects with: a stable category plus human-facing
+ * text. Transport-level failures can still arrive as plain strings, so the
+ * helpers below tolerate both shapes. */
+export interface BridgeError {
+  code: string;
+  message: string;
+}
+
+/** Stable error category from a rejected IPC call, or null when the failure
+ * did not come through the structured contract. */
+export function bridgeErrorCode(error: unknown): string | null {
+  if (typeof error === "object" && error !== null && "code" in error) {
+    const code = (error as BridgeError).code;
+    return typeof code === "string" ? code : null;
+  }
+  return null;
+}
+
+/** Human-facing text from a rejected IPC call, whatever shape it arrived in. */
+export function bridgeErrorText(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (typeof error === "string") return error;
+  if (typeof error === "object" && error !== null && "message" in error) {
+    const message = (error as BridgeError).message;
+    if (typeof message === "string") return message;
+  }
+  return String(error);
+}
+
 /**
  * The frontend only knows semantic actions. Rust owns persistence, credentials,
  * network access, and DTO-to-view-model conversion behind these commands.
  */
-export const tauriBridge: DashboardBridge = {
-  listAccounts: () => invoke<AccountViewModel[]>("accounts_list"),
+export const tauriBridge: DashboardBridge = {  listAccounts: () => invoke<AccountViewModel[]>("accounts_list"),
   createAccount: (input: GenericOpenAiAccountInput) =>
     invoke<AccountViewModel>("accounts_create", { input }),
   accountTargetIsLan: (baseUrl: string) =>

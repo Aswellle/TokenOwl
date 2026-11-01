@@ -182,6 +182,30 @@ pub enum ProviderErrorKind {
 /// Backwards-compatible name for consumers that call the structured kind a code.
 pub type ProviderErrorCode = ProviderErrorKind;
 
+impl ProviderErrorKind {
+    /// Stable variant name for logs and IPC error payloads. Deliberately
+    /// independent of `Debug` so renaming a display path can never silently
+    /// change what other layers branch on.
+    pub fn name(&self) -> &'static str {
+        match self {
+            Self::AuthRequired => "AuthRequired",
+            Self::AuthExpired => "AuthExpired",
+            Self::NetworkUnavailable => "NetworkUnavailable",
+            Self::Timeout => "Timeout",
+            Self::TlsError => "TlsError",
+            Self::RateLimited => "RateLimited",
+            Self::ProviderUnavailable => "ProviderUnavailable",
+            Self::InvalidResponse => "InvalidResponse",
+            Self::ParserFailed => "ParserFailed",
+            Self::UnsupportedCapability => "UnsupportedCapability",
+            Self::ConfigInvalid => "ConfigInvalid",
+            Self::CredentialError => "CredentialError",
+            Self::StorageError => "StorageError",
+            Self::Unknown => "Unknown",
+        }
+    }
+}
+
 /// Structured error returned at the provider boundary.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

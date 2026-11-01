@@ -25,6 +25,12 @@ vi.mock("@lobehub/icons", () => ({ ProviderIcon: () => null }));
 vi.mock("@tauri-apps/api/event", () => ({ listen: mockListen }));
 vi.mock("../lib/tauri", () => ({
   isTauri: vi.fn(() => false),
+  bridgeErrorCode: (error: unknown) =>
+    typeof error === "object" && error !== null && "code" in error
+      ? String((error as { code: unknown }).code)
+      : null,
+  bridgeErrorText: (error: unknown) =>
+    error instanceof Error ? error.message : String(error),
   shell: {
     openDashboard: vi.fn(),
     showBubble: vi.fn(),
@@ -198,6 +204,22 @@ describe("Dashboard state machine", () => {
     expect(
       screen.queryByRole("button", { name: /更新账户 Test Account 的 API 密钥/ }),
     ).toBeNull();
+  });
+
+  it("directs an expired-key refresh failure to the row's key update action", async () => {
+    mockListAccounts.mockResolvedValue([mockAccount]);
+    mockRefresh.mockRejectedValue({
+      code: "AuthExpired",
+      message: "provider request failed",
+    });
+    render(<App />);
+    await waitFor(() => expect(screen.getByText("Test Account")).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole("button", { name: /刷新账户 Test Account/ }));
+    await waitFor(() => expect(screen.getByText(/密钥已失效或被拒绝/)).toBeInTheDocument());
+    // The structured error text never reaches the notice; the actionable
+    // guidance does.
+    expect(screen.queryByText("provider request failed")).toBeNull();
   });
 
   it("keeps the key dialog open when the update fails", async () => {

@@ -288,6 +288,30 @@ pub enum CommandError {
     InvalidInput(String),
 }
 
+impl CommandError {
+    /// Stable, programmable category carried in every IPC error payload.
+    /// The human-facing text stays in `Display`; the frontend branches on
+    /// this code (e.g. `AuthExpired` offers the key-update action).
+    fn code(&self) -> &'static str {
+        match self {
+            CommandError::Storage(_) => "Storage",
+            CommandError::Provider(error) => error.code.name(),
+            CommandError::Credential(_) => "Credential",
+            CommandError::InvalidInput(_) => "InvalidInput",
+        }
+    }
+}
+
+impl serde::Serialize for CommandError {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeStruct;
+        let mut state = serializer.serialize_struct("CommandError", 2)?;
+        state.serialize_field("code", self.code())?;
+        state.serialize_field("message", &self.to_string())?;
+        state.end()
+    }
+}
+
 impl From<CommandError> for String {
     fn from(error: CommandError) -> Self {
         error.to_string()
@@ -412,8 +436,10 @@ impl NotificationViewModel {
 }
 
 #[tauri::command]
-pub fn accounts_list(state: State<'_, Arc<AppRuntime>>) -> Result<Vec<AccountViewModel>, String> {
-    list_accounts(&state).map_err(String::from)
+pub fn accounts_list(
+    state: State<'_, Arc<AppRuntime>>,
+) -> Result<Vec<AccountViewModel>, CommandError> {
+    list_accounts(&state)
 }
 
 /// Tells the setup form whether a candidate account points at the LAN.
@@ -434,14 +460,14 @@ pub async fn account_target_is_lan(base_url: String) -> bool {
 pub async fn lan_consent_begin(
     base_url: String,
     state: State<'_, Arc<AppRuntime>>,
-) -> Result<Option<String>, String> {
+) -> Result<Option<String>, CommandError> {
     let trimmed = base_url.trim().to_owned();
     // Classification can hit DNS, so keep the blocking work off the async
     // runtime's workers.
     let target = trimmed.clone();
     let needs_consent = tauri::async_runtime::spawn_blocking(move || resolves_to_lan(&target))
         .await
-        .map_err(|error| error.to_string())?;
+        .map_err(|error| CommandError::InvalidInput(error.to_string()))?;
     if !needs_consent {
         return Ok(None);
     }
@@ -453,8 +479,8 @@ pub async fn accounts_create(
     app: AppHandle,
     input: GenericOpenAiAccountInput,
     state: State<'_, Arc<AppRuntime>>,
-) -> Result<AccountViewModel, String> {
-    let account = create_account(&state, input).map_err(String::from)?;
+) -> Result<AccountViewModel, CommandError> {
+    let account = create_account(&state, input)?;
     let account_id = account.id.clone();
     // Best-effort first snapshot. A failed request keeps the account plus an explicit
     // refresh error state instead of dropping the account or inventing values.
@@ -462,11 +488,10 @@ pub async fn accounts_create(
     {
         tracing::warn!("initial refresh failed for account {account_id}: {error}");
     }
-    list_accounts(&state)
-        .map_err(String::from)?
+    list_accounts(&state)?
         .into_iter()
         .find(|item| item.id == account_id)
-        .ok_or_else(|| "created account could not be read".to_owned())
+        .ok_or_else(|| CommandError::InvalidInput("created account could not be read".to_owned()))
 }
 
 /// Overwrites an account's API key and validates it with an immediate
@@ -484,17 +509,16 @@ pub async fn accounts_update_credential(
     account_id: String,
     api_key: String,
     state: State<'_, Arc<AppRuntime>>,
-) -> Result<AccountViewModel, String> {
-    update_credential(&state, &account_id, &api_key).map_err(String::from)?;
+) -> Result<AccountViewModel, CommandError> {
+    update_credential(&state, &account_id, &api_key)?;
     if let Err(error) = refresh_accounts(state.inner(), Some(&app), Some(account_id.clone())).await
     {
         tracing::warn!("post-update refresh failed for account {account_id}: {error}");
     }
-    list_accounts(&state)
-        .map_err(String::from)?
+    list_accounts(&state)?
         .into_iter()
         .find(|item| item.id == account_id)
-        .ok_or_else(|| "updated account could not be read".to_owned())
+        .ok_or_else(|| CommandError::InvalidInput("updated account could not be read".to_owned()))
 }
 
 #[tauri::command]
@@ -502,12 +526,11 @@ pub fn accounts_delete(
     account_id: String,
     app: tauri::AppHandle,
     state: State<'_, Arc<AppRuntime>>,
-) -> Result<(), String> {
-    let repository = state.repository().map_err(String::from)?;
+) -> Result<(), CommandError> {
+    let repository = state.repository()?;
     let account = repository
-        .account(&account_id)
-        .map_err(|error| error.to_string())?
-        .ok_or_else(|| "account not found".to_owned())?;
+        .account(&account_id)?
+        .ok_or_else(|| CommandError::InvalidInput("account not found".to_owned()))?;
     // The account row is the primary record: removing it must not be blocked
     // by a credential-store outage, and no secret value is ever logged here.
     // A failed keyring delete is recorded for startup retry instead of being
@@ -524,9 +547,7 @@ pub fn accounts_delete(
     {
         tracing::warn!("could not record pending credential cleanup: {record_error}");
     }
-    repository
-        .delete_account(&account_id)
-        .map_err(|error| error.to_string())?;
+    repository.delete_account(&account_id)?;
     // The bubble would keep drawing the removed account's rings until the
     // next scheduler tick; tell it the account set changed now.
     let _ = app.emit("quota:updated", ());
@@ -685,10 +706,8 @@ pub async fn accounts_refresh(
     app: AppHandle,
     account_id: Option<String>,
     state: State<'_, Arc<AppRuntime>>,
-) -> Result<Vec<AccountViewModel>, String> {
-    refresh_accounts(state.inner(), Some(&app), account_id)
-        .await
-        .map_err(String::from)
+) -> Result<Vec<AccountViewModel>, CommandError> {
+    refresh_accounts(state.inner(), Some(&app), account_id).await
 }
 
 /// Accounts refreshed concurrently per wave. Bounded on purpose: unbounded
@@ -768,7 +787,7 @@ pub(crate) async fn refresh_accounts(
                     // Only the stable error code crosses the task boundary;
                     // the full error text can echo provider payload details.
                     let code = match &error {
-                        CommandError::Provider(provider) => format!("{:?}", provider.code),
+                        CommandError::Provider(provider) => provider.code.name().to_owned(),
                         CommandError::Storage(_) => "Storage".to_owned(),
                         _ => "CommandFailed".to_owned(),
                     };
@@ -809,12 +828,10 @@ pub(crate) async fn refresh_accounts(
 pub fn notifications_list(
     state: State<'_, Arc<AppRuntime>>,
     limit: Option<u32>,
-) -> Result<Vec<NotificationViewModel>, String> {
-    let repository = state.repository().map_err(String::from)?;
+) -> Result<Vec<NotificationViewModel>, CommandError> {
+    let repository = state.repository()?;
     let limit = limit.unwrap_or(50).clamp(1, 200);
-    let records = repository
-        .notifications(limit)
-        .map_err(|error| error.to_string())?;
+    let records = repository.notifications(limit)?;
     Ok(records
         .into_iter()
         .map(NotificationViewModel::from_record)
@@ -825,8 +842,8 @@ pub fn notifications_list(
 pub fn notifications_mark_read(
     state: State<'_, Arc<AppRuntime>>,
     ids: Option<Vec<String>>,
-) -> Result<(), String> {
-    let repository = state.repository().map_err(String::from)?;
+) -> Result<(), CommandError> {
+    let repository = state.repository()?;
     let now = unix_seconds();
     let changed = match ids.as_deref() {
         Some(list) if !list.is_empty() => {
@@ -835,27 +852,27 @@ pub fn notifications_mark_read(
         }
         _ => repository.mark_all_notifications_read(now),
     };
-    changed.map(|_| ()).map_err(|error| error.to_string())
+    changed.map(|_| ())?;
+    Ok(())
 }
 
 #[tauri::command]
 pub fn notification_preferences_get(
     state: State<'_, Arc<AppRuntime>>,
-) -> Result<NotificationPreferences, String> {
-    load_notification_preferences(&state).map_err(String::from)
+) -> Result<NotificationPreferences, CommandError> {
+    load_notification_preferences(&state)
 }
 
 #[tauri::command]
 pub fn notification_preferences_set(
     state: State<'_, Arc<AppRuntime>>,
     prefs: NotificationPreferences,
-) -> Result<(), String> {
-    prefs.validate()?;
-    let repository = state.repository().map_err(String::from)?;
-    let value = serde_json::to_value(&prefs).map_err(|error| error.to_string())?;
-    repository
-        .set_setting(PREFERENCES_KEY, &value)
-        .map_err(|error| error.to_string())
+) -> Result<(), CommandError> {
+    prefs.validate().map_err(CommandError::InvalidInput)?;
+    let repository = state.repository()?;
+    let value = serde_json::to_value(&prefs).map_err(StorageError::from)?;
+    repository.set_setting(PREFERENCES_KEY, &value)?;
+    Ok(())
 }
 
 /// QA drill: sends one synthetic notification through the production enqueue
@@ -1034,14 +1051,12 @@ pub fn history_summary(
     state: State<'_, Arc<AppRuntime>>,
     days: Option<u32>,
     account_id: Option<String>,
-) -> Result<HistorySummaryViewModel, String> {
+) -> Result<HistorySummaryViewModel, CommandError> {
     let range_days = days.unwrap_or(182).clamp(7, 365);
     let now = unix_seconds();
     let from = now.saturating_sub(u64::from(range_days) * 86_400);
-    let repository = state.repository().map_err(String::from)?;
-    let mut samples = repository
-        .history_samples(from, now)
-        .map_err(|error| error.to_string())?;
+    let repository = state.repository()?;
+    let mut samples = repository.history_samples(from, now)?;
     if let Some(id) = account_id.as_deref() {
         samples.retain(|sample| sample.account_id == id);
     }
@@ -1140,13 +1155,11 @@ pub struct UsageWindowsViewModel {
 pub fn usage_windows(
     state: State<'_, Arc<AppRuntime>>,
     account_id: Option<String>,
-) -> Result<UsageWindowsViewModel, String> {
+) -> Result<UsageWindowsViewModel, CommandError> {
     let now = unix_seconds();
     let from = now.saturating_sub(30 * 86_400);
-    let repository = state.repository().map_err(String::from)?;
-    let mut samples = repository
-        .history_samples(from, now)
-        .map_err(|error| error.to_string())?;
+    let repository = state.repository()?;
+    let mut samples = repository.history_samples(from, now)?;
     if let Some(id) = account_id.as_deref() {
         samples.retain(|sample| sample.account_id == id);
     }
@@ -1221,17 +1234,14 @@ pub struct HistoryDayBreakdownViewModel {
 pub fn history_breakdown(
     state: State<'_, Arc<AppRuntime>>,
     days: Option<u32>,
-) -> Result<Vec<HistoryDayBreakdownViewModel>, String> {
+) -> Result<Vec<HistoryDayBreakdownViewModel>, CommandError> {
     let range_days = days.unwrap_or(30).clamp(7, 365);
     let now = unix_seconds();
     let from = now.saturating_sub(u64::from(range_days) * 86_400);
-    let repository = state.repository().map_err(String::from)?;
-    let samples = repository
-        .history_samples(from, now)
-        .map_err(|error| error.to_string())?;
+    let repository = state.repository()?;
+    let samples = repository.history_samples(from, now)?;
     let labels: HashMap<String, String> = repository
-        .accounts()
-        .map_err(|error| error.to_string())?
+        .accounts()?
         .into_iter()
         .map(|account| (account.id, account.label))
         .collect();
@@ -1299,7 +1309,7 @@ pub struct ManifestProfilesView {
 #[tauri::command]
 pub fn manifest_profiles(
     state: State<'_, Arc<AppRuntime>>,
-) -> Result<ManifestProfilesView, String> {
+) -> Result<ManifestProfilesView, CommandError> {
     let (profiles, skipped) =
         crate::providers::builtin::all_manifest_profiles(Some(&state.data_dir));
     Ok(ManifestProfilesView { profiles, skipped })
@@ -1309,18 +1319,19 @@ pub fn manifest_profiles(
 /// account types, units, and windows; implemented providers carry their
 /// capability level from the embedded manifest.
 #[tauri::command]
-pub fn provider_matrix() -> Result<Vec<crate::providers::builtin::ProviderMatrixRow>, String> {
+pub fn provider_matrix() -> Result<Vec<crate::providers::builtin::ProviderMatrixRow>, CommandError>
+{
     Ok(crate::providers::builtin::provider_matrix())
 }
 
 /// Opens the project's GitHub page in the system browser. The URL is a
 /// compile-time constant: the webview never picks arbitrary external URLs.
 #[tauri::command]
-pub fn open_project_page(app: tauri::AppHandle) -> Result<(), String> {
+pub fn open_project_page(app: tauri::AppHandle) -> Result<(), CommandError> {
     use tauri_plugin_opener::OpenerExt;
     app.opener()
         .open_url("https://github.com/Aswellle/TokenOwl", None::<&str>)
-        .map_err(|error| error.to_string())
+        .map_err(|error| CommandError::InvalidInput(error.to_string()))
 }
 
 fn list_accounts(state: &AppRuntime) -> Result<Vec<AccountViewModel>, CommandError> {
@@ -1975,6 +1986,35 @@ fn unix_seconds() -> u64 {
 mod tests {
     use super::*;
 
+    #[test]
+    fn command_errors_serialize_with_stable_codes() {
+        let invalid = CommandError::InvalidInput("bad input".to_owned());
+        let value = serde_json::to_value(&invalid).expect("serialize");
+        assert_eq!(value["code"], "InvalidInput");
+        assert_eq!(value["message"], "invalid account input: bad input");
+
+        let auth = CommandError::Provider(ProviderError::new(
+            ProviderErrorKind::AuthExpired,
+            "provider rejected the credential",
+        ));
+        let value = serde_json::to_value(&auth).expect("serialize");
+        assert_eq!(value["code"], "AuthExpired");
+
+        let storage = CommandError::Storage(StorageError::InvalidData("corrupt".to_owned()));
+        let value = serde_json::to_value(&storage).expect("serialize");
+        assert_eq!(value["code"], "Storage");
+    }
+
+    #[test]
+    fn provider_error_kind_names_match_their_variants() {
+        assert_eq!(ProviderErrorKind::AuthExpired.name(), "AuthExpired");
+        assert_eq!(ProviderErrorKind::RateLimited.name(), "RateLimited");
+        assert_eq!(
+            ProviderErrorKind::NetworkUnavailable.name(),
+            "NetworkUnavailable"
+        );
+    }
+
     /// Persists a provider row plus its account so the foreign key on
     /// `accounts.provider_id` is satisfied, mirroring the real create path.
     fn persist_keyring_account(
@@ -2075,7 +2115,7 @@ mod tests {
         assert_eq!(freshness_name(Freshness::Stale), "stale");
     }
 
-    use crate::domain::provider::QuotaSnapshot;
+    use crate::domain::provider::{ProviderErrorKind, QuotaSnapshot};
     use crate::domain::state::RefreshState;
 
     fn snapshot_view(

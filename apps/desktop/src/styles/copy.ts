@@ -201,6 +201,8 @@ export const copy = {
     accountErrorEmpty:
       "首次刷新失败，尚未获得任何额度数据。请检查接口地址与密钥，或确认该供应商是否提供额度接口。",
     updateKeyFailed: "密钥更新失败，原密钥保持不变。",
+    keyExpired:
+      "该账户的密钥已失效或被拒绝，可在账户行使用“更新密钥”更换；历史记录会保留。",
     bridgeUnavailable: "本地服务不可用",
     localOnly: "数据仅保存在本机",
     offlineTitle: "本地服务不可用",

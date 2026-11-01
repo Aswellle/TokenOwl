@@ -2895,6 +2895,18 @@ button:disabled {
   font-size: var(--step-0);
 }
 
+/* "No quota endpoint" marker on L1/L2 picker entries — a real expectation
+   for the dashboard, not a capability downgrade. */
+.picker__badge {
+  flex: 0 0 auto;
+  padding: 1px 7px;
+  border: 1px solid var(--hairline);
+  border-radius: 999px;
+  color: var(--ink-3);
+  font-size: var(--step-0);
+  white-space: nowrap;
+}
+
 .picker__btn {
   display: inline-flex;
   align-items: center;

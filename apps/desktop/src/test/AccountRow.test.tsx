@@ -191,4 +191,53 @@ describe("AccountRow", () => {
     // The generic "click refresh" empty hint would repeat the failure notice.
     expect(screen.queryByText("点击刷新以获取该账户的第一个快照。")).not.toBeInTheDocument();
   });
+
+  it("names the missing quota capability instead of reading it as a fault", () => {
+    render(
+      <AccountRow
+        account={{
+          ...mockAccount,
+          status: "unavailable",
+          freshness: "unknown",
+          snapshots: [],
+          capabilityLevel: "L2",
+        }}
+        index={0}
+        now={Date.now()}
+        refreshing={false}
+        deleting={false}
+        updatingKey={false}
+        onUpdateKey={vi.fn(async () => true)}
+        onOpen={() => {}}
+        onRefresh={() => {}}
+        onDelete={() => {}}
+      />,
+    );
+    expect(screen.getByText(/此供应商不提供密钥级额度查询/)).toBeInTheDocument();
+    // The generic wording would read like the connection is broken.
+    expect(screen.queryByText(/接口没有返回可识别的额度字段/)).not.toBeInTheDocument();
+  });
+
+  it("keeps the generic unavailable wording for capability-less custom accounts", () => {
+    render(
+      <AccountRow
+        account={{
+          ...mockAccount,
+          status: "unavailable",
+          freshness: "unknown",
+          snapshots: [],
+        }}
+        index={0}
+        now={Date.now()}
+        refreshing={false}
+        deleting={false}
+        updatingKey={false}
+        onUpdateKey={vi.fn(async () => true)}
+        onOpen={() => {}}
+        onRefresh={() => {}}
+        onDelete={() => {}}
+      />,
+    );
+    expect(screen.getByText(/接口没有返回可识别的额度字段/)).toBeInTheDocument();
+  });
 });

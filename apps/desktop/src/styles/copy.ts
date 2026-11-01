@@ -124,6 +124,7 @@ export const copy = {
     firstRunTitle: "连接你的第一个供应商",
     emptyBody: "点击刷新以获取该账户的第一个快照。",
     emptyUnavailable: "该账户已连接，但接口没有返回可识别的额度字段。",
+    noQuotaCapability: "此供应商不提供密钥级额度查询；账户连接本身没有失败。",
     windowedSection: "窗口额度",
     meteredSection: "余额与用量",
     windowSpan: (span: string) => `窗口跨度 ${span}`,
@@ -278,6 +279,9 @@ export const copy = {
     gatewayBaseUrlHelp:
       "填入你部署的网关地址，必须是完整 URL，例如 http://localhost:4000/v1；不能使用示例占位域名。",
     customNote: "自定义接入按 L1 能力处理：只有对方上报的字段才会显示。",
+    noQuotaBadge: "无额度接口",
+    noQuotaCapabilityNote:
+      "该供应商未公开密钥级额度查询接口：连接后仪表盘不会出现额度数据，这不是故障。",
     lanTitle: "该地址位于局域网或本机",
     lanBody:
       "此供应商指向局域网地址。仅在你确认该地址属于自己的网关或可信网络时继续。",

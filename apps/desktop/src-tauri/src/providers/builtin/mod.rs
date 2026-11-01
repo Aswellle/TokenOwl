@@ -269,6 +269,27 @@ pub fn is_builtin_provider_id(id: &str) -> bool {
         .any(|(manifest_id, _)| *manifest_id == prefix)
 }
 
+/// Capability level of the embedded manifest an account's provider id names.
+///
+/// Custom accounts (`generic.openai_compatible:…`) and manifests without a
+/// capability block return `None` — absence of knowledge, never a level.
+/// The account view uses this so the UI can tell "this provider publishes no
+/// key-level quota" apart from a failed fetch.
+pub fn builtin_capability_level(provider_id: &str) -> Option<String> {
+    use crate::providers::manifest::ProviderManifest;
+    let prefix = provider_id.split(':').next()?;
+    BUILTIN_MANIFESTS
+        .iter()
+        .find(|(manifest_id, _)| *manifest_id == prefix)
+        .and_then(|(_, yaml)| ProviderManifest::from_yaml(yaml).ok())
+        .map(|manifest| {
+            manifest.capability.as_ref().map_or_else(
+                || "L1".to_owned(),
+                |capability| capability.level_id().to_owned(),
+            )
+        })
+}
+
 /// Setup profiles for all embedded manifests, in manifest order.
 ///
 /// # Panics
@@ -388,6 +409,25 @@ pub fn builtin_descriptors() -> Vec<ProviderDescriptor> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn capability_level_resolves_from_the_manifest_prefix() {
+        assert_eq!(
+            builtin_capability_level("openai:account-abc").as_deref(),
+            Some("L2"),
+            "OpenAI publishes only a models catalog"
+        );
+        assert_eq!(
+            builtin_capability_level("qwen:account-abc").as_deref(),
+            Some("L1")
+        );
+        // Custom accounts name no embedded manifest; absence stays explicit.
+        assert_eq!(
+            builtin_capability_level("generic.openai_compatible:a1"),
+            None
+        );
+        assert_eq!(builtin_capability_level("totally-unknown:a1"), None);
+    }
 
     #[test]
     fn builtin_registry_contains_all_providers() {

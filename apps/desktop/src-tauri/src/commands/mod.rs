@@ -403,6 +403,10 @@ pub struct AccountViewModel {
     pub last_updated_at: Option<u64>,
     pub error_code: Option<String>,
     pub error_message: Option<String>,
+    /// Capability level of the provider's embedded manifest (L1..L4), `None`
+    /// for custom accounts. Lets the UI explain an always-empty account as
+    /// "no key-level quota published" instead of a failure.
+    pub capability_level: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -1895,6 +1899,9 @@ fn account_view_to_model(view: AccountViewDto) -> AccountViewModel {
         .max();
     AccountViewModel {
         id: view.account.id,
+        capability_level: crate::providers::builtin::builtin_capability_level(
+            &view.account.provider_id,
+        ),
         provider_id: view.account.provider_id,
         provider_name,
         label: view.account.label,

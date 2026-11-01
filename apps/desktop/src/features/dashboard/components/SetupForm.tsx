@@ -349,6 +349,14 @@ export function SetupForm({
                       >
                         <ProviderIcon providerId={group.key} size={18} />
                         <span>{group.activeMember.name}</span>
+                        {(group.activeMember.level === "L1" ||
+                          group.activeMember.level === "L2") && (
+                          // Hidden from the accessible name: selecting the
+                          // profile explains the marker through the note below.
+                          <span className="picker__badge" aria-hidden="true">
+                            {copy.form.noQuotaBadge}
+                          </span>
+                        )}
                       </button>
                       {group.members.length > 1 && (
                         <button
@@ -383,6 +391,11 @@ export function SetupForm({
                             >
                               <span>{member.variant ?? member.name}</span>
                               <span className="picker__option-meta">{formatLabel(member.apiFormat)}</span>
+                              {(member.level === "L1" || member.level === "L2") && (
+                                <span className="picker__badge" aria-hidden="true">
+                                  {copy.form.noQuotaBadge}
+                                </span>
+                              )}
                             </button>
                           ))}
                         </div>
@@ -556,6 +569,11 @@ export function SetupForm({
                 <span className="field__help">{copy.form.customNote}</span>
               )}
             </div>
+            {profile && (profile.level === "L1" || profile.level === "L2") && (
+              <span className="field__help" role="note">
+                {copy.form.noQuotaCapabilityNote}
+              </span>
+            )}
           </div>
         )}
         <div className="field field--wide">

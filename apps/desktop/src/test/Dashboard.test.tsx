@@ -264,4 +264,38 @@ describe("Dashboard state machine", () => {
       expect(screen.getByLabelText(/账户名称|Account name/i)).toBeInTheDocument(),
     );
   });
+
+  it("badges quota-less providers in the picker and explains the empty dashboard", async () => {
+    mockListAccounts.mockResolvedValue([]);
+    mockManifestProfiles.mockResolvedValue({
+      profiles: [
+        {
+          id: "openai",
+          name: "OpenAI",
+          baseUrl: "https://api.openai.com/v1",
+          apiFormat: "openai-compatible",
+          customBaseUrl: false,
+          level: "L2",
+          accountTypes: ["api"],
+          quotaUnits: ["token"],
+          targetWindows: ["provider-defined"],
+          endpoints: { models: "/models" },
+        },
+      ],
+      skipped: [],
+    });
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: /添加账户/ }));
+    await waitFor(() =>
+      expect(screen.getByLabelText(/账户名称|Account name/i)).toBeInTheDocument(),
+    );
+    await waitFor(() => expect(screen.getByText("OpenAI")).toBeInTheDocument());
+
+    const pickerButton = screen.getByRole("button", { name: /OpenAI/ });
+    expect(pickerButton).toHaveTextContent("无额度接口");
+    fireEvent.click(pickerButton);
+    await waitFor(() =>
+      expect(screen.getByText(/未公开密钥级额度查询接口/)).toBeInTheDocument(),
+    );
+  });
 });

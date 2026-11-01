@@ -147,7 +147,13 @@ export function AccountRow({
             <IconAlert size={14} />
           </span>
           <span>
-            {account.status === "unavailable" ? copy.quota.emptyUnavailable : copy.quota.emptyBody}
+            {account.status === "unavailable"
+              ? // An L1/L2 provider never publishes key-level quota; naming
+                // that beats a "no recognizable fields" failure reading.
+                account.capabilityLevel === "L1" || account.capabilityLevel === "L2"
+                ? copy.quota.noQuotaCapability
+                : copy.quota.emptyUnavailable
+              : copy.quota.emptyBody}
           </span>
         </div>
       )}

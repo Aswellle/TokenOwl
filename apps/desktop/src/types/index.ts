@@ -59,6 +59,10 @@ export interface AccountViewModel {
   lastUpdatedAt?: string | number | null;
   errorCode?: string | null;
   errorMessage?: string | null;
+  /** Provider manifest capability level (L1..L4); null for custom accounts.
+   * An always-empty L1/L2 account is "no key-level quota published", not a
+   * fetch failure. */
+  capabilityLevel?: string | null;
 }
 
 export interface GenericOpenAiAccountInput {

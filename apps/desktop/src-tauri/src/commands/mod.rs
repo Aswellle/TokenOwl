@@ -2217,7 +2217,10 @@ mod tests {
     #[test]
     fn lan_trust_list_round_trips_and_deduplicates_by_exact_url() {
         let repository = LocalRepository::open_in_memory().expect("database");
-        assert!(load_lan_trusts(&repository).expect("empty").is_empty());
+        assert_eq!(
+            load_lan_trusts(&repository).expect("empty"),
+            Vec::<String>::new()
+        );
         save_lan_trusts(
             &repository,
             vec![

@@ -189,6 +189,114 @@ function unknownSnapshots(now: number): QuotaViewModel[] {
   ];
 }
 
+/** A brand-new window at exactly zero use plus a normal one: the zero dial
+ * must stay a bare track (no arc, no stray cap dot), the other keeps its arc. */
+function zeroSnapshots(now: number): QuotaViewModel[] {
+  return [
+    quota(
+      "scenario-zero-5h",
+      "5 小时用量窗口",
+      { used: 0, limit: 800, remaining: 800 },
+      {
+        type: "rolling",
+        startsAt: new Date(now - 3_600_000).toISOString(),
+        endsAt: new Date(now + 4 * 3_600_000).toISOString(),
+        resetAt: now + 4 * 3_600_000,
+      },
+    ),
+    quota(
+      "scenario-zero-7d",
+      "每周额度",
+      { used: 400, limit: 1_000, remaining: 600 },
+      {
+        type: "fixed",
+        startsAt: new Date(now - 2 * 86_400_000).toISOString(),
+        endsAt: new Date(now + 5 * 86_400_000).toISOString(),
+        resetAt: now + 5 * 86_400_000,
+      },
+    ),
+  ];
+}
+
+/** Remaining below zero (overdrawn account): the consumed share clamps to a
+ * full ring with a butt cap instead of overshooting past one turn. */
+function overdrawnSnapshots(now: number): QuotaViewModel[] {
+  return [
+    quota(
+      "scenario-overdrawn-5h",
+      "5 小时用量窗口",
+      { used: 850, limit: 800, remaining: -50 },
+      {
+        type: "rolling",
+        startsAt: new Date(now - 3_600_000).toISOString(),
+        endsAt: new Date(now + 4 * 3_600_000).toISOString(),
+        resetAt: now + 4 * 3_600_000,
+      },
+    ),
+  ];
+}
+
+/** One provider-reported window plus one unreadable one: the known window
+ * keeps its arc while the unknown stays a track-only ring beside it. */
+function mixedKnownSnapshots(now: number): QuotaViewModel[] {
+  return [
+    quota(
+      "scenario-mixed-5h",
+      "5 小时用量窗口",
+      { used: 200, limit: 500, remaining: 300 },
+      {
+        type: "rolling",
+        startsAt: new Date(now - 3_600_000).toISOString(),
+        endsAt: new Date(now + 4 * 3_600_000).toISOString(),
+        resetAt: now + 4 * 3_600_000,
+      },
+    ),
+    quota(
+      "scenario-mixed-7d",
+      "每周额度",
+      { used: null, limit: null, remaining: null },
+      { type: "fixed", resetAt: now + 3 * 86_400_000 },
+    ),
+  ];
+}
+
+/** Two snapshots claiming the same logical window: they collapse to ONE ring
+ * carrying the first snapshot's reading — never two coincident bands. */
+function duplicateSnapshots(now: number): QuotaViewModel[] {
+  return [
+    quota(
+      "scenario-dup-a",
+      "5 小时用量窗口",
+      { used: 100, limit: 200, remaining: 100 },
+      { type: "rolling", resetAt: now + 2 * 3_600_000 },
+    ),
+    quota(
+      "scenario-dup-b",
+      "5 小时用量窗口",
+      { used: 40, limit: 200, remaining: 160 },
+      { type: "rolling", resetAt: now + 2 * 3_600_000 },
+    ),
+  ];
+}
+
+/** Five real windows: the picker must keep exactly three — shortest outside,
+ * the window furthest from both ends in the middle, longest inside. */
+function fiveWindowSnapshots(now: number): QuotaViewModel[] {
+  // `span` is the FULL window length in hours, split around `now` so the
+  // window tag (which reads the start/end delta) matches the label.
+  const span = (hours: number) => ({
+    startsAt: new Date(now - (hours / 2) * 3_600_000).toISOString(),
+    endsAt: new Date(now + (hours / 2) * 3_600_000).toISOString(),
+  });
+  return [
+    quota("scenario-w-5h", "5 小时窗口", { used: 100, limit: 500, remaining: 400 }, { type: "rolling", ...span(5) }),
+    quota("scenario-w-7d", "每周窗口", { used: 100, limit: 500, remaining: 400 }, { type: "fixed", ...span(168) }),
+    quota("scenario-w-30d", "每月窗口", { used: 100, limit: 500, remaining: 400 }, { type: "fixed", ...span(720) }),
+    quota("scenario-w-90d", "季度窗口", { used: 250, limit: 500, remaining: 250 }, { type: "fixed", ...span(2160) }),
+    quota("scenario-w-180d", "半年窗口", { used: 400, limit: 500, remaining: 100 }, { type: "fixed", ...span(4320) }),
+  ];
+}
+
 function partialSnapshots(now: number): QuotaViewModel[] {
   return [
     quota(
@@ -295,6 +403,27 @@ function applyAccountFlags(accounts: AccountViewModel[], now: number): AccountVi
   }
   if (hasScenario("unknown")) {
     next = [{ ...next[0], snapshots: unknownSnapshots(now) }, ...next.slice(1)];
+  }
+  if (hasScenario("zero")) {
+    next = [{ ...next[0], snapshots: zeroSnapshots(now), status: "healthy" }, ...next.slice(1)];
+  }
+  if (hasScenario("overdrawn")) {
+    next = [
+      { ...next[0], snapshots: overdrawnSnapshots(now), status: "critical" },
+      ...next.slice(1),
+    ];
+  }
+  if (hasScenario("mixed-known")) {
+    next = [{ ...next[0], snapshots: mixedKnownSnapshots(now), status: "healthy" }, ...next.slice(1)];
+  }
+  if (hasScenario("duplicate")) {
+    next = [{ ...next[0], snapshots: duplicateSnapshots(now), status: "healthy" }, ...next.slice(1)];
+  }
+  if (hasScenario("five-windows")) {
+    next = [
+      { ...next[0], snapshots: fiveWindowSnapshots(now), status: "healthy" },
+      ...next.slice(1),
+    ];
   }
   if (hasScenario("partial")) {
     next = [{ ...next[0], snapshots: partialSnapshots(now) }, ...next.slice(1)];

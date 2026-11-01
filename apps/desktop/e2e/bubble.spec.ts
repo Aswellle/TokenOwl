@@ -340,4 +340,209 @@ test.describe("bubble form", () => {
     await page.mouse.up();
     await expect(page).toHaveURL(/\/$/);
   });
+
+  test("a zero-use window stays a bare track: no arc and no stray cap dot", async ({ page }) => {
+    await page.goto("/?window=bubble&scenario=zero");
+    const bubble = page.locator(".bubble");
+    await expect(bubble).toHaveAttribute("aria-label", /5h 0%，7d 40%/);
+    await expect(bubble.locator("svg.quota-rings")).toHaveAttribute("data-ring-count", "2");
+
+    // The zero window keeps its honest 0.000 reading but draws nothing: the
+    // guard must not render a round cap dot at 12 o'clock.
+    const zeroGroup = page.locator('[data-ring-id="scenario-zero-5h"]');
+    await expect(zeroGroup).toHaveAttribute("data-ring-consumed", "0.000");
+    await expect(zeroGroup.locator(".quota-rings__value")).toHaveCount(0);
+    await expect(zeroGroup.locator(".quota-rings__track")).toHaveCount(1);
+
+    // The sibling window still draws its real arc on the inner band.
+    const usedGroup = page.locator('[data-ring-id="scenario-zero-7d"]');
+    await expect(usedGroup).toHaveAttribute("data-ring-consumed", "0.400");
+    await expect(usedGroup.locator(".quota-rings__value")).toHaveCount(1);
+    await expect(page.locator(".quota-rings__value")).toHaveCount(1);
+  });
+
+  test("an overdrawn window clamps to a full butt-capped ring", async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await page.goto("/?window=bubble&scenario=overdrawn");
+    const bubble = page.locator(".bubble");
+    await expect(bubble).toHaveAttribute("aria-label", /5h 100%/);
+    const value = page.locator(".quota-rings__value");
+    await expect(value).toHaveCount(1);
+    await expect(page.locator('[data-ring-consumed="1.000"]')).toHaveCount(1);
+    // The consumed share must never exceed one turn: no overshoot past the
+    // full dial, and the seam stays a clean butt joint.
+    await expect(value).toHaveAttribute("stroke-linecap", "butt");
+    const offset = await value.evaluate((el) =>
+      Number(getComputedStyle(el).strokeDashoffset.replace("px", "")),
+    );
+    expect(offset).toBeCloseTo(0, 0);
+  });
+
+  test("a known window and an unreadable one render an arc beside a bare track", async ({
+    page,
+  }) => {
+    await page.goto("/?window=bubble&scenario=mixed-known");
+    const bubble = page.locator(".bubble");
+    await expect(bubble).toHaveAttribute("aria-label", /5h 40%，7d 未知/);
+    // One real arc plus two tracks: the unknown ring stays visible as a dim
+    // band instead of vanishing or faking a value.
+    await expect(page.locator(".quota-rings__value")).toHaveCount(1);
+    await expect(page.locator(".quota-rings__track")).toHaveCount(2);
+    await expect(page.locator('[data-ring-id="scenario-mixed-5h"]')).toHaveAttribute(
+      "data-ring-consumed",
+      "0.400",
+    );
+    await expect(page.locator('[data-ring-id="scenario-mixed-7d"]')).toHaveAttribute(
+      "data-ring-consumed",
+      "unknown",
+    );
+  });
+
+  test("two snapshots naming the same window collapse into one ring", async ({ page }) => {
+    await page.goto("/?window=bubble&scenario=duplicate");
+    const bubble = page.locator(".bubble");
+    await expect(bubble).toHaveAttribute("aria-label", /5h 50%/);
+    // The duplicated tag must not draw two coincident bands: one ring, first
+    // snapshot's reading wins, nothing invented for the second.
+    await expect(bubble.locator("svg.quota-rings")).toHaveAttribute("data-ring-count", "1");
+    await expect(page.locator(".quota-rings__value")).toHaveCount(1);
+    await expect(page.locator(".quota-rings__track")).toHaveCount(1);
+    await expect(page.locator('[data-ring-id="scenario-dup-a"]')).toHaveCount(1);
+    await expect(page.locator('[data-ring-id="scenario-dup-b"]')).toHaveCount(0);
+    await expect(page.locator('[data-ring-consumed="0.500"]')).toHaveCount(1);
+  });
+
+  test("five real windows still yield exactly three semantically distinct rings", async ({
+    page,
+  }) => {
+    await page.goto("/?window=bubble&scenario=five-windows");
+    const bubble = page.locator(".bubble");
+    await expect(bubble).toHaveAttribute("aria-label", /5h 20%，90d 50%，180d 80%/);
+    await expect(bubble.locator("svg.quota-rings")).toHaveAttribute("data-ring-count", "3");
+    // Shortest outside, the window furthest from both ends in the middle,
+    // longest inside — and the tightened three-ring geometry.
+    const tones = page.locator(".quota-rings__value");
+    await expect(tones).toHaveCount(3);
+    await expect(page.locator('[data-ring-tone="outer"]')).toHaveAttribute(
+      "data-ring-id",
+      "scenario-w-5h",
+    );
+    await expect(page.locator('[data-ring-tone="outer"]')).toHaveAttribute(
+      "data-ring-consumed",
+      "0.200",
+    );
+    await expect(page.locator('[data-ring-tone="middle"]')).toHaveAttribute(
+      "data-ring-id",
+      "scenario-w-90d",
+    );
+    await expect(page.locator('[data-ring-tone="inner"]')).toHaveAttribute(
+      "data-ring-id",
+      "scenario-w-180d",
+    );
+    await expect(tones.nth(0)).toHaveAttribute("r", "21");
+    await expect(tones.nth(1)).toHaveAttribute("r", "16");
+    await expect(tones.nth(2)).toHaveAttribute("r", "11");
+  });
+
+  test("band edges keep a visible gap between rings at every ring count", async ({ page }) => {
+    // Two rings: 21/14 with 5-unit bands leaves a 2-unit gap; three rings:
+    // 21/16/11 with 4-unit bands leaves a 1-unit gap. The gap is the "clear
+    // boundary" of the design — assert it straight from the DOM geometry so a
+    // future radius change cannot silently fuse the bands.
+    const readGeometry = async () => {
+      await page.locator("svg.quota-rings").waitFor({ state: "attached" });
+      return page.evaluate(() => {
+        const circles = Array.from(
+          document.querySelectorAll<SVGCircleElement>(".quota-rings__track"),
+        );
+        return circles
+          .map((circle) => ({
+            radius: Number(circle.getAttribute("r")),
+            width: Number(circle.getAttribute("stroke-width")),
+          }))
+          .sort((a, b) => b.radius - a.radius);
+      });
+    };
+
+    await page.goto("/?window=bubble");
+    const two = await readGeometry();
+    expect(two).toHaveLength(2);
+    expect(two[0].radius - two[0].width / 2 - (two[1].radius + two[1].width / 2)).toBeGreaterThanOrEqual(2);
+
+    await page.goto("/?window=bubble&scenario=three-windows");
+    const three = await readGeometry();
+    expect(three).toHaveLength(3);
+    expect(three[0].radius - three[0].width / 2 - (three[1].radius + three[1].width / 2)).toBeGreaterThanOrEqual(1);
+    expect(three[1].radius - three[1].width / 2 - (three[2].radius + three[2].width / 2)).toBeGreaterThanOrEqual(1);
+  });
+
+  test("a full expand/collapse round trip leaves the rings exactly as they were", async ({
+    page,
+  }) => {
+    await page.goto("/?window=bubble");
+    const readRings = () =>
+      page.evaluate(() => ({
+        count: document.querySelector("svg.quota-rings")?.getAttribute("data-ring-count"),
+        values: Array.from(document.querySelectorAll(".quota-rings__value")).map((el) => ({
+          id: el.parentElement?.getAttribute("data-ring-id"),
+          consumed: el.parentElement?.getAttribute("data-ring-consumed"),
+          r: el.getAttribute("r"),
+        })),
+        tracks: document.querySelectorAll(".quota-rings__track").length,
+      }));
+
+    // The bubble re-fetches its accounts after remount; poll for the dials
+    // instead of guessing at the bridge latency — both before and after.
+    await expect(page.locator(".quota-rings__value")).toHaveCount(2);
+    const before = await readRings();
+    expect(before.count).toBe("2");
+
+    await page.locator(".bubble").click();
+    await expect(page.locator(".window")).toBeVisible();
+    await page.getByRole("button", { name: "Bubble", exact: true }).click();
+    await expect(page.locator(".bubble")).toBeVisible();
+    await expect(page.locator(".quota-rings__value")).toHaveCount(2);
+
+    const after = await readRings();
+    // Same two dials, same readings, same radii — the morph must not leave a
+    // duplicated arc, a stale third circle, or a reset behind.
+    expect(after).toEqual(before);
+  });
+
+  test("rapid expand/collapse toggling mid-spring never wedges the shell", async ({ page }) => {
+    await page.goto("/");
+    await expect(page.locator(".window")).toBeVisible();
+
+    // Interrupt the clip morph repeatedly while its spring is still moving.
+    for (let round = 0; round < 3; round += 1) {
+      await page.getByRole("button", { name: "Bubble", exact: true }).click();
+      await page.waitForTimeout(120);
+      await page.locator(".bubble").click();
+      await page.waitForTimeout(120);
+    }
+    // Land on the dashboard and let every spring settle.
+    await page.getByRole("button", { name: "Bubble", exact: true }).click();
+    await expect(page.locator(".bubble")).toBeVisible();
+    await page.locator(".bubble").click();
+    await expect(page.locator(".window")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "概览" })).toBeVisible();
+    await page.waitForTimeout(1_200);
+
+    // No stale clip: the settled dashboard is fully revealed — a circle that
+    // reaches every corner — and interactive.
+    const settled = await page.evaluate(() => {
+      const clip = window.getComputedStyle(
+        document.querySelector(".window")!.parentElement as Element,
+      ).clipPath;
+      const radius = Number(/circle\(([\d.]+)px/.exec(clip)?.[1] ?? 0);
+      const corner = Math.hypot(window.innerWidth / 2, window.innerHeight / 2);
+      return { radius, corner, covers: radius >= corner };
+    });
+    expect(settled.covers).toBe(true);
+    // The rings survived the interrupts unchanged.
+    await page.getByRole("button", { name: "Bubble", exact: true }).click();
+    await expect(page.locator(".bubble")).toBeVisible();
+    await expect(page.locator('[data-ring-consumed="0.160"]')).toHaveCount(1);
+    await expect(page.locator(".quota-rings__value")).toHaveCount(2);
+  });
 });

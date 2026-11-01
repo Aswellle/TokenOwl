@@ -7,6 +7,8 @@ import {
   IconAlert,
   IconBubble,
   IconCheck,
+  IconChevronDown,
+  IconChevronUp,
   IconCircleUser,
   IconClock,
   IconClose,
@@ -244,6 +246,35 @@ export function App({ bridge = tauriBridge }: AppProps = {}) {
   const [now, setNow] = useState(() => Date.now());
   const [notificationTick, setNotificationTick] = useState(0);
   const [historyTick, setHistoryTick] = useState(0);
+  // Bottom dock collapse. The preference loads before the first transition
+  // so a restart with the dock collapsed does not flash it open first.
+  const [dockCollapsed, setDockCollapsed] = useState(false);
+  const [dockPrefLoaded, setDockPrefLoaded] = useState(false);
+  useEffect(() => {
+    let active = true;
+    bridge
+      .getDockCollapsed()
+      .then((collapsed) => {
+        if (!active) return;
+        setDockCollapsed(collapsed);
+        setDockPrefLoaded(true);
+      })
+      .catch(() => {
+        if (active) setDockPrefLoaded(true);
+      });
+    return () => {
+      active = false;
+    };
+  }, [bridge]);
+  const toggleDock = useCallback(
+    (collapsed: boolean) => {
+      setDockCollapsed(collapsed);
+      // Persistence is best-effort: the layout follows the user's intent, and
+      // a failed save only means the next launch starts expanded again.
+      bridge.setDockCollapsed(collapsed).catch(() => null);
+    },
+    [bridge],
+  );
   const reduce = useReducedMotion();
   const overallStatus = overallHealth(accounts, phase);
 
@@ -355,7 +386,7 @@ export function App({ bridge = tauriBridge }: AppProps = {}) {
   ];
 
   return (
-    <div className="window">
+    <div className={`window${dockCollapsed ? " window--dock-collapsed" : ""}`}>
       <header className="titlebar" data-tauri-drag-region>
         <TrafficLights />
         <div className="titlebar__brand">
@@ -733,38 +764,83 @@ export function App({ bridge = tauriBridge }: AppProps = {}) {
         </AnimatePresence>
       </main>
 
-      <nav className="dock" aria-label={copy.a11y.dockRegion}>
-        {dockItems.map((item) => (
-          <button
-            key={item.id}
-            type="button"
-            className={`dock__item${view === item.id ? " is-active" : ""}`}
-            aria-pressed={view === item.id}
-            aria-label={item.label}
-            onClick={() => goView(item.id)}
-          >
-            {view === item.id && (
-              <motion.span
-                className="dock__pill"
-                layoutId="dock-pill"
-                transition={{ type: "spring", bounce: 0, duration: 0.32 }}
-              />
-            )}
-            <item.icon size={19} />
-            <span className="dock__label">{item.label}</span>
-          </button>
-        ))}
-        <span className="dock__spacer" aria-hidden="true" />
-        <button
-          type="button"
-          className="dock__item dock__item--icon"
-          aria-label={copy.a11y.openGithub}
-          title={copy.a11y.openGithub}
-          onClick={() => void shell.openProjectPage().catch(() => null)}
+      <div
+        className={`dock-wrap${dockCollapsed ? " dock-wrap--collapsed" : ""}${
+          dockPrefLoaded ? " dock-wrap--ready" : ""
+        }`}
+      >
+        <nav
+          className="dock"
+          id="dock"
+          aria-label={copy.a11y.dockRegion}
+          inert={dockCollapsed || undefined}
         >
-          <IconGitHub size={19} />
-        </button>
-      </nav>
+          {dockItems.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              className={`dock__item${view === item.id ? " is-active" : ""}`}
+              aria-pressed={view === item.id}
+              aria-label={item.label}
+              onClick={() => goView(item.id)}
+            >
+              {view === item.id && (
+                <motion.span
+                  className="dock__pill"
+                  layoutId="dock-pill"
+                  transition={{ type: "spring", bounce: 0, duration: 0.32 }}
+                />
+              )}
+              <item.icon size={19} />
+              <span className="dock__label">{item.label}</span>
+            </button>
+          ))}
+          <span className="dock__spacer" aria-hidden="true" />
+          <button
+            type="button"
+            className="dock__item dock__item--icon"
+            aria-label={copy.a11y.openGithub}
+            title={copy.a11y.openGithub}
+            onClick={() => void shell.openProjectPage().catch(() => null)}
+          >
+            <IconGitHub size={19} />
+          </button>
+          <button
+            type="button"
+            className="dock__item dock__item--icon"
+            aria-label={copy.dock.collapse}
+            aria-controls="dock"
+            aria-expanded={!dockCollapsed}
+            title={copy.dock.collapseHint}
+            onClick={() => toggleDock(true)}
+          >
+            <IconChevronDown size={19} />
+          </button>
+        </nav>
+      </div>
+      <AnimatePresence>
+        {dockCollapsed && (
+          <motion.div
+            className="dock-handle-wrap"
+            initial={reduce ? { opacity: 0 } : { opacity: 0, y: 14 }}
+            animate={reduce ? { opacity: 1 } : { opacity: 1, y: 0 }}
+            exit={reduce ? { opacity: 0 } : { opacity: 0, y: 14 }}
+            transition={{ duration: 0.22, ease: [0.23, 1, 0.32, 1] }}
+          >
+            <button
+              type="button"
+              className="dock-handle"
+              aria-label={copy.dock.expand}
+              aria-controls="dock"
+              aria-expanded={false}
+              title={copy.dock.expandHint}
+              onClick={() => toggleDock(false)}
+            >
+              <IconChevronUp size={15} />
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

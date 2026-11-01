@@ -261,4 +261,8 @@ export interface DashboardBridge {
   getProxy(): Promise<string | null>;
   /** Stores (or, with null, clears) the proxy URL; applies after restart. */
   setProxy(url: string | null): Promise<void>;
+  /** Whether the user last collapsed the dashboard's bottom dock. */
+  getDockCollapsed(): Promise<boolean>;
+  /** Persists the dock's collapsed state for the next launch. */
+  setDockCollapsed(collapsed: boolean): Promise<void>;
 }

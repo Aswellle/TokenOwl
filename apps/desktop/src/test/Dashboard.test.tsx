@@ -9,6 +9,8 @@ const {
   mockUpdateAccountCredential,
   mockManifestProfiles,
   mockLanConsentBegin,
+  mockGetDockCollapsed,
+  mockSetDockCollapsed,
   mockListen,
 } = vi.hoisted(() => ({
   mockListAccounts: vi.fn(),
@@ -18,6 +20,8 @@ const {
   mockUpdateAccountCredential: vi.fn(),
   mockManifestProfiles: vi.fn(),
   mockLanConsentBegin: vi.fn(),
+  mockGetDockCollapsed: vi.fn(async () => false),
+  mockSetDockCollapsed: vi.fn(async () => undefined),
   mockListen: vi.fn(() => new Promise(() => {})),
 }));
 
@@ -61,6 +65,8 @@ vi.mock("../lib/tauri", () => ({
     lanTrustAdd: vi.fn(async () => undefined),
     lanTrustRemove: vi.fn(async () => undefined),
     setProxy: vi.fn(async () => undefined),
+    getDockCollapsed: mockGetDockCollapsed,
+    setDockCollapsed: mockSetDockCollapsed,
   },
 }));
 
@@ -302,5 +308,66 @@ describe("Dashboard state machine", () => {
     await waitFor(() =>
       expect(screen.getByText(/未公开密钥级额度查询接口/)).toBeInTheDocument(),
     );
+  });
+
+  describe("bottom dock collapse", () => {
+    beforeEach(() => {
+      mockGetDockCollapsed.mockResolvedValue(false);
+      mockSetDockCollapsed.mockResolvedValue(undefined);
+    });
+
+    it("shows the dock with an expanded collapse control on load", async () => {
+      mockListAccounts.mockResolvedValue([]);
+      render(<App />);
+      const collapse = await screen.findByRole("button", { name: "收起控制台" });
+      expect(collapse).toHaveAttribute("aria-expanded", "true");
+      expect(collapse).toHaveAttribute("aria-controls", "dock");
+      expect(document.querySelector(".dock-wrap--collapsed")).toBeNull();
+    });
+
+    it("collapses the dock, keeps the collapsed layout when persistence fails", async () => {
+      mockListAccounts.mockResolvedValue([]);
+      mockSetDockCollapsed.mockRejectedValue(new Error("store busy"));
+      render(<App />);
+      fireEvent.click(await screen.findByRole("button", { name: "收起控制台" }));
+
+      await waitFor(() =>
+        expect(mockSetDockCollapsed).toHaveBeenCalledWith(true),
+      );
+      // The layout follows what the user sees even if the save failed.
+      expect(document.querySelector(".dock-wrap--collapsed")).not.toBeNull();
+      expect(screen.getByRole("button", { name: "显示控制台" })).toBeInTheDocument();
+      // The collapsed dock is out of the tab order entirely.
+      expect(document.querySelector("#dock")).toHaveAttribute("inert");
+    });
+
+    it("expands the dock again from the floating handle", async () => {
+      mockListAccounts.mockResolvedValue([]);
+      mockGetDockCollapsed.mockResolvedValue(true);
+      render(<App />);
+      const handle = await screen.findByRole("button", { name: "显示控制台" });
+      expect(handle).toHaveAttribute("aria-expanded", "false");
+      expect(document.querySelector(".dock-wrap--collapsed")).not.toBeNull();
+
+      fireEvent.click(handle);
+      await waitFor(() =>
+        expect(mockSetDockCollapsed).toHaveBeenCalledWith(false),
+      );
+      await waitFor(() =>
+        expect(document.querySelector(".dock-wrap--collapsed")).toBeNull(),
+      );
+      expect(screen.queryByRole("button", { name: "显示控制台" })).toBeNull();
+    });
+
+    it("re-applies the persisted collapsed dock on load", async () => {
+      mockListAccounts.mockResolvedValue([]);
+      mockGetDockCollapsed.mockResolvedValue(true);
+      render(<App />);
+      await waitFor(() =>
+        expect(document.querySelector(".dock-wrap--collapsed")).not.toBeNull(),
+      );
+      expect(screen.getByRole("button", { name: "显示控制台" })).toBeInTheDocument();
+      expect(mockSetDockCollapsed).not.toHaveBeenCalled();
+    });
   });
 });

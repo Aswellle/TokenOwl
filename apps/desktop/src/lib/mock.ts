@@ -374,6 +374,14 @@ export function createMockBridge(): DashboardBridge {
         throw new Error("模拟代理地址无效");
       }
     },
+    async getDockCollapsed() {
+      await new Promise((resolve) => setTimeout(resolve, latency()));
+      return hasScenario("dock-collapsed");
+    },
+    async setDockCollapsed(_collapsed: boolean) {
+      await new Promise((resolve) => setTimeout(resolve, latency()));
+      if (hasScenario("dock-fail")) throw new Error("模拟保存失败");
+    },
     async lanTrustList() {
       await new Promise((resolve) => setTimeout(resolve, latency()));
       return hasScenario("lan-trust") ? ["http://127.0.0.1:4000/v1"] : [];

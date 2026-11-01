@@ -199,6 +199,24 @@ export function IconChevronLeft({ size = 16, className, strokeWidth }: IconProps
   );
 }
 
+/** Collapse affordance of the bottom dock. */
+export function IconChevronDown({ size = 16, className, strokeWidth }: IconProps) {
+  return (
+    <svg {...base(size, strokeWidth)} className={className}>
+      <path d="M6 9l6 6 6-6" />
+    </svg>
+  );
+}
+
+/** The floating handle that brings a collapsed bottom dock back. */
+export function IconChevronUp({ size = 16, className, strokeWidth }: IconProps) {
+  return (
+    <svg {...base(size, strokeWidth)} className={className}>
+      <path d="M6 15l6-6 6 6" />
+    </svg>
+  );
+}
+
 /** Account avatar glyph. */
 export function IconCircleUser({ size = 16, className, strokeWidth }: IconProps) {
   return (

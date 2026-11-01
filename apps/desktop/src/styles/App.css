@@ -278,6 +278,7 @@ button:disabled {
 /* ---------- window frame ---------- */
 
 .window {
+  position: relative;
   display: flex;
   flex-direction: column;
   height: 100dvh;
@@ -2318,6 +2319,100 @@ button:disabled {
   padding: 6px 14px;
   border-top: 1px solid var(--hairline);
   background: var(--surface);
+}
+
+/* Collapsible dock shell: the grid-rows trick animates the dock's own height
+   smoothly (0fr ↔ 1fr) without measuring, and the inner nav clips it. The
+   transition arms only after the persisted preference loads, so a restart
+   with the dock collapsed never flashes it open first. */
+.dock-wrap {
+  display: grid;
+  grid-template-rows: 1fr;
+}
+
+.dock-wrap > .dock {
+  min-height: 0;
+  overflow: hidden;
+  /* The 0fr row cannot squeeze away padding or border (border-box keeps them
+     outside the content box), so they animate down in sync with the row. */
+  transition:
+    padding 0.3s cubic-bezier(0.2, 0, 0, 1),
+    border-top-width 0.3s cubic-bezier(0.2, 0, 0, 1);
+}
+
+.dock-wrap--collapsed > .dock {
+  padding-top: 0;
+  padding-bottom: 0;
+  border-top-width: 0;
+}
+
+.dock-wrap--ready {
+  transition: grid-template-rows 0.3s cubic-bezier(0.2, 0, 0, 1);
+}
+
+.dock-wrap--ready > .dock {
+  transition:
+    padding 0.3s cubic-bezier(0.2, 0, 0, 1),
+    border-top-width 0.3s cubic-bezier(0.2, 0, 0, 1);
+}
+
+.dock-wrap--collapsed {
+  grid-template-rows: 0fr;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dock-wrap--ready,
+  .dock-wrap--ready > .dock {
+    transition: none;
+  }
+}
+
+/* The floating handle that brings the dock back: a small pill centred on the
+   bottom edge, above the content it now overlaps. */
+.dock-handle-wrap {
+  position: absolute;
+  inset-inline: 0;
+  bottom: 8px;
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+  z-index: 6;
+}
+
+.dock-handle {
+  pointer-events: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid var(--hairline-strong);
+  border-radius: 999px;
+  background: var(--surface-hover);
+  color: var(--ink-2);
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.16);
+  transition:
+    color 150ms var(--ease-out),
+    border-color 150ms var(--ease-out),
+    background-color 150ms var(--ease-out);
+}
+
+.dock-handle:hover {
+  color: var(--ink);
+  border-color: var(--accent);
+}
+
+.dock-handle:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+/* With the dock collapsed the reclaimed strip is content; keep the handle
+   from covering the last row's controls. */
+.window--dock-collapsed .content {
+  padding-bottom: 38px;
 }
 
 .dock__item {

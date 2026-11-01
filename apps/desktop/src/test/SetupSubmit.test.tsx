@@ -41,6 +41,8 @@ vi.mock("../lib/tauri", () => ({
     lanTrustAdd: vi.fn(async () => undefined),
     lanTrustRemove: vi.fn(async () => undefined),
     setProxy: vi.fn(async () => undefined),
+    getDockCollapsed: vi.fn(async () => false),
+    setDockCollapsed: vi.fn(async () => undefined),
   },
 }));
 

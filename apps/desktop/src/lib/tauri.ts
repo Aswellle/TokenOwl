@@ -93,6 +93,9 @@ export const tauriBridge: DashboardBridge = {  listAccounts: () => invoke<Accoun
     invoke<UsageWindowsViewModel>("usage_windows", accountId ? { accountId } : undefined),
   getProxy: () => invoke<string | null>("proxy_get"),
   setProxy: (url: string | null) => invoke<void>("proxy_set", { url }),
+  getDockCollapsed: () => invoke<boolean>("dock_state_get"),
+  setDockCollapsed: (collapsed: boolean) =>
+    invoke<void>("dock_state_set", { collapsed }),
 };
 
 /** Project homepage; the Rust opener command opens the same URL. */

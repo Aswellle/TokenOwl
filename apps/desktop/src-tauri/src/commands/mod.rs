@@ -622,6 +622,35 @@ pub fn lan_trust_remove(
     save_lan_trusts(&repository, trusted)
 }
 
+/// Settings key for the dashboard's collapsed bottom dock. A layout
+/// preference, not a secret — it rides the settings table.
+const DOCK_COLLAPSED_KEY: &str = "dock_collapsed";
+
+/// Only an explicit `true` collapses; a missing or malformed entry means the
+/// dock is shown, so a corrupted value can never hide the controls.
+fn dock_collapsed_from(value: Option<serde_json::Value>) -> bool {
+    matches!(value, Some(serde_json::Value::Bool(true)))
+}
+
+/// Returns whether the user last collapsed the dashboard's bottom dock.
+#[tauri::command]
+pub fn dock_state_get(state: State<'_, Arc<AppRuntime>>) -> Result<bool, CommandError> {
+    let value = state.repository()?.get_setting(DOCK_COLLAPSED_KEY)?;
+    Ok(dock_collapsed_from(value))
+}
+
+/// Persists the dock's collapsed state for the next launch.
+#[tauri::command]
+pub fn dock_state_set(
+    collapsed: bool,
+    state: State<'_, Arc<AppRuntime>>,
+) -> Result<(), CommandError> {
+    state
+        .repository()?
+        .set_setting(DOCK_COLLAPSED_KEY, &serde_json::Value::Bool(collapsed))?;
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn accounts_create(
     app: AppHandle,

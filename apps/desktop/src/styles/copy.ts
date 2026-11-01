@@ -237,6 +237,13 @@ export const copy = {
     removeFailed: "移除失败，请稍后重试。",
   },
 
+  dock: {
+    collapse: "收起控制台",
+    collapseHint: "收起底部控制台，把这块区域让给内容",
+    expand: "显示控制台",
+    expandHint: "展开底部控制台",
+  },
+
   update: {
     available: (version: string) => `发现新版本 ${version}，安装后会自动重启。`,
     deferred: (version: string) => `已跳过 ${version}，可随时再次检查。`,

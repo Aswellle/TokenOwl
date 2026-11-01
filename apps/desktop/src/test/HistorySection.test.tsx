@@ -97,6 +97,8 @@ function makeBridge(summary: HistorySummaryViewModel): DashboardBridge {
     lanTrustAdd: vi.fn(async () => undefined),
     lanTrustRemove: vi.fn(async () => undefined),
     setProxy: vi.fn(async () => undefined),
+    getDockCollapsed: vi.fn(async () => false),
+    setDockCollapsed: vi.fn(async () => undefined),
     usageWindows: vi.fn(async () => ({
       hours2: { tokens: 0, cost: null, currency: null, hasData: false },
       hours24: { tokens: 0, cost: null, currency: null, hasData: false },

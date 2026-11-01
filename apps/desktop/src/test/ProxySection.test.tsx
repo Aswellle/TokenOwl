@@ -10,6 +10,8 @@ function makeBridge(overrides: Partial<DashboardBridge> = {}): DashboardBridge {
     lanTrustAdd: vi.fn(async () => undefined),
     lanTrustRemove: vi.fn(async () => undefined),
     setProxy: vi.fn(async () => undefined),
+    getDockCollapsed: vi.fn(async () => false),
+    setDockCollapsed: vi.fn(async () => undefined),
     ...overrides,
   } as unknown as DashboardBridge;
 }

@@ -1517,6 +1517,19 @@ struct ResolvedNewAccount {
     endpoints: AccountEndpoints,
     /// The credential header the resolved wire format authenticates with.
     api_key_header: &'static str,
+    /// Wire protocol the account speaks in the config vocabulary
+    /// (`anthropic` / `google-ai`); `None` means OpenAI-compatible. Persisted
+    /// on the config so refresh routing never re-derives it from the id.
+    api_format: Option<String>,
+}
+
+/// Normalizes a creation-time wire format onto the config vocabulary.
+fn config_api_format(api_format: &str) -> Option<String> {
+    match api_format {
+        "anthropic" => Some("anthropic".to_owned()),
+        "gemini" | "google-ai" => Some("google-ai".to_owned()),
+        _ => None,
+    }
 }
 
 /// The credential header each supported wire format authenticates with.
@@ -1679,13 +1692,14 @@ fn resolve_new_account(
                         balance,
                     },
                     api_key_header: api_key_header_for_format(api_format),
+                    api_format: None,
                 })
             }
             // The native wire formats dispatch to their own adapters by the
-            // `anthropic:` / `gemini:` provider-id prefix. Their capability
-            // is the adapter's own (L2: key probe plus any rate-limit
-            // headers the gateway returns), so user-supplied probe
-            // endpoints are not applicable and are deliberately ignored.
+            // config's `api_format` field. Their capability is the adapter's
+            // own (L2: key probe plus any rate-limit headers the gateway
+            // returns), so user-supplied probe endpoints are not applicable
+            // and are deliberately ignored.
             "anthropic" | "gemini" => Ok(ResolvedNewAccount {
                 provider_prefix: api_format.to_owned(),
                 display_name: if api_format == "anthropic" {
@@ -1701,6 +1715,7 @@ fn resolve_new_account(
                     balance: None,
                 },
                 api_key_header: api_key_header_for_format(api_format),
+                api_format: config_api_format(api_format),
             }),
             other => Err(CommandError::InvalidInput(format!(
                 "unsupported API format `{other}` (openai_compatible, anthropic, gemini)"
@@ -1735,6 +1750,7 @@ fn resolve_new_account(
             balance: profile.endpoints.balance,
         },
         api_key_header: api_key_header_for_format(&profile.api_format),
+        api_format: config_api_format(&profile.api_format),
     })
 }
 
@@ -1833,6 +1849,7 @@ fn persist_new_account(
     resolved
         .api_key_header
         .clone_into(&mut config.api_key_header);
+    config.api_format.clone_from(&resolved.api_format);
     config
         .models_endpoint
         .clone_from(&resolved.endpoints.models);

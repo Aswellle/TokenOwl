@@ -466,6 +466,13 @@ pub struct OpenAiCompatibleConfig {
     /// field-name search applies. Mapping evaluation happens only through
     /// `parse_openai_compatible_with_mappings`.
     pub field_mappings: Option<FieldMappings>,
+    /// Wire protocol the config speaks: `Some("anthropic")` or
+    /// `Some("google-ai")` for the native adapters; `None` (the default)
+    /// means the OpenAI-compatible transport. Absence of knowledge — not a
+    /// positive `OpenAI` claim — so legacy rows can still be routed by their
+    /// id prefix through [`Self::effective_api_format`].
+    #[serde(default)]
+    pub api_format: Option<String>,
 }
 
 impl Default for OpenAiCompatibleConfig {
@@ -505,7 +512,23 @@ impl OpenAiCompatibleConfig {
                 ..ProviderCapabilities::none()
             },
             field_mappings: None,
+            api_format: None,
         }
+    }
+
+    /// Wire protocol a refresh must use. New accounts carry it explicitly;
+    /// legacy rows predating the field fall back to the well-known id
+    /// prefixes, keeping every existing database routing correctly without
+    /// a migration.
+    pub fn effective_api_format(&self) -> Option<&str> {
+        self.api_format.as_deref().or_else(|| {
+            let prefix = self.id.split(':').next()?;
+            match prefix {
+                "anthropic" => Some("anthropic"),
+                "gemini" => Some("google-ai"),
+                _ => None,
+            }
+        })
     }
 
     /// Checks the endpoint shape before a network layer uses it.
@@ -1261,6 +1284,31 @@ impl<'a> IntoIterator for &'a ProviderRegistry {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn api_format_routes_explicitly_and_falls_back_for_legacy_rows() {
+        let mut config = OpenAiCompatibleConfig::new(
+            "anthropic:account-1",
+            "Anthropic",
+            "https://api.anthropic.com",
+        );
+        // Legacy row: no stored format, the id prefix decides.
+        assert_eq!(config.effective_api_format(), Some("anthropic"));
+        // An explicit field always wins over the prefix.
+        config.api_format = Some("google-ai".to_owned());
+        assert_eq!(config.effective_api_format(), Some("google-ai"));
+        // A missing field on a non-native id means OpenAI-compatible.
+        let generic = OpenAiCompatibleConfig::new(
+            "deepseek:account-1",
+            "DeepSeek",
+            "https://api.deepseek.com",
+        );
+        assert_eq!(generic.effective_api_format(), None);
+        // An explicit OpenAI format stays explicit.
+        let mut openai = generic;
+        openai.api_format = None;
+        assert_eq!(openai.effective_api_format(), None);
+    }
 
     const SUCCESS: &str = r#"{
         "data": {

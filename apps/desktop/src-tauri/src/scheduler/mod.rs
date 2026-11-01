@@ -25,9 +25,9 @@ pub struct RefreshResult {
 
 /// Refresh a single account and persist the normalized snapshot set.
 ///
-/// Adapter dispatch follows the wire protocol the account was created under:
-/// ids prefixed `anthropic:` ride the native adapter, everything else the
-/// OpenAI-compatible transport.
+/// Adapter dispatch follows the config's `api_format` field, which every
+/// creation path persists; legacy rows that predate the field fall back to
+/// their provider-id prefix via `effective_api_format`.
 pub async fn refresh_account(
     repository: LocalRepository,
     adapter: &OpenAiCompatibleAdapter,
@@ -44,12 +44,12 @@ pub async fn refresh_account(
         ProviderError::new(ProviderErrorKind::ConfigInvalid, "provider not found")
     })?;
     repository.mark_refresh_started(account_id, started_at)?;
-    let fetched = if account.provider_id.starts_with("anthropic:") {
-        native_fetch(anthropic, &account, &config, account_id, credentials).await
-    } else if account.provider_id.starts_with("gemini:") {
-        native_fetch(google, &account, &config, account_id, credentials).await
-    } else {
-        adapter.fetch(&config, account_id, credentials).await
+    let fetched = match config.effective_api_format() {
+        Some("anthropic") => {
+            native_fetch(anthropic, &account, &config, account_id, credentials).await
+        }
+        Some("google-ai") => native_fetch(google, &account, &config, account_id, credentials).await,
+        _ => adapter.fetch(&config, account_id, credentials).await,
     };
     match fetched {
         Ok(result) => {

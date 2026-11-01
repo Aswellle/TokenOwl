@@ -50,9 +50,21 @@ impl HttpClientConfig {
     /// policy always take the global defaults (deny redirects, no implicit
     /// proxy).
     pub fn from_adapter_limits(timeout: Duration, max_response_bytes: usize) -> Self {
+        Self::from_adapter_limits_with_proxy(timeout, max_response_bytes, None)
+    }
+
+    /// [`Self::from_adapter_limits`] with an explicit proxy. The proxy only
+    /// ever arrives from the user's own settings — never from the
+    /// environment — so transport behavior stays deterministic and testable.
+    pub fn from_adapter_limits_with_proxy(
+        timeout: Duration,
+        max_response_bytes: usize,
+        proxy: Option<String>,
+    ) -> Self {
         Self {
             timeout,
             max_response_bytes,
+            proxy,
             ..Self::default()
         }
     }

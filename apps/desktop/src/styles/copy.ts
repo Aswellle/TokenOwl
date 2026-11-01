@@ -217,6 +217,18 @@ export const copy = {
     confirm: "保存并验证",
   },
 
+  proxy: {
+    title: "网络代理",
+    help: "填入后所有供应商请求都经过该代理；留空保存表示直连（默认行为不变）。",
+    restartNote: "保存后需重启应用生效。代理地址保存在系统凭据库中，与密钥同级保护。",
+    placeholder: "http://127.0.0.1:7890",
+    save: "保存代理设置",
+    saving: "正在保存…",
+    saved: "已保存，重启应用后生效。",
+    cleared: "已清除代理，重启应用后恢复直连。",
+    invalid: "代理地址无效：请使用 http:// 或 https:// 开头的完整 URL。",
+  },
+
   update: {
     available: (version: string) => `发现新版本 ${version}，安装后会自动重启。`,
     deferred: (version: string) => `已跳过 ${version}，可随时再次检查。`,

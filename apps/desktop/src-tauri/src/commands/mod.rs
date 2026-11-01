@@ -214,16 +214,23 @@ impl AppRuntime {
             std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
         }
         LocalRepository::open(&database_path).map_err(|error| error.to_string())?;
+        // The proxy URL (which may embed proxy credentials) lives in the OS
+        // credential store under its own reference, so it never lands in
+        // SQLite or a log. A keyring failure leaves the transport direct —
+        // availability beats guessing at a half-read secret.
+        let credentials = CredentialStore::default();
+        let proxy = proxy_setting(&credentials);
         let adapter =
-            OpenAiCompatibleAdapter::with_default_limits(OpenAiCompatibleConfig::default())
+            OpenAiCompatibleAdapter::with_proxy(proxy.clone(), OpenAiCompatibleConfig::default())
                 .map_err(|error| error.to_string())?;
-        let anthropic = AnthropicAdapter::with_default_limits(OpenAiCompatibleConfig::default())
-            .map_err(|error| error.to_string())?;
-        let google = GoogleAiAdapter::with_default_limits(OpenAiCompatibleConfig::default())
+        let anthropic =
+            AnthropicAdapter::with_proxy(proxy.clone(), OpenAiCompatibleConfig::default())
+                .map_err(|error| error.to_string())?;
+        let google = GoogleAiAdapter::with_proxy(proxy, OpenAiCompatibleConfig::default())
             .map_err(|error| error.to_string())?;
         Ok(Self {
             database_path,
-            credentials: CredentialStore::default(),
+            credentials,
             adapter,
             anthropic,
             google,
@@ -476,6 +483,62 @@ pub async fn lan_consent_begin(
         return Ok(None);
     }
     Ok(Some(state.lan_consents.begin(&trimmed, unix_seconds())))
+}
+
+/// OS credential-store reference for the user-configured proxy URL. It may
+/// embed proxy credentials (`http://user:pass@host:port`), so it rides the
+/// keyring like any other secret instead of the settings table.
+const PROXY_CREDENTIAL_REF: &str = "transport/proxy";
+
+/// Reads the stored proxy URL; `None` means direct connection. A keyring
+/// failure is indistinguishable from "not set" by design — the transport
+/// falls back to direct rather than surfacing store errors at startup.
+fn proxy_setting(credentials: &CredentialStore) -> Option<String> {
+    credentials
+        .resolve(PROXY_CREDENTIAL_REF)
+        .ok()
+        .map(|value| value.as_str().to_owned())
+}
+
+/// Validates a user-entered proxy URL. Messages stay constant: the URL (and
+/// anything embedded in it) is never echoed back into an error string.
+fn validate_proxy_url(value: &str) -> Result<String, CommandError> {
+    let trimmed = value.trim();
+    let parsed = reqwest::Url::parse(trimmed).map_err(|_| {
+        CommandError::InvalidInput("proxy URL is not a valid absolute URL".to_owned())
+    })?;
+    match parsed.scheme() {
+        "http" | "https" => Ok(trimmed.to_owned()),
+        _ => Err(CommandError::InvalidInput(
+            "proxy URL must use the http or https scheme".to_owned(),
+        )),
+    }
+}
+
+/// Returns the configured proxy URL for the settings page (the user's own
+/// input, needed to pre-fill the edit field). `None` means direct.
+#[tauri::command]
+pub fn proxy_get(state: State<'_, Arc<AppRuntime>>) -> Result<Option<String>, CommandError> {
+    Ok(proxy_setting(&state.credentials))
+}
+
+/// Stores or clears the proxy URL. Takes effect on the next app start — the
+/// adapters build their HTTP client once at boot — and the frontend says so.
+#[tauri::command]
+pub fn proxy_set(
+    url: Option<String>,
+    state: State<'_, Arc<AppRuntime>>,
+) -> Result<(), CommandError> {
+    match url {
+        Some(value) => {
+            let validated = validate_proxy_url(&value)?;
+            state.credentials.set(PROXY_CREDENTIAL_REF, &validated)?;
+        }
+        None => {
+            state.credentials.delete(PROXY_CREDENTIAL_REF)?;
+        }
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -1992,6 +2055,61 @@ fn unix_seconds() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::networking::HttpClientConfig;
+    use std::time::Duration;
+
+    #[test]
+    fn proxy_urls_must_be_absolute_http_or_https() {
+        assert!(validate_proxy_url("http://127.0.0.1:7890").is_ok());
+        assert!(validate_proxy_url("  https://proxy.corp.internal:3128  ").is_ok());
+        assert_eq!(
+            validate_proxy_url("  https://proxy.corp.internal:3128  ").expect("trim"),
+            "https://proxy.corp.internal:3128"
+        );
+        // Invalid inputs fail with constant messages that never echo the URL.
+        assert!(validate_proxy_url("not a url").is_err());
+        assert!(validate_proxy_url("ftp://proxy:21").is_err());
+        assert!(validate_proxy_url("").is_err());
+        for bad in ["not a url", "ftp://proxy:21", ""] {
+            let error = validate_proxy_url(bad).expect_err("must reject");
+            assert!(
+                !error.to_string().contains(bad) || bad.is_empty(),
+                "error text must not echo the input"
+            );
+        }
+    }
+
+    #[test]
+    fn proxy_config_keeps_global_policies() {
+        let config = HttpClientConfig::from_adapter_limits_with_proxy(
+            Duration::from_secs(15),
+            512 * 1024,
+            Some("http://127.0.0.1:7890".to_owned()),
+        );
+        assert_eq!(config.proxy.as_deref(), Some("http://127.0.0.1:7890"));
+        assert!(!config.follow_redirects, "redirect denial survives a proxy");
+        assert_eq!(config.connect_timeout, Duration::from_secs(10));
+    }
+
+    #[test]
+    fn adapters_build_with_and_without_a_proxy() {
+        let config = OpenAiCompatibleConfig::default();
+        assert!(OpenAiCompatibleAdapter::with_proxy(None, config.clone()).is_ok());
+        assert!(
+            OpenAiCompatibleAdapter::with_proxy(
+                Some("http://127.0.0.1:7890".to_owned()),
+                config.clone()
+            )
+            .is_ok()
+        );
+        assert!(
+            AnthropicAdapter::with_proxy(Some("http://127.0.0.1:7890".to_owned()), config.clone())
+                .is_ok()
+        );
+        assert!(
+            GoogleAiAdapter::with_proxy(Some("http://127.0.0.1:7890".to_owned()), config).is_ok()
+        );
+    }
 
     #[test]
     fn command_errors_serialize_with_stable_codes() {

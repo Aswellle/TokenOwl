@@ -28,6 +28,7 @@ import { ProviderView } from "./components/ProviderView";
 import { ProviderMatrix } from "./components/ProviderMatrix";
 import { SetupForm } from "./components/SetupForm";
 import { AccountRow } from "./components/AccountRow";
+import { ProxySection } from "./components/ProxySection";
 import { Notice } from "./components/Notice";
 import { useAccounts } from "./hooks/useAccounts";
 import { useUpdater } from "./hooks/useUpdater";
@@ -623,6 +624,7 @@ export function App({ bridge = tauriBridge }: AppProps = {}) {
                   onSubmit={handleCreate}
                 />
                 <ProviderMatrix bridge={bridge} />
+                <ProxySection bridge={bridge} />
                 {/* The check lives at the bottom of a long page, so the result
                     renders here — right above the button that produced it —
                     and never at the top, where it would land off-screen. */}

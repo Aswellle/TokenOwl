@@ -364,6 +364,16 @@ export function createMockBridge(): DashboardBridge {
       if (!target) throw new Error("模拟账户不存在");
       return structuredClone(target);
     },
+    async getProxy() {
+      await new Promise((resolve) => setTimeout(resolve, latency()));
+      return hasScenario("proxy-set") ? "http://127.0.0.1:7890" : null;
+    },
+    async setProxy(url: string | null) {
+      await new Promise((resolve) => setTimeout(resolve, latency()));
+      if (url !== null && !/^https?:\/\//.test(url)) {
+        throw new Error("模拟代理地址无效");
+      }
+    },
     async refresh(accountId) {
       await new Promise((resolve) => setTimeout(resolve, latency() + 220));
       if (hasScenario("refresh-fail")) throw new Error("模拟刷新失败：上游 503");

@@ -1075,6 +1075,8 @@ pub fn run() {
             commands::accounts_refresh,
             commands::manifest_profiles,
             commands::lan_consent_begin,
+            commands::proxy_get,
+            commands::proxy_set,
             commands::notifications_list,
             commands::notifications_mark_read,
             commands::notification_preferences_get,

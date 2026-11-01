@@ -48,6 +48,15 @@ pub struct GoogleAiAdapter {
 
 impl GoogleAiAdapter {
     pub fn new(limits: AdapterLimits, config: OpenAiCompatibleConfig) -> ProviderResult<Self> {
+        Self::new_with_proxy(limits, config, None)
+    }
+
+    /// [`Self::new`] routed through an explicit user-configured proxy.
+    pub fn new_with_proxy(
+        limits: AdapterLimits,
+        config: OpenAiCompatibleConfig,
+        proxy: Option<String>,
+    ) -> ProviderResult<Self> {
         if limits.timeout.is_zero() || limits.max_response_bytes == 0 {
             return Err(ProviderError::new(
                 ProviderErrorKind::ConfigInvalid,
@@ -55,16 +64,25 @@ impl GoogleAiAdapter {
             ));
         }
         // Shared transport authority: redirects denied, no implicit proxy,
-        // streaming size cap. Only timeout and cap size vary per adapter.
-        let client = HttpClient::new(HttpClientConfig::from_adapter_limits(
+        // streaming size cap. Only timeout, cap size and the user's own
+        // explicit proxy vary per adapter.
+        let client = HttpClient::new(HttpClientConfig::from_adapter_limits_with_proxy(
             limits.timeout,
             limits.max_response_bytes,
+            proxy,
         ))?;
         Ok(Self { client, config })
     }
 
     pub fn with_default_limits(config: OpenAiCompatibleConfig) -> ProviderResult<Self> {
         Self::new(AdapterLimits::default(), config)
+    }
+
+    pub fn with_proxy(
+        proxy: Option<String>,
+        config: OpenAiCompatibleConfig,
+    ) -> ProviderResult<Self> {
+        Self::new_with_proxy(AdapterLimits::default(), config, proxy)
     }
 
     /// Resolves the config a request must use: the account's own config when

@@ -2907,6 +2907,16 @@ button:disabled {
   white-space: nowrap;
 }
 
+/* Explicit proxy setting: one row for input + action. */
+.proxy__actions {
+  display: flex;
+  margin-top: 10px;
+}
+
+.proxy .field__help {
+  display: block;
+}
+
 .picker__btn {
   display: inline-flex;
   align-items: center;

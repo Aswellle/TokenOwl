@@ -49,6 +49,15 @@ pub struct OpenAiCompatibleAdapter {
 
 impl OpenAiCompatibleAdapter {
     pub fn new(limits: AdapterLimits, config: OpenAiCompatibleConfig) -> ProviderResult<Self> {
+        Self::new_with_proxy(limits, config, None)
+    }
+
+    /// [`Self::new`] routed through an explicit user-configured proxy.
+    pub fn new_with_proxy(
+        limits: AdapterLimits,
+        config: OpenAiCompatibleConfig,
+        proxy: Option<String>,
+    ) -> ProviderResult<Self> {
         if limits.timeout.is_zero() || limits.max_response_bytes == 0 {
             return Err(ProviderError::new(
                 ProviderErrorKind::ConfigInvalid,
@@ -57,11 +66,12 @@ impl OpenAiCompatibleAdapter {
         }
         // The shared client is the transport authority: redirects are denied,
         // no implicit environment proxy is honored, and the response-size cap
-        // is enforced while streaming. Only the timeout and size limit vary
-        // per adapter.
-        let client = HttpClient::new(HttpClientConfig::from_adapter_limits(
+        // is enforced while streaming. Only the timeout, size limit and the
+        // user's own explicit proxy vary per adapter.
+        let client = HttpClient::new(HttpClientConfig::from_adapter_limits_with_proxy(
             limits.timeout,
             limits.max_response_bytes,
+            proxy,
         ))?;
         Ok(Self {
             client,
@@ -72,6 +82,13 @@ impl OpenAiCompatibleAdapter {
 
     pub fn with_default_limits(config: OpenAiCompatibleConfig) -> ProviderResult<Self> {
         Self::new(AdapterLimits::default(), config)
+    }
+
+    pub fn with_proxy(
+        proxy: Option<String>,
+        config: OpenAiCompatibleConfig,
+    ) -> ProviderResult<Self> {
+        Self::new_with_proxy(AdapterLimits::default(), config, proxy)
     }
 
     pub fn limits(&self) -> AdapterLimits {

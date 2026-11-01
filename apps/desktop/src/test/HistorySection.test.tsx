@@ -92,6 +92,8 @@ function makeBridge(summary: HistorySummaryViewModel): DashboardBridge {
     historyBreakdown: vi.fn(async () => []),
     providerMatrix: vi.fn(async () => []),
     manifestProfiles: vi.fn(async () => ({ profiles: [], skipped: [] })),
+    getProxy: vi.fn(async () => null),
+    setProxy: vi.fn(async () => undefined),
     usageWindows: vi.fn(async () => ({
       hours2: { tokens: 0, cost: null, currency: null, hasData: false },
       hours24: { tokens: 0, cost: null, currency: null, hasData: false },

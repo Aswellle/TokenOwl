@@ -252,4 +252,8 @@ export interface DashboardBridge {
   providerMatrix(): Promise<ProviderMatrixRowViewModel[]>;
   manifestProfiles(): Promise<ManifestProfilesViewModel>;
   usageWindows(accountId?: string): Promise<UsageWindowsViewModel>;
+  /** The configured proxy URL, or null for a direct connection. */
+  getProxy(): Promise<string | null>;
+  /** Stores (or, with null, clears) the proxy URL; applies after restart. */
+  setProxy(url: string | null): Promise<void>;
 }

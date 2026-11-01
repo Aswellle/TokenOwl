@@ -170,13 +170,117 @@ fn center_dashboard_on_bubble(dashboard: &tauri::WebviewWindow, bubble: &tauri::
         i32::try_from(dashboard_size.width).unwrap_or(0),
         i32::try_from(dashboard_size.height).unwrap_or(0),
     );
-    let bounds_origin = (monitor.position().x, monitor.position().y);
+    // Center within the work area, not the raw monitor: a dashboard centered
+    // against the full screen sits half under the taskbar on Windows and
+    // under the Dock on macOS, hiding the app's own bottom dock.
+    let area = monitor.work_area();
+    let bounds_origin = (area.position.x, area.position.y);
     let bounds_size = (
-        i32::try_from(monitor.size().width).unwrap_or(0),
-        i32::try_from(monitor.size().height).unwrap_or(0),
+        i32::try_from(area.size.width).unwrap_or(0),
+        i32::try_from(area.size.height).unwrap_or(0),
     );
     let (x, y) = centered_origin(center, size, bounds_origin, bounds_size);
     let _ = dashboard.set_position(tauri::PhysicalPosition::new(x, y));
+}
+
+/// Pure geometry for fitting a window into a monitor's work area: the size
+/// shrinks to the area (never below `min`, never above the area) and the
+/// origin centers inside the area. Logical units on both sides keep DPI out
+/// of the arithmetic; the caller converts at the window boundary.
+///
+/// This is what keeps the app's own bottom dock visible at the default
+/// startup size on Windows (taskbar) and macOS (menu bar + Dock): without it
+/// the configured 760x720 lands wherever the OS drops it and the dock row
+/// can be born underneath the system bar.
+fn fit_into_work_area(
+    size: (f64, f64),
+    min: (f64, f64),
+    area_size_logical: (f64, f64),
+) -> (f64, f64) {
+    let clamp_axis = |wanted: f64, low: f64, area: f64| -> f64 {
+        if area <= 0.0 {
+            return wanted;
+        }
+        wanted.min(area).max(low.min(area))
+    };
+    (
+        clamp_axis(size.0, min.0, area_size_logical.0),
+        clamp_axis(size.1, min.1, area_size_logical.1),
+    )
+}
+
+/// Moves and sizes the dashboard so it sits fully inside the current
+/// monitor's work area (the screen minus taskbar / menu bar / Dock), centered
+/// there. Returns false when no monitor could be resolved yet — the window is
+/// created before the compositor reports one, so callers retry instead of
+/// leaving the OS's own placement (which ignores the taskbar) in charge.
+#[allow(clippy::cast_possible_truncation)] // sizes are rounded before the cast
+fn fit_dashboard_into_work_area(window: &tauri::WebviewWindow) -> bool {
+    let Some(monitor) = window
+        .current_monitor()
+        .ok()
+        .flatten()
+        .or_else(|| window.primary_monitor().ok().flatten())
+    else {
+        return false;
+    };
+    let area = monitor.work_area();
+    let area_origin = (area.position.x, area.position.y);
+    let area_size_px = (
+        i32::try_from(area.size.width).unwrap_or(0),
+        i32::try_from(area.size.height).unwrap_or(0),
+    );
+    let scale = monitor.scale_factor();
+    if scale <= 0.0 || area_size_px.0 <= 0 || area_size_px.1 <= 0 {
+        return false;
+    }
+    let area_size_logical = (
+        f64::from(area_size_px.0) / scale,
+        f64::from(area_size_px.1) / scale,
+    );
+    // The config's logical window rect and its minimums.
+    let fitted = fit_into_work_area((760.0, 720.0), (560.0, 480.0), area_size_logical);
+    let fitted_px = (
+        (fitted.0 * scale).round() as i32,
+        (fitted.1 * scale).round() as i32,
+    );
+    let center = (
+        area_origin.0 + area_size_px.0 / 2,
+        area_origin.1 + area_size_px.1 / 2,
+    );
+    let (x, y) = centered_origin(center, fitted_px, area_origin, area_size_px);
+    let _ = window.set_size(tauri::LogicalSize::new(fitted.0, fitted.1));
+    let _ = window.set_position(tauri::PhysicalPosition::new(x, y));
+    true
+}
+
+/// Retries the work-area fit until the compositor reports a monitor.
+///
+/// The window exists before its monitor does, so a single attempt at setup
+/// time races the compositor: a lost race left the default 760×720 wherever
+/// the OS dropped it, with the app's own bottom dock under the taskbar. The
+/// first miss hides the window (so the wrong placement is never shown) and
+/// the loop shows it again on success or when the retries run out — an oddly
+/// placed dashboard still beats an invisible one.
+fn fit_dashboard_when_monitor_ready(window: tauri::WebviewWindow) {
+    tauri::async_runtime::spawn(async move {
+        let mut hidden = false;
+        for attempt in 0..20 {
+            if fit_dashboard_into_work_area(&window) {
+                if hidden {
+                    let _ = window.show();
+                }
+                return;
+            }
+            if attempt == 0 {
+                hidden = window.hide().is_ok();
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        }
+        if hidden {
+            let _ = window.show();
+        }
+    });
 }
 
 /// Whether the bubble window is currently visible, so the dashboard knows if
@@ -1049,6 +1153,13 @@ pub fn run() {
                         // size now that the clamp is lifted brings the window
                         // down to its real 56×56 logical footprint.
                         let _ = window.set_size(tauri::LogicalSize::new(56.0_f64, 56.0_f64));
+                    } else {
+                        // The dashboard must be born inside the work area so
+                        // its bottom dock is visible at the default size —
+                        // the OS's own placement ignores the taskbar/Dock.
+                        // The compositor may not report a monitor yet, so the
+                        // fit retries in the background.
+                        fit_dashboard_when_monitor_ready(window.clone());
                     }
                 }
             }
@@ -1080,6 +1191,8 @@ pub fn run() {
             commands::lan_trust_list,
             commands::lan_trust_add,
             commands::lan_trust_remove,
+            commands::dock_state_get,
+            commands::dock_state_set,
             commands::notifications_list,
             commands::notifications_mark_read,
             commands::notification_preferences_get,
@@ -1101,6 +1214,41 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn fit_into_work_area_shrinks_and_respects_minimums() {
+        // The default fits untouched.
+        assert_eq!(
+            fit_into_work_area((760.0, 720.0), (560.0, 480.0), (1280.0, 1032.0)),
+            (760.0, 720.0)
+        );
+        // A short work area (small laptop minus taskbar) shrinks the height
+        // to fill it — the minimum never wins over the area.
+        assert_eq!(
+            fit_into_work_area((760.0, 720.0), (560.0, 480.0), (1280.0, 640.0)),
+            (760.0, 640.0)
+        );
+        // Tiny area: the height follows the area even under the minimum —
+        // visibility beats the minimum size — while the width still fits.
+        assert_eq!(
+            fit_into_work_area((760.0, 720.0), (560.0, 480.0), (900.0, 400.0)),
+            (760.0, 400.0)
+        );
+        // Degenerate area leaves the wanted size alone.
+        assert_eq!(
+            fit_into_work_area((760.0, 720.0), (560.0, 480.0), (0.0, 0.0)),
+            (760.0, 720.0)
+        );
+    }
+
+    #[test]
+    fn centered_origin_honors_a_work_area_offset() {
+        // Work area starts below a top-anchored menu bar and ends above a
+        // bottom Dock: centering must stay inside that band, not the screen.
+        let (x, y) = centered_origin((640, 540), (760, 720), (0, 48), (1280, 984));
+        assert_eq!(x, 260);
+        assert_eq!(y, 48 + (984 - 720) / 2);
+    }
 
     #[cfg(windows)]
     #[test]

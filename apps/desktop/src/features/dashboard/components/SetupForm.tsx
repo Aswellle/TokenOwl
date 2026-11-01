@@ -200,12 +200,21 @@ export function SetupForm({
     } catch {
       return { message: copy.form.invalidBaseUrl, fieldId: "base-url" };
     }
-    const endpointIds = ["quota-endpoint", "usage-endpoint", "balance-endpoint"] as const;
-    const badEndpoint = endpointIds.find((id) => {
-      const value = (document.getElementById(id) as HTMLInputElement | null)?.value.trim() ?? "";
-      return value !== "" && !value.startsWith("/");
-    });
-    if (badEndpoint) return { message: copy.form.invalidEndpoint, fieldId: badEndpoint };
+    // Mirror sendAccount exactly: endpoints only reach the backend for a
+    // custom OpenAI-compatible target, so only that case can carry an
+    // invalid one — the state values are the single source here, no DOM reads.
+    if (!profile && customFormat === "openai_compatible") {
+      const endpointFields = [
+        { id: "quota-endpoint", value: quotaEndpoint },
+        { id: "usage-endpoint", value: usageEndpoint },
+        { id: "balance-endpoint", value: balanceEndpoint },
+      ] as const;
+      const badEndpoint = endpointFields.find(({ value }) => {
+        const trimmed = value.trim();
+        return trimmed !== "" && !trimmed.startsWith("/");
+      });
+      if (badEndpoint) return { message: copy.form.invalidEndpoint, fieldId: badEndpoint.id };
+    }
     if (!apiKeyRef.current?.value.trim())
       return { message: copy.form.missingKey, fieldId: "api-key" };
     return null;

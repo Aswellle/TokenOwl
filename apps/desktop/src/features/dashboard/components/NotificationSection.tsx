@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import { motion } from "motion/react";
 import { copy } from "../../../styles/copy";
 import { formatRelative } from "../../../lib/format";
@@ -15,6 +15,49 @@ const fadeVariants = {
   hidden: { opacity: 0, y: -6 },
   show: { opacity: 1, y: 0, transition: springPanel },
 };
+
+/**
+ * A module-scoped relative-time clock: one 30s interval no matter how many
+ * labels subscribe, and a tick re-renders only the time labels through
+ * `useSyncExternalStore` — never the notification list around them.
+ */
+const clockListeners = new Set<() => void>();
+let clockNow = Date.now();
+let clockTimer: number | null = null;
+
+function subscribeClock(listener: () => void): () => void {
+  clockListeners.add(listener);
+  if (clockTimer === null) {
+    clockTimer = window.setInterval(() => {
+      clockNow = Date.now();
+      clockListeners.forEach((fn) => fn());
+    }, 30_000);
+  }
+  return () => {
+    clockListeners.delete(listener);
+    if (clockListeners.size === 0 && clockTimer !== null) {
+      window.clearInterval(clockTimer);
+      clockTimer = null;
+    }
+  };
+}
+
+function useRelativeNow(): number {
+  return useSyncExternalStore(
+    subscribeClock,
+    () => clockNow,
+    () => clockNow,
+  );
+}
+
+function RelativeTime({ at }: { at: number }) {
+  const now = useRelativeNow();
+  return (
+    <time className="notif__time" dateTime={new Date(at).toISOString()}>
+      {formatRelative(at, now) ?? ""}
+    </time>
+  );
+}
 
 function severityClass(severity: NotificationViewModel["severity"]): string {
   return `notif__severity notif__severity--${severity.toLowerCase()}`;
@@ -48,11 +91,9 @@ function parseMinuteText(text: string, fallback: number): number {
 
 function NotificationItem({
   item,
-  now,
   onMarkRead,
 }: {
   item: NotificationViewModel;
-  now: number;
   onMarkRead: (id: string) => void;
 }) {
   const unread = isUnread(item);
@@ -73,9 +114,7 @@ function NotificationItem({
           <span className={severityClass(item.severity)}>
             {copy.notifications.severity[item.severity] ?? item.severity}
           </span>
-          <time className="notif__time" dateTime={new Date(item.createdAt).toISOString()}>
-            {formatRelative(item.createdAt, now) ?? ""}
-          </time>
+          <RelativeTime at={item.createdAt} />
         </p>
         <p className="notif__message">{item.message}</p>
       </div>
@@ -371,7 +410,6 @@ export function NotificationSection({
   const [loadFailed, setLoadFailed] = useState(false);
   const [prefsFailed, setPrefsFailed] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
-  const [now, setNow] = useState(() => Date.now());
   // Type filter: the log is the only place a user can audit *what kind* of
   // alerting their setup produces, and after a few weeks it holds every kind.
   const [kindFilter, setKindFilter] = useState<NotificationKind | "all">("all");
@@ -402,11 +440,6 @@ export function NotificationSection({
   useEffect(() => {
     void load();
   }, [load, reloadSignal]);
-
-  useEffect(() => {
-    const timer = window.setInterval(() => setNow(Date.now()), 30_000);
-    return () => window.clearInterval(timer);
-  }, []);
 
   const unread = (items ?? []).filter(isUnread).length;
   // Only offer the kinds actually present, so the control never lists a filter
@@ -526,7 +559,6 @@ export function NotificationSection({
             <NotificationItem
               key={item.id}
               item={item}
-              now={now}
               onMarkRead={(id) => void handleMarkRead(id)}
             />
           ))}

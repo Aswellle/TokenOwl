@@ -356,7 +356,11 @@ describe("Dashboard state machine", () => {
       await waitFor(() =>
         expect(document.querySelector(".dock-wrap--collapsed")).toBeNull(),
       );
-      expect(screen.queryByRole("button", { name: "显示控制台" })).toBeNull();
+      // The handle leaves through an exit animation, so its removal is not
+      // synchronous with the click.
+      await waitFor(() =>
+        expect(screen.queryByRole("button", { name: "显示控制台" })).toBeNull(),
+      );
     });
 
     it("re-applies the persisted collapsed dock on load", async () => {

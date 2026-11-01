@@ -193,12 +193,20 @@ impl LanConsentLedger {
 /// the frontend — so a UI bug or a stale dialog can never substitute for
 /// consent, and a classifier outage surfaces as a rejected creation instead
 /// of a silently public-looking LAN account.
+///
+/// The user's explicitly trusted LAN targets (managed, revocable, see the
+/// `lan_trust_*` commands) bypass the per-creation prompt; everything else
+/// still demands the one-time token.
 fn authorize_lan_target(
     ledger: &LanConsentLedger,
+    trusted: &[String],
     target: &str,
     token: Option<&str>,
 ) -> Result<(), CommandError> {
     if !resolves_to_lan(target) {
+        return Ok(());
+    }
+    if trusted.iter().any(|entry| entry == target) {
         return Ok(());
     }
     ledger.authorize(target, token, unix_seconds())
@@ -539,6 +547,79 @@ pub fn proxy_set(
         }
     }
     Ok(())
+}
+
+/// Settings key for LAN targets the user explicitly trusts. Hostnames are
+/// not secrets, so these ride the settings table; the trust is per exact
+/// trimmed base URL, revocable at any time.
+const LAN_TRUST_SETTING_KEY: &str = "lan_trust_targets";
+
+fn load_lan_trusts(repository: &LocalRepository) -> Result<Vec<String>, CommandError> {
+    match repository.get_setting(LAN_TRUST_SETTING_KEY)? {
+        None => Ok(Vec::new()),
+        Some(value) => Ok(serde_json::from_value(value).map_err(StorageError::from)?),
+    }
+}
+
+fn save_lan_trusts(repository: &LocalRepository, targets: Vec<String>) -> Result<(), CommandError> {
+    repository.set_setting(
+        LAN_TRUST_SETTING_KEY,
+        &serde_json::to_value(&targets).map_err(StorageError::from)?,
+    )?;
+    Ok(())
+}
+
+/// Lists the LAN base URLs the user has explicitly trusted.
+#[tauri::command]
+pub fn lan_trust_list(state: State<'_, Arc<AppRuntime>>) -> Result<Vec<String>, CommandError> {
+    load_lan_trusts(&state.repository()?)
+}
+
+/// Adds a LAN target to the trust list so future account creations against
+/// the exact same URL skip the confirmation prompt. Only classifiable LAN
+/// targets are accepted: a public URL needs no trust, and an unclassifiable
+/// one fails closed.
+#[tauri::command]
+pub async fn lan_trust_add(
+    url: String,
+    state: State<'_, Arc<AppRuntime>>,
+) -> Result<(), CommandError> {
+    let target = url.trim().to_owned();
+    if target.is_empty() {
+        return Err(CommandError::InvalidInput(
+            "a base URL is required to trust a LAN target".to_owned(),
+        ));
+    }
+    let classify_target = target.clone();
+    let is_lan = tauri::async_runtime::spawn_blocking(move || resolves_to_lan(&classify_target))
+        .await
+        .map_err(|error| CommandError::InvalidInput(error.to_string()))?;
+    if !is_lan {
+        return Err(CommandError::InvalidInput(
+            "only local-network targets can be trusted; public URLs never ask for consent"
+                .to_owned(),
+        ));
+    }
+    let repository = state.repository()?;
+    let mut trusted = load_lan_trusts(&repository)?;
+    if !trusted.iter().any(|entry| entry == &target) {
+        trusted.push(target);
+        save_lan_trusts(&repository, trusted)?;
+    }
+    Ok(())
+}
+
+/// Removes a target from the trust list; creations against it ask for
+/// confirmation again. Removing an unlisted URL succeeds quietly.
+#[tauri::command]
+pub fn lan_trust_remove(
+    url: String,
+    state: State<'_, Arc<AppRuntime>>,
+) -> Result<(), CommandError> {
+    let repository = state.repository()?;
+    let mut trusted = load_lan_trusts(&repository)?;
+    trusted.retain(|entry| entry != &url);
+    save_lan_trusts(&repository, trusted)
 }
 
 #[tauri::command]
@@ -1813,9 +1894,14 @@ fn create_account(
 ) -> Result<AccountViewModel, CommandError> {
     let resolved = resolve_new_account(&input, Some(&state.data_dir))?;
     // The consent gate runs on the validated target the account will really
-    // use — never on a frontend-supplied boolean.
+    // use — never on a frontend-supplied boolean. Targets the user has
+    // explicitly trusted skip the per-creation prompt; the trust list is
+    // revocable in the settings page and the one-time token stays the only
+    // path for everything unlisted.
+    let trusted = load_lan_trusts(&state.repository()?)?;
     authorize_lan_target(
         &state.lan_consents,
+        &trusted,
         &resolved.base_url,
         input.lan_consent_token.as_deref(),
     )?;
@@ -2109,6 +2195,40 @@ mod tests {
         assert!(
             GoogleAiAdapter::with_proxy(Some("http://127.0.0.1:7890".to_owned()), config).is_ok()
         );
+    }
+
+    #[test]
+    fn lan_trust_list_round_trips_and_deduplicates_by_exact_url() {
+        let repository = LocalRepository::open_in_memory().expect("database");
+        assert!(load_lan_trusts(&repository).expect("empty").is_empty());
+        save_lan_trusts(
+            &repository,
+            vec![
+                "http://127.0.0.1:4000/v1".to_owned(),
+                "http://192.168.1.10:8080/v1".to_owned(),
+            ],
+        )
+        .expect("save");
+        let trusted = load_lan_trusts(&repository).expect("load");
+        assert_eq!(
+            trusted,
+            vec![
+                "http://127.0.0.1:4000/v1".to_owned(),
+                "http://192.168.1.10:8080/v1".to_owned()
+            ]
+        );
+    }
+
+    #[test]
+    fn a_trusted_lan_target_skips_the_consent_prompt() {
+        let ledger = LanConsentLedger::default();
+        let trusted = vec!["http://127.0.0.1:4000/v1".to_owned()];
+        // A trusted target passes with no token at all.
+        assert!(authorize_lan_target(&ledger, &trusted, "http://127.0.0.1:4000/v1", None).is_ok());
+        // An untrusted LAN target still demands the one-time confirmation.
+        assert!(authorize_lan_target(&ledger, &trusted, "http://192.168.1.9:9000", None).is_err());
+        // Trust is per exact URL: a different port is a different target.
+        assert!(authorize_lan_target(&ledger, &trusted, "http://127.0.0.1:4001/v1", None).is_err());
     }
 
     #[test]
@@ -2886,15 +3006,17 @@ mod tests {
     fn authorize_lan_target_fails_closed_for_local_targets() {
         let ledger = LanConsentLedger::default();
         assert!(
-            authorize_lan_target(&ledger, "https://8.8.8.8/v1", None).is_ok(),
+            authorize_lan_target(&ledger, &[], "https://8.8.8.8/v1", None).is_ok(),
             "public targets never need a token"
         );
         assert!(
-            authorize_lan_target(&ledger, "https://192.168.0.20/v1", None).is_err(),
+            authorize_lan_target(&ledger, &[], "https://192.168.0.20/v1", None).is_err(),
             "LAN targets without a confirmation are refused"
         );
         let token = ledger.begin("https://192.168.0.20/v1", unix_seconds());
-        assert!(authorize_lan_target(&ledger, "https://192.168.0.20/v1", Some(&token)).is_ok());
+        assert!(
+            authorize_lan_target(&ledger, &[], "https://192.168.0.20/v1", Some(&token)).is_ok()
+        );
     }
 
     fn custom_input(api_format: Option<&str>) -> GenericOpenAiAccountInput {

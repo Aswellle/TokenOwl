@@ -93,6 +93,9 @@ function makeBridge(summary: HistorySummaryViewModel): DashboardBridge {
     providerMatrix: vi.fn(async () => []),
     manifestProfiles: vi.fn(async () => ({ profiles: [], skipped: [] })),
     getProxy: vi.fn(async () => null),
+    lanTrustList: vi.fn(async () => []),
+    lanTrustAdd: vi.fn(async () => undefined),
+    lanTrustRemove: vi.fn(async () => undefined),
     setProxy: vi.fn(async () => undefined),
     usageWindows: vi.fn(async () => ({
       hours2: { tokens: 0, cost: null, currency: null, hasData: false },

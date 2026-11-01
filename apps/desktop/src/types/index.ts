@@ -234,6 +234,11 @@ export interface DashboardBridge {
    * not LAN, or a short-lived one-time token the confirm dialog presents
    * back through `createAccount`. Rust re-validates on creation. */
   lanConsentBegin(baseUrl: string): Promise<string | null>;
+  /** LAN targets the user explicitly trusts; creations against them skip
+   * the confirmation prompt. Revocable. */
+  lanTrustList(): Promise<string[]>;
+  lanTrustAdd(url: string): Promise<void>;
+  lanTrustRemove(url: string): Promise<void>;
   deleteAccount(accountId: string): Promise<void>;
   /** Replaces an account's API key in place (history preserved) and returns
    * the account after the validating refresh. */

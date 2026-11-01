@@ -374,6 +374,17 @@ export function createMockBridge(): DashboardBridge {
         throw new Error("模拟代理地址无效");
       }
     },
+    async lanTrustList() {
+      await new Promise((resolve) => setTimeout(resolve, latency()));
+      return hasScenario("lan-trust") ? ["http://127.0.0.1:4000/v1"] : [];
+    },
+    async lanTrustAdd() {
+      await new Promise((resolve) => setTimeout(resolve, latency()));
+    },
+    async lanTrustRemove() {
+      await new Promise((resolve) => setTimeout(resolve, latency()));
+      if (hasScenario("lan-trust-fail")) throw new Error("模拟移除失败");
+    },
     async refresh(accountId) {
       await new Promise((resolve) => setTimeout(resolve, latency() + 220));
       if (hasScenario("refresh-fail")) throw new Error("模拟刷新失败：上游 503");

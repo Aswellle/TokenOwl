@@ -37,6 +37,9 @@ vi.mock("../lib/tauri", () => ({
     manifestProfiles: mockManifestProfiles,
     usageWindows: vi.fn(),
     getProxy: vi.fn(async () => null),
+    lanTrustList: vi.fn(async () => []),
+    lanTrustAdd: vi.fn(async () => undefined),
+    lanTrustRemove: vi.fn(async () => undefined),
     setProxy: vi.fn(async () => undefined),
   },
 }));

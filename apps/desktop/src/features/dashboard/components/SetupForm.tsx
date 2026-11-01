@@ -171,6 +171,7 @@ export function SetupForm({
   // the dialog is open does nothing. Classification failures fail closed:
   // an unclassifiable target is never treated as public.
   const [lanConsent, setLanConsent] = useState<{ token: string } | null>(null);
+  const [rememberLan, setRememberLan] = useState(false);
   const [consentBusy, setConsentBusy] = useState(false);
   const [classifyError, setClassifyError] = useState<string | null>(null);
   // The form opts out of native validation bubbles (their language and
@@ -291,16 +292,38 @@ export function SetupForm({
         <AlertDialog
           className="lan-consent"
           title={copy.form.lanTitle}
-          body={copy.form.lanBody}
+          body={
+            <>
+              {copy.form.lanBody}
+              {/* Remembering is opt-in per confirmation; the list itself is
+                  managed (and revocable) in the settings page. */}
+              <label className="lan-consent__remember">
+                <input
+                  type="checkbox"
+                  checked={rememberLan}
+                  onChange={(event) => setRememberLan(event.currentTarget.checked)}
+                />
+                <span>{copy.form.lanRemember}</span>
+              </label>
+            </>
+          }
           confirmLabel={copy.form.lanConfirm}
           cancelLabel={copy.actions.cancel}
           returnFocusTo={submitTriggerRef}
           onCancel={() => setLanConsent(null)}
           onConfirm={() => {
             const token = lanConsent.token;
+            const remember = rememberLan;
+            setRememberLan(false);
             setLanConsent(null);
-            void sendAccount(token).then((connectedOk) => {
-              if (connectedOk) resetAfterConnect();
+            void sendAccount(token).then(async (connectedOk) => {
+              if (!connectedOk) return;
+              if (remember) {
+                // A public or reclassified target is rejected by Rust; a
+                // failed remember never blocks the created account.
+                await bridge.lanTrustAdd(effectiveBaseUrl.trim()).catch(() => null);
+              }
+              resetAfterConnect();
             });
           }}
         />

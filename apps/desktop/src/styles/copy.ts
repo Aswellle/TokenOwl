@@ -229,6 +229,14 @@ export const copy = {
     invalid: "代理地址无效：请使用 http:// 或 https:// 开头的完整 URL。",
   },
 
+  lanTrust: {
+    title: "已信任的本机地址",
+    help: "对这些地址创建账户时不再弹出局域网确认；移除后恢复询问。",
+    empty: "暂无已信任的本机地址；每次创建局域网账户都会先询问。",
+    remove: "移除",
+    removeFailed: "移除失败，请稍后重试。",
+  },
+
   update: {
     available: (version: string) => `发现新版本 ${version}，安装后会自动重启。`,
     deferred: (version: string) => `已跳过 ${version}，可随时再次检查。`,
@@ -298,6 +306,7 @@ export const copy = {
     lanBody:
       "此供应商指向局域网地址。仅在你确认该地址属于自己的网关或可信网络时继续。",
     lanConfirm: "我确认，继续",
+    lanRemember: "记住此地址，之后创建同地址账户不再询问",
     lanClassifyFailed: "无法确认该地址是否属于局域网，已取消本次创建。请检查网络后重试。",
   },
 

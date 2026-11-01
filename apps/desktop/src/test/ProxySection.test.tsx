@@ -6,6 +6,9 @@ import type { DashboardBridge } from "../types";
 function makeBridge(overrides: Partial<DashboardBridge> = {}): DashboardBridge {
   return {
     getProxy: vi.fn(async () => null),
+    lanTrustList: vi.fn(async () => []),
+    lanTrustAdd: vi.fn(async () => undefined),
+    lanTrustRemove: vi.fn(async () => undefined),
     setProxy: vi.fn(async () => undefined),
     ...overrides,
   } as unknown as DashboardBridge;

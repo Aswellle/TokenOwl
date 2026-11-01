@@ -54,6 +54,9 @@ export const tauriBridge: DashboardBridge = {  listAccounts: () => invoke<Accoun
     invoke<boolean>("account_target_is_lan", { baseUrl }),
   lanConsentBegin: (baseUrl: string) =>
     invoke<string | null>("lan_consent_begin", { baseUrl }),
+  lanTrustList: () => invoke<string[]>("lan_trust_list"),
+  lanTrustAdd: (url: string) => invoke<void>("lan_trust_add", { url }),
+  lanTrustRemove: (url: string) => invoke<void>("lan_trust_remove", { url }),
   deleteAccount: (accountId: string) => invoke<void>("accounts_delete", { accountId }),
   updateAccountCredential: (accountId: string, apiKey: string) =>
     invoke<AccountViewModel>("accounts_update_credential", { accountId, apiKey }),

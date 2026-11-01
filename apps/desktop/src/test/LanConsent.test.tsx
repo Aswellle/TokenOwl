@@ -7,6 +7,7 @@ const {
   mockManifestProfiles,
   mockLanConsentBegin,
   mockIsLan,
+  mockLanTrustAdd,
   mockListen,
 } = vi.hoisted(() => ({
   mockListAccounts: vi.fn(),
@@ -14,6 +15,7 @@ const {
   mockManifestProfiles: vi.fn(),
   mockLanConsentBegin: vi.fn(),
   mockIsLan: vi.fn(),
+  mockLanTrustAdd: vi.fn(async () => undefined),
   mockListen: vi.fn(() => new Promise(() => {})),
 }));
 
@@ -46,6 +48,9 @@ vi.mock("../lib/tauri", () => ({
     manifestProfiles: mockManifestProfiles,
     usageWindows: vi.fn(),
     getProxy: vi.fn(async () => null),
+    lanTrustList: vi.fn(async () => []),
+    lanTrustAdd: mockLanTrustAdd,
+    lanTrustRemove: vi.fn(async () => undefined),
     setProxy: vi.fn(async () => undefined),
   },
 }));
@@ -199,5 +204,33 @@ describe("LAN consent before account creation", () => {
     expect(mockLanConsentBegin).toHaveBeenCalledTimes(1);
     release?.();
     await waitFor(() => expect(mockCreateAccount).toHaveBeenCalledTimes(1));
+  });
+
+  /// Remembering is opt-in: the default path never adds the target to the
+  /// trust list, so the prompt keeps firing every time.
+  it("does not trust a LAN target unless the remember box is checked", async () => {
+    mockLanConsentBegin.mockResolvedValue("token-lan-6");
+    await fillForm("https://10.0.0.9/v1");
+    submitForm();
+    await waitFor(() => screen.getByRole("alertdialog"));
+
+    fireEvent.click(screen.getByRole("button", { name: /我确认，继续|Continue/i }));
+    await waitFor(() => expect(mockCreateAccount).toHaveBeenCalledTimes(1));
+    expect(mockLanTrustAdd).not.toHaveBeenCalled();
+  });
+
+  it("adds the target to the trust list when remember is checked", async () => {
+    mockLanConsentBegin.mockResolvedValue("token-lan-7");
+    await fillForm("https://10.0.0.10/v1");
+    submitForm();
+    await waitFor(() => screen.getByRole("alertdialog"));
+
+    fireEvent.click(screen.getByRole("checkbox"));
+    fireEvent.click(screen.getByRole("button", { name: /我确认，继续|Continue/i }));
+
+    await waitFor(() => expect(mockCreateAccount).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect(mockLanTrustAdd).toHaveBeenCalledWith("https://10.0.0.10/v1"),
+    );
   });
 });

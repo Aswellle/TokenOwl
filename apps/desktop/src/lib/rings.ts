@@ -53,12 +53,29 @@ export function quotaConsumedRatio(quota: QuotaViewModel): number | null {
   return remaining === null ? null : clampUnit(1 - remaining);
 }
 
-/** Window span in hours from the quota's own start/end; 0 when unreported. */
+/**
+ * Window span in hours, used to order the rings. The quota's own start/end
+ * wins when the provider reports them; otherwise the window tag's nominal
+ * span ("7d" → 168, "5h" → 5) stands in — the tag is already shown to the
+ * user as the window's identity, so ordering by it adds no invented data.
+ * Only a trusted window without any span knowledge sorts as 0, and a
+ * span-less window must never claim the "shortest" band over one with a
+ * real span just because its length is unreported.
+ */
 export function quotaSpanHours(quota: QuotaViewModel): number {
   const start = quota.window?.startsAt ? Date.parse(String(quota.window.startsAt)) : NaN;
   const end = quota.window?.endsAt ? Date.parse(String(quota.window.endsAt)) : NaN;
-  if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return 0;
-  return (end - start) / 3_600_000;
+  if (Number.isFinite(start) && Number.isFinite(end) && end > start) {
+    return (end - start) / 3_600_000;
+  }
+  const tag = quotaWindowTag(quota);
+  if (tag !== null) {
+    const hours = /^(\d+(?:\.\d+)?)h$/.exec(tag);
+    if (hours) return Number(hours[1]);
+    const days = /^(\d+(?:\.\d+)?)d$/.exec(tag);
+    if (days) return Number(days[1]) * 24;
+  }
+  return 0;
 }
 
 /**

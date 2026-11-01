@@ -78,8 +78,16 @@ describe("quotaSpanHours", () => {
     expect(quotaSpanHours(windowed("a", 5, 50))).toBeCloseTo(5, 3);
   });
 
-  it("returns 0 when the window carries no usable span", () => {
-    expect(quotaSpanHours(quota({ metricName: "5 小时窗口" }))).toBe(0);
+  it("falls back to the window tag's nominal span when timestamps are absent", () => {
+    // The tag is already the window's displayed identity, so it may stand in
+    // for ordering — "5 小时窗口" → 5h, weekly naming → 7 × 24.
+    expect(quotaSpanHours(quota({ metricName: "5 小时窗口" }))).toBe(5);
+    expect(quotaSpanHours(quota({ metricName: "每周额度" }))).toBe(168);
+  });
+
+  it("returns 0 only when no span is knowable at all", () => {
+    // A window with reversed timestamps and no name carries no tag to fall
+    // back on: absence of knowledge stays 0 instead of a guess.
     const now = Date.now();
     expect(
       quotaSpanHours(
@@ -162,6 +170,28 @@ describe("selectBubbleRings", () => {
   it("falls back to the provider's window naming when timestamps are absent", () => {
     const rings = selectBubbleRings([quota({ id: "named", metricName: "5 小时窗口", remaining: 50, limit: 100 })]);
     expect(rings[0].label).toBe("5h");
+  });
+
+  it("never lets a span-less window steal the shortest band from a real span", () => {
+    // The weekly window reports no start/end; before the tag fallback its
+    // unreported length sorted as 0 and pushed the real 5h arc into the
+    // inner band while the unknown ring took the outer one.
+    const rings = selectBubbleRings([
+      quota({
+        id: "weekly",
+        metricName: "每周额度",
+        remaining: null,
+        limit: null,
+        window: { type: "fixed", resetAt: Date.now() + 5 * 86_400_000 },
+      }),
+      windowed("five", 5, 60),
+    ]);
+    expect(rings.map((ring) => [ring.label, ring.tone])).toEqual([
+      ["5h", "outer"],
+      ["7d", "inner"],
+    ]);
+    expect(rings[0].consumedRatio).not.toBeNull();
+    expect(rings[1].consumedRatio).toBeNull();
   });
 });
 

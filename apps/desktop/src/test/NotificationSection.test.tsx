@@ -253,4 +253,17 @@ describe("notification settings disclosure", () => {
     // The 5–1440 minute constraint is visible, not just an input attribute.
     expect(screen.getByText(/5–1440 分钟/)).toBeInTheDocument();
   });
+
+  it("templates the critical-only example with the live threshold", async () => {
+    const bridge = makeBridge();
+    render(
+      <NotificationSection
+        bridge={{ ...bridge, getNotificationPreferences: vi.fn(async () => ({ ...prefs, lowQuotaThreshold: 25 })) }}
+        reloadSignal={0}
+      />,
+    );
+    // The example quotes the configured 25% instead of a frozen number.
+    expect(await screen.findByText(/额度低于 25%/)).toBeInTheDocument();
+    expect(screen.queryByText(/额度低于 10%/)).not.toBeInTheDocument();
+  });
 });

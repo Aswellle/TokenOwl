@@ -238,7 +238,9 @@ function NotificationSettings({
                 />
                 <span>
                   <strong>{copy.notifications.criticalOnly}</strong>
-                  <small>{copy.notifications.criticalOnlyHelp}</small>
+                  {/* The threshold is configurable, so the example names the
+                      current value instead of a frozen number. */}
+                  <small>{copy.notifications.criticalOnlyHelp(prefs.lowQuotaThreshold)}</small>
                 </span>
               </label>
             </div>

@@ -371,7 +371,8 @@ export const copy = {
     silentMode: "静默模式",
     silentModeHelp: "仍记录通知历史，但不弹出系统通知。",
     criticalOnly: "只提醒紧急",
-    criticalOnlyHelp: "仅紧急级别（如认证过期、额度低于 10%）弹出系统通知。",
+    criticalOnlyHelp: (threshold: number) =>
+      `仅紧急级别（如认证过期、额度低于 ${threshold}%）弹出系统通知。`,
     lowQuotaThreshold: "低额度阈值",
     lowQuotaSuffix: "% 以下提醒",
     balanceThreshold: "余额下限",

@@ -231,6 +231,9 @@ export interface DashboardBridge {
    * back through `createAccount`. Rust re-validates on creation. */
   lanConsentBegin(baseUrl: string): Promise<string | null>;
   deleteAccount(accountId: string): Promise<void>;
+  /** Replaces an account's API key in place (history preserved) and returns
+   * the account after the validating refresh. */
+  updateAccountCredential(accountId: string, apiKey: string): Promise<AccountViewModel>;
   refresh(accountId?: string): Promise<AccountViewModel[]>;
   checkForUpdate(): Promise<UpdateInfo | null>;
   installUpdate(): Promise<void>;

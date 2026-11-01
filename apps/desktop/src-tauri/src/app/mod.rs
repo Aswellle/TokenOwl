@@ -1071,6 +1071,7 @@ pub fn run() {
             commands::accounts_create,
             commands::account_target_is_lan,
             commands::accounts_delete,
+            commands::accounts_update_credential,
             commands::accounts_refresh,
             commands::manifest_profiles,
             commands::lan_consent_begin,

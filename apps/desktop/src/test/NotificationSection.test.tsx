@@ -63,6 +63,9 @@ function makeBridge(overrides: Partial<DashboardBridge> = {}): DashboardBridge {
       }),
     ),
     deleteAccount: vi.fn(async () => {}),
+    updateAccountCredential: vi.fn(async () => {
+      throw new Error("not expected in notification tests");
+    }),
     refresh: vi.fn(async () => []),
     checkForUpdate: vi.fn(async () => null),
     installUpdate: vi.fn(async () => {}),

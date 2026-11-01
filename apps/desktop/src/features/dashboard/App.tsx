@@ -227,12 +227,14 @@ export function App({ bridge = tauriBridge }: AppProps = {}) {
     notice,
     refreshingId,
     deletingId,
+    updatingKeyId,
     formError,
     formSubmitting,
     loadAccounts,
     handleRefresh,
     handleCreate,
     handleDelete,
+    handleUpdateCredential,
     setNotice,
   } = useAccounts(bridge);
   const { updateState, banner, dismissBanner, handleUpdateCheck, handleInstallUpdate } =
@@ -574,6 +576,7 @@ export function App({ bridge = tauriBridge }: AppProps = {}) {
                           now={now}
                           refreshing={refreshingId === account.id || refreshingId === "all"}
                           deleting={deletingId === account.id}
+                          updatingKey={updatingKeyId === account.id}
                           onOpen={() => openProvider(account.id)}
                           onRefresh={() => void handleRefresh(account.id)}
                           onDelete={() =>
@@ -581,6 +584,7 @@ export function App({ bridge = tauriBridge }: AppProps = {}) {
                               if (selectedId === account.id) goView("overview");
                             })
                           }
+                          onUpdateKey={(apiKey) => handleUpdateCredential(account.id, apiKey)}
                         />
                       ))}
                     </AnimatePresence>

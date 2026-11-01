@@ -1,8 +1,8 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { copy } from "../../../styles/copy";
 import { ProviderIcon } from "../../../components/ProviderIcon";
-import { IconAlert, IconRefresh, IconTrash } from "../../../components/icons";
+import { IconAlert, IconKey, IconRefresh, IconTrash } from "../../../components/icons";
 import { StatusChip } from "./StatusChip";
 import { formatRelative, displaySource } from "../../../lib/format";
 import { QuotaMetric } from "./QuotaMetric";
@@ -32,20 +32,26 @@ export function AccountRow({
   now,
   refreshing,
   deleting,
+  updatingKey,
   onOpen,
   onRefresh,
   onDelete,
+  onUpdateKey,
 }: {
   account: AccountViewModel;
   index: number;
   now: number;
   refreshing: boolean;
   deleting: boolean;
+  updatingKey: boolean;
   onOpen: () => void;
   onRefresh: () => void;
   onDelete: () => void;
+  onUpdateKey: (apiKey: string) => Promise<boolean>;
 }) {
   const [confirming, setConfirming] = useState(false);
+  const [keyDialog, setKeyDialog] = useState(false);
+  const keyInputRef = useRef<HTMLInputElement>(null);
   const reduce = useReducedMotion();
   const relative = formatRelative(account.lastUpdatedAt ?? account.snapshots[0]?.observedAt, now);
   const source = displaySource(account.source ?? account.snapshots[0]?.source);
@@ -111,6 +117,22 @@ export function AccountRow({
       )}
       {account.status === "stale" && hasSnapshots && (
         <Notice tone="warning">{copy.notices.accountStale}</Notice>
+      )}
+
+      {account.status === "error" && (
+        <div className="account__recovery">
+          <button
+            className="btn btn--quiet"
+            type="button"
+            onClick={() => setKeyDialog(true)}
+            disabled={updatingKey || refreshing || deleting}
+            aria-label={copy.a11y.updateKeyFor(account.label)}
+            title={copy.actions.updateKey}
+          >
+            <IconKey size={14} />
+            {updatingKey ? copy.actions.updatingKey : copy.actions.updateKey}
+          </button>
+        </div>
       )}
 
       {hasSnapshots ? (
@@ -179,6 +201,67 @@ export function AccountRow({
                 }}
               >
                 {copy.actions.confirmRemove}
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence initial={false}>
+        {keyDialog && (
+          <motion.div
+            className="confirm key-confirm"
+            role="alertdialog"
+            aria-label={copy.keyUpdate.title}
+            initial={{ opacity: 0, y: -4, scale: 0.98 }}
+            animate={{ opacity: 1, y: 0, scale: 1, transition: springPanel }}
+            exit={{ opacity: 0, scale: 0.98, transition: { duration: 0.14 } }}
+            onKeyDown={(event) => {
+              if (event.key === "Escape") {
+                event.stopPropagation();
+                setKeyDialog(false);
+              }
+            }}
+          >
+            <div className="key-confirm__body">
+              <p className="key-confirm__title">{copy.keyUpdate.title}</p>
+              <p className="key-confirm__hint">{copy.keyUpdate.hint}</p>
+              {/* Uncontrolled like the setup form's key field: the secret
+                  never lands in React state. type=password keeps it masked. */}
+              <input
+                ref={keyInputRef}
+                className="key-confirm__input"
+                type="password"
+                autoComplete="off"
+                placeholder={copy.keyUpdate.placeholder}
+                aria-label={copy.keyUpdate.placeholder}
+              />
+            </div>
+            <div className="confirm__actions">
+              <button
+                className="btn btn--quiet"
+                type="button"
+                autoFocus
+                onClick={() => setKeyDialog(false)}
+              >
+                {copy.actions.cancel}
+              </button>
+              <button
+                className="btn btn--primary"
+                type="button"
+                disabled={updatingKey}
+                onClick={() => {
+                  const input = keyInputRef.current;
+                  if (!input || !input.value.trim()) return;
+                  void onUpdateKey(input.value).then((saved) => {
+                    if (saved) {
+                      input.value = "";
+                      setKeyDialog(false);
+                    }
+                  });
+                }}
+              >
+                {updatingKey ? copy.actions.updatingKey : copy.keyUpdate.confirm}
               </button>
             </div>
           </motion.div>

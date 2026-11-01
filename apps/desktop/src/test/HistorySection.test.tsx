@@ -76,6 +76,9 @@ function makeBridge(summary: HistorySummaryViewModel): DashboardBridge {
       throw new Error("not used");
     }),
     deleteAccount: vi.fn(async () => {}),
+    updateAccountCredential: vi.fn(async () => {
+      throw new Error("not used");
+    }),
     refresh: vi.fn(async () => []),
     checkForUpdate: vi.fn(async () => null),
     installUpdate: vi.fn(async () => {}),

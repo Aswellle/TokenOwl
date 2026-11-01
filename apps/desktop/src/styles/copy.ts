@@ -87,6 +87,8 @@ export const copy = {
     cancel: "取消",
     remove: "移除",
     confirmRemove: "确认移除",
+    updateKey: "更新密钥",
+    updatingKey: "正在更新密钥…",
     retry: "重试",
     checkUpdate: "检查更新",
     checkingUpdate: "正在检查更新",
@@ -198,10 +200,18 @@ export const copy = {
     accountError: "刷新失败，下方显示的是最近一次成功的数据。",
     accountErrorEmpty:
       "首次刷新失败，尚未获得任何额度数据。请检查接口地址与密钥，或确认该供应商是否提供额度接口。",
+    updateKeyFailed: "密钥更新失败，原密钥保持不变。",
     bridgeUnavailable: "本地服务不可用",
     localOnly: "数据仅保存在本机",
     offlineTitle: "本地服务不可用",
     offlineBody: "无法连接 TokenOwl 的本地服务。恢复后账户与快照会自动回来，不需要重新添加。",
+  },
+
+  keyUpdate: {
+    title: "更新 API 密钥",
+    hint: "输入新的密钥，保存后立即刷新验证；历史记录会保留。",
+    placeholder: "新的 API 密钥",
+    confirm: "保存并验证",
   },
 
   update: {
@@ -380,6 +390,7 @@ export const copy = {
     filterAccounts: "按状态筛选账户",
     removeAccount: (label: string) => `移除账户 ${label}`,
     refreshAccount: (label: string) => `刷新账户 ${label}`,
+    updateKeyFor: (label: string) => `更新账户 ${label} 的 API 密钥`,
     quotaBar: (metric: string, percent: string) => `${metric}：剩余 ${percent}`,
     markAllNotificationsRead: "标记所有通知为已读",
     markNotificationRead: (title: string) => `标记通知已读：${title}`,

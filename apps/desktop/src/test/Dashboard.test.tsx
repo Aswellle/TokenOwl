@@ -6,6 +6,7 @@ const {
   mockRefresh,
   mockCreateAccount,
   mockDeleteAccount,
+  mockUpdateAccountCredential,
   mockManifestProfiles,
   mockLanConsentBegin,
   mockListen,
@@ -14,6 +15,7 @@ const {
   mockRefresh: vi.fn(),
   mockCreateAccount: vi.fn(),
   mockDeleteAccount: vi.fn(),
+  mockUpdateAccountCredential: vi.fn(),
   mockManifestProfiles: vi.fn(),
   mockLanConsentBegin: vi.fn(),
   mockListen: vi.fn(() => new Promise(() => {})),
@@ -35,6 +37,7 @@ vi.mock("../lib/tauri", () => ({
     accountTargetIsLan: vi.fn().mockResolvedValue(false),
     lanConsentBegin: mockLanConsentBegin,
     deleteAccount: mockDeleteAccount,
+    updateAccountCredential: mockUpdateAccountCredential,
     refresh: mockRefresh,
     checkForUpdate: vi.fn(),
     installUpdate: vi.fn(),
@@ -162,6 +165,55 @@ describe("Dashboard state machine", () => {
     fireEvent.click(confirm);
 
     await waitFor(() => expect(mockDeleteAccount).toHaveBeenCalledWith("acc-1"));
+  });
+
+  it("offers a masked key update on an erroring account and saves the typed key", async () => {
+    const errorAccount = { ...mockAccount, status: "error" as const, errorCode: "AuthExpired" };
+    const refreshed = { ...errorAccount, status: "healthy" as const };
+    mockListAccounts.mockResolvedValue([errorAccount]);
+    mockUpdateAccountCredential.mockResolvedValue(refreshed);
+    render(<App />);
+    await waitFor(() => expect(screen.getByText("Test Account")).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole("button", { name: /更新账户 Test Account 的 API 密钥/ }));
+    const input = await screen.findByLabelText("新的 API 密钥");
+    expect(input).toHaveAttribute("type", "password");
+
+    fireEvent.change(input, { target: { value: "sk-new-key" } });
+    fireEvent.click(screen.getByRole("button", { name: "保存并验证" }));
+
+    await waitFor(() =>
+      expect(mockUpdateAccountCredential).toHaveBeenCalledWith("acc-1", "sk-new-key"),
+    );
+    // The dialog closes after a successful save.
+    await waitFor(() =>
+      expect(screen.queryByLabelText("新的 API 密钥")).toBeNull(),
+    );
+  });
+
+  it("hides the key recovery action from healthy accounts", async () => {
+    mockListAccounts.mockResolvedValue([mockAccount]);
+    render(<App />);
+    await waitFor(() => expect(screen.getByText("Test Account")).toBeInTheDocument());
+    expect(
+      screen.queryByRole("button", { name: /更新账户 Test Account 的 API 密钥/ }),
+    ).toBeNull();
+  });
+
+  it("keeps the key dialog open when the update fails", async () => {
+    const errorAccount = { ...mockAccount, status: "error" as const, errorCode: "AuthExpired" };
+    mockListAccounts.mockResolvedValue([errorAccount]);
+    mockUpdateAccountCredential.mockRejectedValue(new Error("store unavailable"));
+    render(<App />);
+    await waitFor(() => expect(screen.getByText("Test Account")).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole("button", { name: /更新账户 Test Account 的 API 密钥/ }));
+    const input = await screen.findByLabelText("新的 API 密钥");
+    fireEvent.change(input, { target: { value: "sk-bad-key" } });
+    fireEvent.click(screen.getByRole("button", { name: "保存并验证" }));
+
+    await waitFor(() => expect(screen.getByText(/密钥更新失败/)).toBeInTheDocument());
+    expect(screen.getByLabelText("新的 API 密钥")).toBeInTheDocument();
   });
 
   it("returns to the overview from a provider view on Escape", async () => {

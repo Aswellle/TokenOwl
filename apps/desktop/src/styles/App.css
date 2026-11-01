@@ -1293,6 +1293,56 @@ button:disabled {
   font-size: var(--step-0);
 }
 
+/* Recovery affordance under an erroring account's notices. */
+.account__recovery {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 6px;
+}
+
+/* ---------- inline key update dialog ---------- */
+
+.key-confirm {
+  align-items: stretch;
+  flex-wrap: wrap;
+}
+
+.key-confirm__body {
+  flex: 1 1 100%;
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.key-confirm__title {
+  color: var(--ink);
+  font-size: var(--step-0);
+  font-weight: 600;
+}
+
+.key-confirm__hint {
+  color: var(--ink-3);
+  font-size: var(--step-0);
+  line-height: 1.6;
+  text-wrap: pretty;
+}
+
+.key-confirm__input {
+  width: 100%;
+  padding: 7px 10px;
+  border: 1px solid var(--hairline);
+  border-radius: 8px;
+  background: var(--surface-raised);
+  color: var(--ink);
+  font-size: var(--step-0);
+  font-family: var(--font-mono);
+}
+
+.key-confirm__input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
 /* ---------- inline destructive confirm ---------- */
 
 .confirm {

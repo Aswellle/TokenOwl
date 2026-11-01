@@ -469,6 +469,34 @@ pub async fn accounts_create(
         .ok_or_else(|| "created account could not be read".to_owned())
 }
 
+/// Overwrites an account's API key and validates it with an immediate
+/// refresh of that account.
+///
+/// The keyring entry is replaced under the account's existing credential
+/// reference, so the account, provider row and history are untouched — a
+/// revoked or expired key recovers without the destructive delete-and-recreate
+/// path. Validation is the refresh itself: a rejected key surfaces in the
+/// returned view model as the account's error state, and only keyring or
+/// lookup failures become command errors here.
+#[tauri::command]
+pub async fn accounts_update_credential(
+    app: AppHandle,
+    account_id: String,
+    api_key: String,
+    state: State<'_, Arc<AppRuntime>>,
+) -> Result<AccountViewModel, String> {
+    update_credential(&state, &account_id, &api_key).map_err(String::from)?;
+    if let Err(error) = refresh_accounts(state.inner(), Some(&app), Some(account_id.clone())).await
+    {
+        tracing::warn!("post-update refresh failed for account {account_id}: {error}");
+    }
+    list_accounts(&state)
+        .map_err(String::from)?
+        .into_iter()
+        .find(|item| item.id == account_id)
+        .ok_or_else(|| "updated account could not be read".to_owned())
+}
+
 #[tauri::command]
 pub fn accounts_delete(
     account_id: String,
@@ -1724,6 +1752,47 @@ fn create_account(
     Ok(account_view_to_model(view))
 }
 
+/// Writes a replacement secret under an account's existing credential
+/// reference, keeping the account, provider row and history untouched.
+///
+/// The setter is injected so tests can exercise the guard rails without a
+/// real OS credential store.
+fn update_credential_in(
+    repository: &LocalRepository,
+    set_secret: impl FnOnce(&str, &str) -> Result<(), crate::credentials::CredentialError>,
+    account_id: &str,
+    api_key: &str,
+) -> Result<(), CommandError> {
+    let key = api_key.trim();
+    if key.is_empty() {
+        return Err(CommandError::InvalidInput(
+            "api key must not be empty".to_owned(),
+        ));
+    }
+    let account = repository
+        .account(account_id)?
+        .ok_or_else(|| CommandError::InvalidInput("account not found".to_owned()))?;
+    let reference = account.credential_ref.ok_or_else(|| {
+        CommandError::InvalidInput("account does not store a keyring credential".to_owned())
+    })?;
+    set_secret(&reference, key).map_err(CommandError::from)
+}
+
+fn update_credential(
+    state: &AppRuntime,
+    account_id: &str,
+    api_key: &str,
+) -> Result<(), CommandError> {
+    let repository = state.repository()?;
+    let credentials = state.credentials.clone();
+    update_credential_in(
+        &repository,
+        |reference, secret| credentials.set(reference, secret),
+        account_id,
+        api_key,
+    )
+}
+
 fn normalize_endpoint(value: &str) -> Result<String, CommandError> {
     let value = value.trim();
     if value.is_empty()
@@ -1905,6 +1974,93 @@ fn unix_seconds() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Persists a provider row plus its account so the foreign key on
+    /// `accounts.provider_id` is satisfied, mirroring the real create path.
+    fn persist_keyring_account(
+        repository: &LocalRepository,
+        account_id: &str,
+        credential_ref: Option<&str>,
+    ) {
+        let provider_id = format!("generic.openai_compatible:{account_id}");
+        let mut config =
+            OpenAiCompatibleConfig::new(&provider_id, "Test", "https://api.example.com");
+        config.credential_ref = credential_ref.map(str::to_owned);
+        config.auth_method = AuthMethod::ApiKey;
+        config.validate().expect("valid provider config");
+        repository
+            .upsert_provider(&config, 1)
+            .expect("provider row");
+        let account = AccountMetadata::from_auth_input(
+            account_id,
+            &provider_id,
+            "Test",
+            "api_key",
+            credential_ref.map(str::to_owned),
+            HashMap::new(),
+            true,
+            None,
+        );
+        repository.upsert_account(&account, 1).expect("account row");
+    }
+
+    #[test]
+    fn credential_update_rejects_blank_keys_before_touching_the_store() {
+        let repository = LocalRepository::open_in_memory().expect("database");
+        let mut called = false;
+        let result = update_credential_in(
+            &repository,
+            |_, _| {
+                called = true;
+                Ok(())
+            },
+            "a1",
+            "   ",
+        );
+        assert!(matches!(result, Err(CommandError::InvalidInput(_))));
+        assert!(
+            !called,
+            "an empty key must never reach the credential store"
+        );
+    }
+
+    #[test]
+    fn credential_update_targets_the_account_own_reference() {
+        let repository = LocalRepository::open_in_memory().expect("database");
+        persist_keyring_account(&repository, "a1", Some("account/a1"));
+        let mut captured: Option<(String, String)> = None;
+        update_credential_in(
+            &repository,
+            |reference, secret| {
+                captured = Some((reference.to_owned(), secret.to_owned()));
+                Ok(())
+            },
+            "a1",
+            "  new-key  ",
+        )
+        .expect("update succeeds");
+        // The key is trimmed before it lands in the store, and the reference
+        // is the account's own — never a synthesized one.
+        assert_eq!(
+            captured,
+            Some(("account/a1".to_owned(), "new-key".to_owned()))
+        );
+    }
+
+    #[test]
+    fn credential_update_fails_closed_for_unknown_accounts() {
+        let repository = LocalRepository::open_in_memory().expect("database");
+        let result = update_credential_in(&repository, |_, _| Ok(()), "ghost", "key");
+        assert!(matches!(result, Err(CommandError::InvalidInput(_))));
+    }
+
+    #[test]
+    fn credential_update_requires_a_keyring_backed_account() {
+        let repository = LocalRepository::open_in_memory().expect("database");
+        persist_keyring_account(&repository, "a1", None);
+        let result = update_credential_in(&repository, |_, _| Ok(()), "a1", "key");
+        assert!(matches!(result, Err(CommandError::InvalidInput(_))));
+    }
 
     #[test]
     fn endpoint_input_must_be_relative() {

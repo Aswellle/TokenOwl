@@ -41,6 +41,8 @@ describe("AccountRow", () => {
         now={Date.now()}
         refreshing={false}
         deleting={false}
+        updatingKey={false}
+        onUpdateKey={vi.fn(async () => true)}
         onOpen={() => {}}
         onRefresh={() => {}}
         onDelete={() => {}}
@@ -58,6 +60,8 @@ describe("AccountRow", () => {
         now={Date.now()}
         refreshing={false}
         deleting={false}
+        updatingKey={false}
+        onUpdateKey={vi.fn(async () => true)}
         onOpen={() => {}}
         onRefresh={() => {}}
         onDelete={() => {}}
@@ -76,6 +80,8 @@ describe("AccountRow", () => {
         now={Date.now()}
         refreshing={false}
         deleting={false}
+        updatingKey={false}
+        onUpdateKey={vi.fn(async () => true)}
         onOpen={onOpen}
         onRefresh={onRefresh}
         onDelete={() => {}}
@@ -100,6 +106,8 @@ describe("AccountRow", () => {
         now={Date.now()}
         refreshing={false}
         deleting={false}
+        updatingKey={false}
+        onUpdateKey={vi.fn(async () => true)}
         onOpen={() => {}}
         onRefresh={() => {}}
         onDelete={onDelete}
@@ -127,6 +135,8 @@ describe("AccountRow", () => {
         now={Date.now()}
         refreshing={true}
         deleting={false}
+        updatingKey={false}
+        onUpdateKey={vi.fn(async () => true)}
         onOpen={() => {}}
         onRefresh={() => {}}
         onDelete={() => {}}
@@ -145,6 +155,8 @@ describe("AccountRow", () => {
         now={Date.now()}
         refreshing={false}
         deleting={false}
+        updatingKey={false}
+        onUpdateKey={vi.fn(async () => true)}
         onOpen={() => {}}
         onRefresh={() => {}}
         onDelete={() => {}}
@@ -167,6 +179,8 @@ describe("AccountRow", () => {
         now={Date.now()}
         refreshing={false}
         deleting={false}
+        updatingKey={false}
+        onUpdateKey={vi.fn(async () => true)}
         onOpen={() => {}}
         onRefresh={() => {}}
         onDelete={() => {}}

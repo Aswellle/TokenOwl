@@ -37,6 +37,7 @@ export function useAccounts(bridge: DashboardBridge) {
   const [phase, setPhase] = useState<LoadPhase>("loading");
   const [refreshingId, setRefreshingId] = useState<string | "all" | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [updatingKeyId, setUpdatingKeyId] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const [formSubmitting, setFormSubmitting] = useState(false);
   const [notice, setNotice] = useState<NoticeState | null>(null);
@@ -167,18 +168,43 @@ export function useAccounts(bridge: DashboardBridge) {
     [bridge],
   );
 
+  /** Replaces an account's key; the returned view model already carries the
+   * validating refresh's outcome, success or error alike. */
+  const handleUpdateCredential = useCallback(
+    async (accountId: string, apiKey: string): Promise<boolean> => {
+      setUpdatingKeyId(accountId);
+      try {
+        const updated = await bridge.updateAccountCredential(accountId, apiKey);
+        setAccounts((current) =>
+          current.map((account) => (account.id === accountId ? updated : account)),
+        );
+        setPhase("ready");
+        setNotice(null);
+        return true;
+      } catch {
+        setNotice({ text: copy.notices.updateKeyFailed, tone: "danger" });
+        return false;
+      } finally {
+        setUpdatingKeyId(null);
+      }
+    },
+    [bridge],
+  );
+
   return {
     accounts,
     phase,
     notice,
     refreshingId,
     deletingId,
+    updatingKeyId,
     formError,
     formSubmitting,
     loadAccounts,
     handleRefresh,
     handleCreate,
     handleDelete,
+    handleUpdateCredential,
     setNotice,
   };
 }

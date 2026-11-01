@@ -353,6 +353,13 @@ export function createMockBridge(): DashboardBridge {
       if (hasScenario("delete-fail")) throw new Error("模拟删除失败");
       accounts = accounts.filter((account) => account.id !== accountId);
     },
+    async updateAccountCredential(accountId: string) {
+      await new Promise((resolve) => setTimeout(resolve, latency()));
+      if (hasScenario("key-fail")) throw new Error("模拟密钥更新失败");
+      const target = accounts.find((account) => account.id === accountId);
+      if (!target) throw new Error("模拟账户不存在");
+      return structuredClone(target);
+    },
     async refresh(accountId) {
       await new Promise((resolve) => setTimeout(resolve, latency() + 220));
       if (hasScenario("refresh-fail")) throw new Error("模拟刷新失败：上游 503");

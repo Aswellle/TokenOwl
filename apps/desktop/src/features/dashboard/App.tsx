@@ -8,7 +8,6 @@ import {
   IconBubble,
   IconCheck,
   IconChevronDown,
-  IconChevronUp,
   IconCircleUser,
   IconClock,
   IconClose,
@@ -23,6 +22,7 @@ import {
   IconRefresh,
   IconShield,
 } from "../../components/icons";
+import { BrandMark } from "../../components/BrandMark";
 import { StatusChip } from "./components/StatusChip";
 import { NotificationSection } from "./components/NotificationSection";
 import { HistorySection } from "./components/HistorySection";
@@ -391,7 +391,7 @@ export function App({ bridge = tauriBridge }: AppProps = {}) {
         <TrafficLights />
         <div className="titlebar__brand">
           <span className="titlebar__owl" aria-hidden="true">
-            <IconOwl size={19} />
+            <BrandMark size={18} />
           </span>
           <span className="titlebar__name">{copy.brand}</span>
           <h1 className="titlebar__title" aria-live="polite">
@@ -769,6 +769,19 @@ export function App({ bridge = tauriBridge }: AppProps = {}) {
           dockPrefLoaded ? " dock-wrap--ready" : ""
         }`}
       >
+        {/* Centered on the dock strip's top edge: it rides that edge in both
+            states, so collapsing never moves the control out of reach. */}
+        <button
+          type="button"
+          className={`dock-tab${dockCollapsed ? " dock-tab--collapsed" : ""}`}
+          aria-label={dockCollapsed ? copy.dock.expand : copy.dock.collapse}
+          aria-controls="dock"
+          aria-expanded={!dockCollapsed}
+          title={dockCollapsed ? copy.dock.expandHint : copy.dock.collapseHint}
+          onClick={() => toggleDock(!dockCollapsed)}
+        >
+          <IconChevronDown size={15} />
+        </button>
         <nav
           className="dock"
           id="dock"
@@ -805,42 +818,8 @@ export function App({ bridge = tauriBridge }: AppProps = {}) {
           >
             <IconGitHub size={19} />
           </button>
-          <button
-            type="button"
-            className="dock__item dock__item--icon"
-            aria-label={copy.dock.collapse}
-            aria-controls="dock"
-            aria-expanded={!dockCollapsed}
-            title={copy.dock.collapseHint}
-            onClick={() => toggleDock(true)}
-          >
-            <IconChevronDown size={19} />
-          </button>
         </nav>
       </div>
-      <AnimatePresence>
-        {dockCollapsed && (
-          <motion.div
-            className="dock-handle-wrap"
-            initial={reduce ? { opacity: 0 } : { opacity: 0, y: 14 }}
-            animate={reduce ? { opacity: 1 } : { opacity: 1, y: 0 }}
-            exit={reduce ? { opacity: 0 } : { opacity: 0, y: 14 }}
-            transition={{ duration: 0.22, ease: [0.23, 1, 0.32, 1] }}
-          >
-            <button
-              type="button"
-              className="dock-handle"
-              aria-label={copy.dock.expand}
-              aria-controls="dock"
-              aria-expanded={false}
-              title={copy.dock.expandHint}
-              onClick={() => toggleDock(false)}
-            >
-              <IconChevronUp size={15} />
-            </button>
-          </motion.div>
-        )}
-      </AnimatePresence>
     </div>
   );
 }

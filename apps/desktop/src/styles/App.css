@@ -579,7 +579,8 @@ button:disabled {
   min-height: 0;
   overflow: hidden auto;
   overscroll-behavior: contain;
-  padding: 16px 20px 20px;
+  /* Bottom padding clears the dock tab, which rides the strip's top edge. */
+  padding: 16px 20px 34px;
   scrollbar-width: thin;
   scrollbar-color: var(--hairline-strong) transparent;
 }
@@ -2326,6 +2327,7 @@ button:disabled {
    transition arms only after the persisted preference loads, so a restart
    with the dock collapsed never flashes it open first. */
 .dock-wrap {
+  position: relative;
   display: grid;
   grid-template-rows: 1fr;
 }
@@ -2367,52 +2369,59 @@ button:disabled {
   }
 }
 
-/* The floating handle that brings the dock back: a small pill centred on the
-   bottom edge, above the content it now overlaps. */
-.dock-handle-wrap {
+/* The single dock control: a tab centred on the strip's top edge. It is
+   absolutely positioned against the wrap, so it rides that edge as the row
+   animates — expanded it sits on the dock's top border, collapsed the wrap
+   has no height and the tab rests on the window's bottom edge. Same place,
+   same size, always reachable. */
+.dock-tab {
   position: absolute;
-  inset-inline: 0;
-  bottom: 8px;
-  display: flex;
-  justify-content: center;
-  pointer-events: none;
-  z-index: 6;
-}
-
-.dock-handle {
-  pointer-events: auto;
+  left: 50%;
+  bottom: 100%;
+  transform: translateX(-50%);
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 44px;
-  height: 22px;
+  width: 62px;
+  height: 18px;
   padding: 0;
   border: 1px solid var(--hairline-strong);
-  border-radius: 999px;
+  border-bottom: 0;
+  border-radius: 9px 9px 0 0;
   background: var(--surface-hover);
   color: var(--ink-2);
   cursor: pointer;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.16);
+  z-index: 4;
+  box-shadow: 0 -1px 6px rgba(0, 0, 0, 0.06);
   transition:
     color 150ms var(--ease-out),
     border-color 150ms var(--ease-out),
     background-color 150ms var(--ease-out);
 }
 
-.dock-handle:hover {
-  color: var(--ink);
-  border-color: var(--accent);
+.dock-tab svg {
+  transition: transform 0.25s var(--ease-out);
 }
 
-.dock-handle:focus-visible {
+.dock-tab--collapsed svg {
+  transform: rotate(180deg);
+}
+
+.dock-tab:hover {
+  color: var(--ink);
+  border-color: var(--accent);
+  background: var(--surface-raised);
+}
+
+.dock-tab:focus-visible {
   outline: 2px solid var(--focus);
   outline-offset: 2px;
 }
 
-/* With the dock collapsed the reclaimed strip is content; keep the handle
-   from covering the last row's controls. */
-.window--dock-collapsed .content {
-  padding-bottom: 38px;
+@media (prefers-reduced-motion: reduce) {
+  .dock-tab svg {
+    transition: none;
+  }
 }
 
 .dock__item {

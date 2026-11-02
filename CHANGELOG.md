@@ -9,6 +9,145 @@ Release notes are also published on the
 
 ## [Unreleased]
 
+## [1.5.0] — 2026-11-02
+
+### Added
+
+- The bubble draws activity rings from real quota windows: `lib/rings.ts`
+  derives a consumed ratio per trustworthy window, assigns the shortest span
+  to the outer band and the longest to the inner one, and keeps at most
+  three semantically distinct dials — it never invents a third window.
+  Bands use a bright same-hue gradient over a dimmer track, round caps, and a
+  clear dark gap; zero and unknown values draw no arc at all, and full
+  consumption switches to butt caps so two round caps cannot bulge the
+  12 o'clock seam.
+- Ring progress is tweened by GSAP: the first sight of a ring draws it from
+  an empty dial with an outward-in stagger, later refreshes tween from the
+  current value (a refresh never looks like a reset), reduced motion writes
+  the target directly, and every tween lives in a `useGSAP` context so
+  StrictMode's remount cycle cannot leave duplicates behind. The rings also
+  compress and settle with the native window morph.
+- The bottom dock collapses: one click returns its strip to the content
+  area, and the same tab brings it back. The tab is centred on the dock's
+  top edge and rides that edge through the animation — expanded it sits on
+  the dock border, collapsed it rests on the window's bottom edge — with a
+  rotating chevron instead of a swapped icon. The collapsed row leaves the
+  tab order (`inert`). The preference persists through
+  `dock_state_get`/`dock_state_set` in the settings table; a missing or
+  malformed value means expanded, so a corrupted row can never hide the
+  controls, and it loads before the transition is armed so a restart does
+  not flash the dock open first.
+- The dashboard window is sized to and centred inside the monitor's work
+  area (screen minus taskbar / menu bar / Dock) before it is shown, so the
+  bottom dock is visible at startup on both Windows and macOS instead of
+  sitting under the taskbar. The window exists before the compositor
+  reports a monitor, so a first miss hides the window and retries every
+  100 ms for up to 2 s; the expand-from-bubble path centres within the same
+  work area.
+- Expired or revoked API keys recover in place: `accounts_update_credential`
+  overwrites the keyring entry under the account's existing credential
+  reference (account, provider row and history untouched) and validates the
+  new key with an immediate refresh. Erroring account rows expose an
+  update-key action with a masked inline dialog.
+- An explicit proxy setting for corporate gateways: the URL (which may embed
+  proxy credentials) lives in the OS credential store, never in SQLite, and
+  is threaded through all three adapters at startup. Redirect denial and the
+  no-implicit-proxy rule are unchanged; the setting takes effect on the next
+  start, which the UI states.
+- LAN account creation can remember a target: an opt-in checkbox in the
+  consent dialog stores the exact base URL in a revocable trusted-target
+  list, managed per row in settings. Only classifiable LAN targets can be
+  trusted — public URLs need no consent and unclassifiable ones fail
+  closed — and the one-time token path is unchanged for everything else.
+- Command errors carry a stable `code` across IPC (`AuthExpired`,
+  `RateLimited`, and so on) alongside the human message, so the UI can
+  branch by category; an expired key now points at the row's inline key
+  update instead of a generic retry loop.
+- Quota-less providers (L1/L2) say so: the account view model carries the
+  manifest's capability level, error-free empty rows read "this provider
+  publishes no key-level quota", the picker marks those entries, and
+  selecting one explains the empty dashboard up front.
+- The notification settings panel groups its controls into named sections
+  (system notifications, conditions, timing, quiet hours) with a rotating
+  chevron and a live state summary in the collapsed header; the 5–1440
+  minute reset-window constraint is visible copy instead of a hidden input
+  attribute.
+- The top-left brand slot uses a new geometric owl mark — one continuous
+  silhouette with mask-cut eyes and beak, so it reads on the titlebar tile,
+  the light dashboard surface, and the bubble's dark jewel. The application
+  icon and tray icon are unchanged.
+
+### Changed
+
+- Adapter dispatch reads the persisted `api_format` (`anthropic`,
+  `google-ai`, or none for OpenAI-compatible) instead of string-matching the
+  provider-id prefix; legacy rows fall back to the prefix, so no migration
+  is needed and a fourth wire protocol no longer means touching two places
+  that can drift.
+- Notification relative-time labels re-render through a module-scoped clock
+  (`useSyncExternalStore`): one interval for any number of subscribers, and
+  a tick no longer re-renders the whole notification list. The setup form
+  validates the same state it submits instead of reading controlled inputs
+  back out of the DOM.
+
+### Fixed
+
+- Credentials persist across restarts: `keyring` 3 compiles no backend by
+  default, so the previous build silently used the in-memory mock — account
+  creation "succeeded" and the first refresh after a restart could not
+  resolve the secret. Each platform now enables its native store
+  (`windows-native`, `apple-native`, `linux-native`).
+- Account deletion removes its provider row once no account references it,
+  so a deleted account cannot leave a provider entry that no refresh can
+  ever reach; snapshots, refresh state and history still cascade.
+- Manual, first-load and delete-triggered refreshes emit `quota:updated`, so
+  the bubble stops rendering accounts that no longer exist, and the
+  window-region morph honours the OS reduced-motion switch.
+- A quota window with no reported start/end timestamps no longer sorts as a
+  0-hour span and steals the outer band from a window with a real span: it
+  falls back to the nominal span its tag already declares (7d → 168h), which
+  is shown to the user as the window's identity.
+- Provider quota surfaces corrected against official documentation:
+  OpenRouter `/key` (previously a double-joined 404), SiliconFlow
+  `/user/info`, Kimi's new balance schema, and OpenAI/Qwen moved to their
+  honest capability levels after removing fabricated endpoints. DeepSeek's
+  balance envelope surfaces granted and topped-up splits; Anthropic's
+  rate-limit header prefixes carry their units and never invent a span.
+- Quota cards adapt to each kind: window chips carry type and span
+  (滚动窗口 · 5h), token counts use the 万/亿 scale, percentages read as a
+  share, and windowless balances never grow a fake reset time or ratio bar.
+  Failed history, notification and matrix reads report themselves with a
+  retry instead of skeletons or false empty states; the detail page groups
+  windowed dials apart from balances and meters.
+- The critical-only notification help text follows the configured low-quota
+  threshold instead of quoting a frozen 10%; the titlebar close light
+  performs the collapse-to-bubble handoff its label promises.
+
+### Security
+
+- The proxy URL may embed proxy credentials, so it is stored in the OS
+  credential store under its own reference rather than in the SQLite file;
+  error messages stay constant so the URL never reaches a log.
+- The LAN trusted-target list matches the exact base URL, is stored in the
+  settings table, and is revocable per row; adding a target re-runs the
+  backend LAN classifier and rejects anything that is not a LAN target.
+- API-key inputs are masked password fields in both the setup form and the
+  in-place update dialog, and the secret never enters React state.
+
+### Compatibility
+
+- No SQLite schema migration; v1.4.x local data reads as-is.
+- New IPC commands — `accounts_update_credential`, `proxy_get`/`proxy_set`,
+  `lan_trust_list`/`lan_trust_add`/`lan_trust_remove`, and
+  `dock_state_get`/`dock_state_set` — are additive.
+- The command error payload changed from a bare string to
+  `{ code, message }`; the only consumer is the bundled frontend.
+- `OpenAiCompatibleConfig` persists an `api_format` field (`None` for
+  OpenAI-compatible); rows written by earlier versions fall back to their
+  provider-id prefix.
+- New frontend dependencies: `gsap` and `@gsap/react`, with the license
+  notice included in the repository.
+
 ## [1.4.0] — 2026-10-30
 
 ### Added

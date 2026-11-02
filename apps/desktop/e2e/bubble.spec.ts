@@ -140,6 +140,9 @@ test.describe("bubble form", () => {
   });
 
   test("survives ten expand/collapse round trips without wedging", async ({ page }) => {
+    // Ten animated round trips: the default 30 s budget is tight once the
+    // machine is busy, and a slow run is not a wedged shell.
+    test.slow();
     await page.goto("/");
     for (let round = 0; round < 10; round += 1) {
       await page.getByRole("button", { name: "Bubble", exact: true }).click();

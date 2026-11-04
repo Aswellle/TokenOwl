@@ -93,3 +93,38 @@
 | 供应商配置 UX | Observed（本会话多次原生驱动该流程）+ Code-confirmed |
 | UI/UX 方向 | 部分渲染验证（原生截图），窄窗/200% 缩放由 e2e 覆盖 |
 | macOS/多显示器 | 维持既有未验证边界 |
+
+## 11. 依赖审计记录（2026-11-05）
+
+每周 `Dependency Audit` 工作流在 v1.5.0 上报出两个失败：Rust 侧 `zip 4.6.1`
+高危（RUSTSEC-2026-0429，`ZipArchive::extract` 对大尺寸符号链接条目中止进程）
+与前端侧 `decode-uri-component <=0.5.0` 高危（GHSA-qr28-fpjm-wq7f，百分号解码
+二次复杂度 DoS）。
+
+### 已修复
+
+| 项 | 修复 | 说明 |
+|---|---|---|
+| zip 高危 + 三条旧忽略 | `tauri-plugin-updater` 2.12.0→2.14.1（首个依赖 `zip ^9` 的 2.x），连带 tauri 全家 2.11.6→2.12.5，zip →9.2.2 | `.cargo/audit.toml` 三条 zip 忽略按其自述复评策略移除；quick-xml 两条保留（plist 仍钉 quick-xml 0.38） |
+| MSRV | `rust-version` 1.88→1.90（README 同步） | tauri 2.12 全家声明 1.90；v1.4.0 为 `time` 链提 1.88 已有先例 |
+| decode-uri-component | 0.5.0→0.5.1 | `query-string@9.5.1` 本就允许 `^0.5.0`，范围内浮动 |
+| `@tauri-apps/api` | 2.11.1→2.12.4 | tauri 2.12.5 升级时漏掉的配套项：dev 启动时报主/次版本不匹配警告 |
+| `@lobehub/icons` | 5.23.0→5.23.1 | 5.x 线内末版 |
+| katex 低危（GHSA-238p-pmpm-9mq7） | `pnpm-workspace.yaml` overrides 统一到 `^0.18.10` | `micromark-extension-math@3.1.0`（上游最新）仍钉 `katex ^0.16.0`，范围外 override 是唯一路径；katex 从不进入打包产物（`dist/assets` 检查为空），override 后树中只余单份 0.18.10 |
+| async-executor yanked | 1.14.0→1.14.1 | 锁文件引用已撤回版本，补丁版一条命令可达 |
+| dev 启动间歇挂起 | `tauri.conf.json` devUrl/beforeDevCommand 对齐 `127.0.0.1` | Node 17+ 对 `localhost` 的双栈解析顺序不定，vite 可能只绑 `[::1]` 而 tauri 侧连 IPv4（SYN_SENT 挂起）；e2e 一直显式用 `127.0.0.1` 所以从未触发 |
+| 本地 e2e 间歇挂/败 | 无代码问题（干净 HEAD 复现） | 多次 `pnpm install` 使 vite optimizeDeps 缓存失效后，Windows 冷优化首载会拖过 global-setup 的 `networkidle` 30s 或拖慢 dock 点击用例；预热一次真实加载即恢复。CI 干净环境不受影响。遇到时先预热再怀疑代码 |
+
+### 留存（明确留到下一阶段或上游）
+
+| 项 | 去留判定 | 理由 |
+|---|---|---|
+| 6 条 warning（proc-macro-error、unsafe-libyaml、zbus_names/zvariant/zvariant_derive、glib unsound） | 留 | `cargo audit` 退出码 0，不失败；全部是 Linux 目标或构建工具链传递依赖，修复需要 notify-rust / tauri / GTK 绑定上游发版；Windows 构建不编译这些目标 |
+| `@lobehub/icons` 6.x（自含 `katex ^0.18` 且不再依赖 ui） | 留到下一阶段 | 主版本跳跃；31 个内置供应商品牌图标经它渲染，需要逐图标视觉回归后才可升级，不宜混入依赖安全热修 |
+| 悬浮球展开/折叠实机复验 | 本轮完成 | wry 0.55→0.57、window-vibrancy 0.6→0.8、tray-icon 0.24→0.25 全部是窗口栈，恰是 morph 路径触碰的层，属"应验尽验" |
+
+### 验证
+
+`cargo audit` / `pnpm audit --prod --audit-level high` 均 0 漏洞退出；
+clippy `-D warnings`、cargo test、typecheck、vitest、e2e、`pnpm build`
+（bundle 不含 katex 复查）全绿；实机冒烟见 §10。

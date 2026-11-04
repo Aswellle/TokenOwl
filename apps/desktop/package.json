@@ -15,8 +15,8 @@
   },
   "dependencies": {
     "@gsap/react": "^2.1.2",
-    "@lobehub/icons": "^5.23.0",
-    "@tauri-apps/api": "^2.11.1",
+    "@lobehub/icons": "5.23.0",
+    "@tauri-apps/api": "^2.12.4",
     "gsap": "^3.15.0",
     "motion": "^14.1.0",
     "react": "^19.1.0",
@@ -36,5 +36,10 @@
     "typescript": "~6.0.3",
     "vite": "^8.0.16",
     "vitest": "^5.0.3"
+  },
+  "pnpm": {
+    "overrides": {
+      "katex": "^0.18.10"
+    }
   }
 }

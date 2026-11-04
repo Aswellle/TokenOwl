@@ -2,3 +2,11 @@ packages:
   - "apps/*"
   - "scripts/*"
   - "providers/community/*"
+
+# The only override in the tree: micromark-extension-math pins katex ^0.16
+# upstream, whose 0.16.x line carries a low-severity prototype-pollution
+# advisory (GHSA-238p-pmpm-9mq7). katex never reaches the shipped bundle;
+# the override unifies the tree on the patched 0.18 line instead of keeping
+# two copies. Revisit if micromark-extension-math widens its range.
+overrides:
+  katex: ^0.18.10

@@ -9,6 +9,30 @@ permissions:
   contents: read
 
 jobs:
+  msrv:
+    name: Rust MSRV check
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Install Linux Tauri dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf xdg-utils
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
+        with:
+          # Keep in sync with rust-version in Cargo.toml. Stable-only jobs
+          # would let a dependency raise the real floor silently: cargo
+          # selects versions compatible with this toolchain, so an upgrade
+          # that needs a newer compiler fails here instead of on a
+          # contributor's or updater's machine.
+          toolchain: "1.90"
+
+      - name: Rust MSRV check
+        run: cargo check --manifest-path apps/desktop/src-tauri/Cargo.toml --all-targets
+
   fmt:
     name: Rust format check
     runs-on: ubuntu-22.04

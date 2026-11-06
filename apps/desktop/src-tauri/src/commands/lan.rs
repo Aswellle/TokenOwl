@@ -188,7 +188,10 @@ pub fn lan_trust_remove(
 ) -> Result<(), CommandError> {
     let repository = state.repository()?;
     let mut trusted = load_lan_trusts(&repository)?;
-    trusted.retain(|entry| entry != &url);
+    // Mirror the add path's trimming: a padded remove request would
+    // otherwise report success while leaving the trust entry in place.
+    let target = url.trim();
+    trusted.retain(|entry| entry != target);
     save_lan_trusts(&repository, trusted)
 }
 

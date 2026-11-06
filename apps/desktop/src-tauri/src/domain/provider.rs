@@ -440,6 +440,50 @@ impl IntoIterator for QuotaSnapshotSet {
 pub type NormalizedQuotaSnapshot = QuotaSnapshot;
 pub type NormalizedQuotaSnapshotSet = QuotaSnapshotSet;
 
+/// The wire protocol an account talks. The config persists it as a string
+/// (`api_format`, `None` meaning OpenAI-compatible) so existing databases
+/// load without a migration; this enum is the single vocabulary every
+/// dispatch site matches on, so a fourth protocol becomes a compile error
+/// instead of six string literals drifting apart.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WireFormat {
+    OpenAiCompatible,
+    Anthropic,
+    GoogleAi,
+}
+
+impl WireFormat {
+    /// Canonical storage and IPC spelling.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::OpenAiCompatible => "openai-compatible",
+            Self::Anthropic => "anthropic",
+            Self::GoogleAi => "google-ai",
+        }
+    }
+
+    /// The credential header each wire format authenticates with.
+    pub fn api_key_header(self) -> &'static str {
+        match self {
+            Self::OpenAiCompatible => "Authorization",
+            Self::Anthropic => "x-api-key",
+            Self::GoogleAi => "x-goog-api-key",
+        }
+    }
+
+    /// Parses a creation-time or manifest-declared format. `gemini` is a
+    /// historical alias of `google-ai`; unknown values parse to `None` and
+    /// the caller decides the fallback.
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "anthropic" => Some(Self::Anthropic),
+            "gemini" | "google-ai" => Some(Self::GoogleAi),
+            "openai-compatible" => Some(Self::OpenAiCompatible),
+            _ => None,
+        }
+    }
+}
+
 /// Configuration for a declarative OpenAI-compatible endpoint.
 ///
 /// The config stores only a credential reference. Secret values are resolved by
@@ -520,15 +564,35 @@ impl OpenAiCompatibleConfig {
     /// legacy rows predating the field fall back to the well-known id
     /// prefixes, keeping every existing database routing correctly without
     /// a migration.
-    pub fn effective_api_format(&self) -> Option<&str> {
-        self.api_format.as_deref().or_else(|| {
-            let prefix = self.id.split(':').next()?;
-            match prefix {
-                "anthropic" => Some("anthropic"),
-                "gemini" => Some("google-ai"),
-                _ => None,
+    /// The wire protocol this config routes to. The persisted `api_format`
+    /// wins; legacy rows predating the field fall back to the well-known id
+    /// prefixes, keeping every existing database routing correctly without
+    /// a migration. An unknown stored string rides the OpenAI-compatible
+    /// transport, exactly as before the enum existed.
+    pub fn effective_wire_format(&self) -> WireFormat {
+        match self.api_format.as_deref() {
+            Some("anthropic") => WireFormat::Anthropic,
+            Some("google-ai") => WireFormat::GoogleAi,
+            Some(_) => WireFormat::OpenAiCompatible,
+            None => {
+                let prefix = self.id.split(':').next().unwrap_or(self.id.as_str());
+                match prefix {
+                    "anthropic" => WireFormat::Anthropic,
+                    "gemini" => WireFormat::GoogleAi,
+                    _ => WireFormat::OpenAiCompatible,
+                }
             }
-        })
+        }
+    }
+
+    /// The string spelling of [`Self::effective_wire_format`]; `None` means
+    /// the OpenAI-compatible transport, matching the stored vocabulary.
+    pub fn effective_api_format(&self) -> Option<&str> {
+        match self.effective_wire_format() {
+            WireFormat::OpenAiCompatible => None,
+            WireFormat::Anthropic => Some("anthropic"),
+            WireFormat::GoogleAi => Some("google-ai"),
+        }
     }
 
     /// Checks the endpoint shape before a network layer uses it.

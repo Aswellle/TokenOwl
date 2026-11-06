@@ -1569,22 +1569,24 @@ struct ResolvedNewAccount {
     api_format: Option<String>,
 }
 
-/// Normalizes a creation-time wire format onto the config vocabulary.
+/// Normalizes a creation-time wire format onto the config vocabulary: native
+/// formats keep their canonical spelling, and the OpenAI-compatible default
+/// (plus anything unrecognized) stores as `None`.
 fn config_api_format(api_format: &str) -> Option<String> {
-    match api_format {
-        "anthropic" => Some("anthropic".to_owned()),
-        "gemini" | "google-ai" => Some("google-ai".to_owned()),
-        _ => None,
+    match crate::domain::provider::WireFormat::parse(api_format) {
+        Some(crate::domain::provider::WireFormat::OpenAiCompatible) | None => None,
+        Some(format) => Some(format.as_str().to_owned()),
     }
 }
 
 /// The credential header each supported wire format authenticates with.
+/// Unrecognized formats ride the OpenAI-compatible transport and its
+/// `Authorization` header.
 fn api_key_header_for_format(api_format: &str) -> &'static str {
-    match api_format {
-        "anthropic" => "x-api-key",
-        "google-ai" | "gemini" => "x-goog-api-key",
-        _ => "Authorization",
-    }
+    crate::domain::provider::WireFormat::parse(api_format).map_or(
+        "Authorization",
+        crate::domain::provider::WireFormat::api_key_header,
+    )
 }
 
 /// Whether a host targets the local machine or a private network.

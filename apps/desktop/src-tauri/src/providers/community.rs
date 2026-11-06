@@ -129,7 +129,9 @@ fn load_community_manifest(path: &Path) -> Result<CommunityManifest, String> {
         .api_format
         .as_deref()
         .unwrap_or("openai-compatible");
-    if format != "openai-compatible" {
+    if crate::domain::provider::WireFormat::parse(format)
+        != Some(crate::domain::provider::WireFormat::OpenAiCompatible)
+    {
         return Err(format!(
             "unsupported wire protocol `{format}` (community packs are limited to openai-compatible)"
         ));

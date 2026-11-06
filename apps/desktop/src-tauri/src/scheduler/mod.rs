@@ -44,12 +44,16 @@ pub async fn refresh_account(
         ProviderError::new(ProviderErrorKind::ConfigInvalid, "provider not found")
     })?;
     repository.mark_refresh_started(account_id, started_at)?;
-    let fetched = match config.effective_api_format() {
-        Some("anthropic") => {
+    let fetched = match config.effective_wire_format() {
+        crate::domain::provider::WireFormat::Anthropic => {
             native_fetch(anthropic, &account, &config, account_id, credentials).await
         }
-        Some("google-ai") => native_fetch(google, &account, &config, account_id, credentials).await,
-        _ => adapter.fetch(&config, account_id, credentials).await,
+        crate::domain::provider::WireFormat::GoogleAi => {
+            native_fetch(google, &account, &config, account_id, credentials).await
+        }
+        crate::domain::provider::WireFormat::OpenAiCompatible => {
+            adapter.fetch(&config, account_id, credentials).await
+        }
     };
     match fetched {
         Ok(result) => {

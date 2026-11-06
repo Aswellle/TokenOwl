@@ -374,10 +374,11 @@ impl ProviderManifest {
             default_refresh,
             capabilities,
             field_mappings,
-            api_format: match self.api_format.as_deref() {
-                Some("anthropic") => Some("anthropic".to_owned()),
-                Some("google-ai" | "gemini") => Some("google-ai".to_owned()),
-                _ => None,
+            api_format: match crate::domain::provider::WireFormat::parse(
+                self.api_format.as_deref().unwrap_or("openai-compatible"),
+            ) {
+                Some(crate::domain::provider::WireFormat::OpenAiCompatible) | None => None,
+                Some(format) => Some(format.as_str().to_owned()),
             },
         }
     }

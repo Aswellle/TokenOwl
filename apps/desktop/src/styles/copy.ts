@@ -3,6 +3,8 @@
  * the UI never mixes languages and a future locale can be added without touching
  * components. Values stay in natural case; presentation belongs to CSS.
  */
+import type { AccountHealth } from "../types";
+
 
 export const copy = {
   brand: "TokenOwl",
@@ -111,7 +113,7 @@ export const copy = {
     syncing: "正在同步",
     unavailable: "暂无数据，等待首次刷新",
     unconfigured: "尚未连接",
-  } as Record<string, string>,
+  } satisfies Record<AccountHealth, string>,
 
   quota: {
     remaining: "剩余",

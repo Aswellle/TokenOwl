@@ -1,12 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { listen } from "@tauri-apps/api/event";
 import { motion, useReducedMotion } from "motion/react";
 import "../../styles/App.css";
 import { copy } from "../../styles/copy";
 import { overallHealth } from "../../lib/format";
 import { fallbackConsumedRatio, selectBubbleRings } from "../../lib/rings";
-import { isTauri, shell, tauriBridge } from "../../lib/tauri";
+import { isTauri, listenWithRetry, shell, tauriBridge } from "../../lib/tauri";
 import { onMorphFromBubble, onMorphToBubble, type MorphAnchor } from "../../lib/morph";
 import { QuotaRings } from "./components/QuotaRings";
 import type { AccountHealth, AccountViewModel, DashboardBridge } from "../../types";
@@ -41,7 +40,7 @@ export function BubbleView({ bridge = tauriBridge }: { bridge?: DashboardBridge 
           if (active) setPhase("offline");
         });
     void load();
-    const unlisten = listen("quota:updated", load).catch(() => null);
+    const unlisten = listenWithRetry("quota:updated", load);
     return () => {
       active = false;
       void unlisten.then((dispose) => { if (typeof dispose === "function") dispose(); });

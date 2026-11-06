@@ -45,6 +45,7 @@ vi.mock("@tauri-apps/api/event", () => ({
 }));
 
 vi.mock("../lib/tauri", () => ({
+  listenWithRetry: vi.fn(async () => null),
   // Drag and move-persistence are desktop-only paths; the tests below exist
   // to exercise exactly those, so the preview pretends to be the real shell.
   isTauri: vi.fn(() => true),

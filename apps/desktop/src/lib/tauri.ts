@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import type {
   AccountViewModel,
@@ -126,6 +127,35 @@ export const shell = {
 /** True when running inside the Tauri webview (as opposed to a plain browser). */
 export function isTauri(): boolean {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+}
+
+/**
+ * Registers a native event listener, retrying briefly when registration
+ * loses the webview startup race. A silently failed registration is
+ * permanent — the window keeps stale data until restart with nothing in
+ * any log — so the last failure is warned and the promise resolves to
+ * `null` instead of a dispose function. The plain-browser preview has no
+ * native event layer at all and resolves to `null` without retrying.
+ */
+export async function listenWithRetry(
+  event: string,
+  handler: () => void,
+  attempts = 5,
+): Promise<(() => void) | null> {
+  if (!isTauri()) return null;
+  for (let attempt = 0; attempt < attempts; attempt++) {
+    try {
+      const unlisten = await listen(event, handler);
+      return unlisten;
+    } catch (error) {
+      if (!isTauri() || attempt === attempts - 1) {
+        console.warn(`[tokenowl] could not listen for ${event}`, error);
+        return null;
+      }
+      await new Promise((resolve) => window.setTimeout(resolve, 250 * (attempt + 1)));
+    }
+  }
+  return null;
 }
 
 /**

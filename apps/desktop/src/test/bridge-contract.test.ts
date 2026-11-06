@@ -81,7 +81,9 @@ function invokedCommands(source: string): Array<{ name: string; keys: string[] }
 
 function listenedEvents(source: string): string[] {
   return Array.from(
-    source.matchAll(/listen(?:<[^>]*>)?\(\s*"([a-z0-9:_-]+)"/g),
+    // Both direct `listen(...)` calls and the shared `listenWithRetry(...)`
+    // helper register native listeners.
+    source.matchAll(/(?:listenWithRetry|listen)(?:<[^>]*>)?\(\s*"([a-z0-9:_-]+)"/g),
     (match) => match[1],
   );
 }

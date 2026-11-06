@@ -28,6 +28,7 @@ const {
 vi.mock("@lobehub/icons", () => ({ ProviderIcon: () => null }));
 vi.mock("@tauri-apps/api/event", () => ({ listen: mockListen }));
 vi.mock("../lib/tauri", () => ({
+  listenWithRetry: vi.fn(async () => null),
   isTauri: vi.fn(() => false),
   bridgeErrorCode: (error: unknown) =>
     typeof error === "object" && error !== null && "code" in error

@@ -893,8 +893,8 @@ fn toggle_dashboard(app: &AppHandle) {
     }
 }
 
-/// Refreshes every account from the background task, then emits the usual
-/// `quota:updated` event so both windows redraw.
+/// Refreshes every account from the background task. `refresh_accounts`
+/// emits `quota:updated` itself, so both windows redraw exactly once.
 fn refresh_all_accounts(app: &AppHandle) {
     let Some(runtime) = app.try_state::<Arc<commands::AppRuntime>>() else {
         return;
@@ -905,7 +905,6 @@ fn refresh_all_accounts(app: &AppHandle) {
         if let Err(error) = commands::refresh_accounts(&runtime, Some(&handle), None).await {
             eprintln!("hotkey refresh failed: {error}");
         }
-        let _ = handle.emit("quota:updated", ());
     });
 }
 
@@ -1073,8 +1072,10 @@ fn start_background_tasks(app: &AppHandle) {
             } else {
                 Ok(Vec::new())
             };
-            if result.is_ok() {
-                let _ = handle.emit("quota:updated", ());
+            // `refresh_accounts` already emitted `quota:updated` on success;
+            // emitting again here made both webviews reload twice per cycle.
+            if let Err(error) = &result {
+                tracing::warn!("background refresh failed: {error}");
             }
             // The freshness policy's `stale_after` is the refresh cadence
             // target: refreshing this often keeps data younger than the

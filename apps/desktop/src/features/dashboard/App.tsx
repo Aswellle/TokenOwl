@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion, useMotionValueEvent, useReducedMotion, useSpring } from "motion/react";
-import { listen } from "@tauri-apps/api/event";
 import "../../styles/App.css";
 import { copy } from "../../styles/copy";
 import {
@@ -44,7 +43,7 @@ import {
   ratioTone,
   timestamp,
 } from "../../lib/format";
-import { isTauri, shell, tauriBridge } from "../../lib/tauri";
+import { isTauri, listenWithRetry, shell, tauriBridge } from "../../lib/tauri";
 import type {
   DashboardBridge,
 } from "../../types";
@@ -309,11 +308,11 @@ export function App({ bridge = tauriBridge }: AppProps = {}) {
 
   useEffect(() => {
     let active = true;
-    const unlisten = listen("quota:updated", () => {
+    const unlisten = listenWithRetry("quota:updated", () => {
       if (!active) return;
       setHistoryTick((tick) => tick + 1);
       void loadAccounts();
-    }).catch(() => null);
+    });
     return () => {
       active = false;
       void unlisten.then((dispose) => dispose?.());
@@ -322,9 +321,9 @@ export function App({ bridge = tauriBridge }: AppProps = {}) {
 
   useEffect(() => {
     let active = true;
-    const unlisten = listen("notification:enqueue", () => {
+    const unlisten = listenWithRetry("notification:enqueue", () => {
       if (active) setNotificationTick((tick) => tick + 1);
-    }).catch(() => null);
+    });
     return () => {
       active = false;
       void unlisten.then((dispose) => dispose?.());

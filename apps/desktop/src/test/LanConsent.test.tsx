@@ -22,6 +22,7 @@ const {
 vi.mock("@lobehub/icons", () => ({ ProviderIcon: () => null }));
 vi.mock("@tauri-apps/api/event", () => ({ listen: mockListen }));
 vi.mock("../lib/tauri", () => ({
+  listenWithRetry: vi.fn(async () => null),
   isTauri: vi.fn(() => false),
   shell: {
     openDashboard: vi.fn(),

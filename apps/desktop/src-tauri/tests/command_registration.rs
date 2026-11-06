@@ -5,46 +5,67 @@
 //! invoke rejected with "command not found", the frontend swallowed it behind
 //! a `.catch(() => null)`, and the packaged app showed an empty provider list
 //! while the mocked browser preview kept passing. Tauri's macro offers no
-//! compile-time cross-check, so this test parses the two source files the
+//! compile-time cross-check, so this test parses the command sources the
 //! same way a reviewer would.
 
 use std::sync::LazyLock;
-
-static COMMANDS_SOURCE: LazyLock<String> = LazyLock::new(|| {
-    std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/src/commands/mod.rs"))
-        .expect("commands/mod.rs is readable")
-});
 
 static APP_SOURCE: LazyLock<String> = LazyLock::new(|| {
     std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/src/app/mod.rs"))
         .expect("app/mod.rs is readable")
 });
 
-/// Names of the commands `commands/mod.rs` marks with `#[tauri::command]`.
+static COMMANDS_SOURCES: LazyLock<Vec<String>> = LazyLock::new(|| {
+    let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/src/commands");
+    let mut sources = Vec::new();
+    let mut entries: Vec<_> = std::fs::read_dir(dir)
+        .expect("commands directory is readable")
+        .map(|entry| entry.expect("directory entry").path())
+        .filter(|path| path.extension().is_some_and(|ext| ext == "rs"))
+        .collect();
+    entries.sort();
+    for path in entries {
+        sources.push(
+            std::fs::read_to_string(&path)
+                .unwrap_or_else(|error| panic!("{} is readable: {error}", path.display())),
+        );
+    }
+    assert!(
+        sources.len() >= 2,
+        "the commands module should span several files; the scan is broken"
+    );
+    sources
+});
+
+/// Names of the commands the commands module marks with `#[tauri::command]`.
 fn exported_command_names() -> Vec<String> {
-    let lines: Vec<&str> = COMMANDS_SOURCE.lines().collect();
     let mut names = Vec::new();
-    for (index, line) in lines.iter().enumerate() {
-        if *line != "#[tauri::command]" {
-            continue;
+    for source in COMMANDS_SOURCES.iter() {
+        let lines: Vec<&str> = source.lines().collect();
+        for (index, line) in lines.iter().enumerate() {
+            if line.trim_end() != "#[tauri::command]" {
+                continue;
+            }
+            // The fn signature directly follows the attribute (possibly behind
+            // further attributes such as `#[cfg]`, so scan ahead for `fn `).
+            let signature = lines[index + 1..]
+                .iter()
+                .find(|line| line.contains("fn "))
+                .unwrap_or_else(|| {
+                    panic!("#[tauri::command] without a fn signature on line {index}")
+                });
+            let name = signature
+                .split("fn ")
+                .nth(1)
+                .unwrap_or_else(|| panic!("cannot read fn name on line {index}"))
+                .trim_start()
+                .split(['(', '<', ' '])
+                .next()
+                .unwrap_or_default()
+                .to_owned();
+            assert!(!name.is_empty(), "empty command name near line {index}");
+            names.push(name);
         }
-        // The fn signature directly follows the attribute (possibly behind
-        // further attributes such as `#[cfg]`, so scan ahead for `fn `).
-        let signature = lines[index + 1..]
-            .iter()
-            .find(|line| line.contains("fn "))
-            .unwrap_or_else(|| panic!("#[tauri::command] without a fn signature on line {index}"));
-        let name = signature
-            .split("fn ")
-            .nth(1)
-            .unwrap_or_else(|| panic!("cannot read fn name on line {index}"))
-            .trim_start()
-            .split(['(', '<', ' '])
-            .next()
-            .unwrap_or_default()
-            .to_owned();
-        assert!(!name.is_empty(), "empty command name near line {index}");
-        names.push(name);
     }
     names
 }

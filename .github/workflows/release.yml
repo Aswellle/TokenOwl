@@ -104,3 +104,35 @@ jobs:
           generateReleaseNotes: true
           uploadUpdaterJson: true
           updaterJsonPreferNsis: true
+
+      # The e2e suite runs against the plain-browser preview, so nothing in
+      # CI exercises the native shell before users do (three past regressions
+      # lived exactly there). Launching the freshly built binary and checking
+      # it survives its own startup catches crash-on-launch regressions on
+      # the exact OS that ships the artifact.
+      - name: Smoke the built binary
+        shell: bash
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          case "$TARGET" in
+            windows-x86_64) BIN="apps/desktop/src-tauri/target/release/tokenowl.exe" ;;
+            darwin-aarch64) BIN="apps/desktop/src-tauri/target/aarch64-apple-darwin/release/tokenowl" ;;
+            darwin-x86_64) BIN="apps/desktop/src-tauri/target/x86_64-apple-darwin/release/tokenowl" ;;
+            *) echo "unknown target: $TARGET"; exit 1 ;;
+          esac
+          if [ ! -f "$BIN" ]; then
+            echo "built binary missing: $BIN"
+            exit 1
+          fi
+          "$BIN" &
+          APP_PID=$!
+          sleep 15
+          if kill -0 "$APP_PID" 2>/dev/null; then
+            echo "app stayed up for 15s on $TARGET"
+            kill "$APP_PID" 2>/dev/null || true
+          else
+            wait "$APP_PID" || true
+            echo "app exited before the smoke window ended"
+            exit 1
+          fi

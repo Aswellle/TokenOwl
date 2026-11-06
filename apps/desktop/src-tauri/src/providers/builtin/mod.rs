@@ -275,19 +275,30 @@ pub fn is_builtin_provider_id(id: &str) -> bool {
 /// capability block return `None` — absence of knowledge, never a level.
 /// The account view uses this so the UI can tell "this provider publishes no
 /// key-level quota" apart from a failed fetch.
+///
+/// The lookup parses each embedded manifest once and caches the result: the
+/// level lands in every account view model, so `accounts_list` would
+/// otherwise re-parse YAML on every call and every `quota:updated` event.
 pub fn builtin_capability_level(provider_id: &str) -> Option<String> {
-    use crate::providers::manifest::ProviderManifest;
+    static LEVELS: std::sync::OnceLock<std::collections::HashMap<&'static str, Option<String>>> =
+        std::sync::OnceLock::new();
+    let levels = LEVELS.get_or_init(|| {
+        use crate::providers::manifest::ProviderManifest;
+        BUILTIN_MANIFESTS
+            .iter()
+            .map(|(manifest_id, yaml)| {
+                let level = ProviderManifest::from_yaml(yaml).ok().map(|manifest| {
+                    manifest.capability.as_ref().map_or_else(
+                        || "L1".to_owned(),
+                        |capability| capability.level_id().to_owned(),
+                    )
+                });
+                (*manifest_id, level)
+            })
+            .collect()
+    });
     let prefix = provider_id.split(':').next()?;
-    BUILTIN_MANIFESTS
-        .iter()
-        .find(|(manifest_id, _)| *manifest_id == prefix)
-        .and_then(|(_, yaml)| ProviderManifest::from_yaml(yaml).ok())
-        .map(|manifest| {
-            manifest.capability.as_ref().map_or_else(
-                || "L1".to_owned(),
-                |capability| capability.level_id().to_owned(),
-            )
-        })
+    levels.get(prefix).cloned().flatten()
 }
 
 /// Setup profiles for all embedded manifests, in manifest order.

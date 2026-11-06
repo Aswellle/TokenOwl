@@ -1207,6 +1207,19 @@ pub fn run() {
             #[cfg(desktop)]
             updater_install,
         ])
+        .on_window_event(|window, event| {
+            // A tray-resident app must not lose its only dashboard to
+            // Alt+F4: once the window is destroyed, "Open Dashboard" has
+            // nothing to show and the only recovery is quitting. Hiding
+            // keeps the webview alive; the tray and the bubble both bring
+            // it back through open_dashboard.
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event
+                && window.label() == "main"
+            {
+                api.prevent_close();
+                let _ = window.hide();
+            }
+        })
         .run(tauri::generate_context!())
         .expect("error while running TokenOwl");
 }

@@ -2207,6 +2207,159 @@ mod tests {
     use crate::networking::HttpClientConfig;
     use std::time::Duration;
 
+    /// The webview consumes these DTOs through hand-written TS interfaces, so
+    /// a field rename, casing slip, or newly-skipped optional would break the
+    /// UI silently. The golden shapes pin every field name plus the null
+    /// branch of every optional.
+    #[test]
+    fn account_view_model_serializes_with_the_contracted_shape() {
+        let view = AccountViewModel {
+            id: "a1".to_owned(),
+            provider_id: "openai".to_owned(),
+            provider_name: "OpenAI".to_owned(),
+            label: "Work".to_owned(),
+            account_type: "api".to_owned(),
+            status: "healthy".to_owned(),
+            freshness: "fresh".to_owned(),
+            snapshots: vec![QuotaViewModel {
+                id: "q1".to_owned(),
+                metric_name: "5h quota".to_owned(),
+                unit: "token".to_owned(),
+                currency: None,
+                used: Some(250.0),
+                limit: Some(1000.0),
+                remaining: Some(750.0),
+                window: Some(QuotaWindowViewModel {
+                    window_type: Some("rolling".to_owned()),
+                    starts_at: Some("2026-11-07T00:00:00Z".to_owned()),
+                    ends_at: Some("2026-11-07T05:00:00Z".to_owned()),
+                    reset_at: None,
+                }),
+                observed_at: 1_799_564_400,
+                source: "official_api".to_owned(),
+                freshness: "fresh".to_owned(),
+                status: "available".to_owned(),
+            }],
+            source: Some("official_api".to_owned()),
+            last_updated_at: Some(1_799_564_400),
+            error_code: None,
+            error_message: None,
+            capability_level: Some("L3".to_owned()),
+        };
+        assert_eq!(
+            serde_json::to_value(&view).expect("serialize"),
+            serde_json::json!({
+                "id": "a1",
+                "providerId": "openai",
+                "providerName": "OpenAI",
+                "label": "Work",
+                "accountType": "api",
+                "status": "healthy",
+                "freshness": "fresh",
+                "snapshots": [{
+                    "id": "q1",
+                    "metricName": "5h quota",
+                    "unit": "token",
+                    "currency": null,
+                    "used": 250.0,
+                    "limit": 1000.0,
+                    "remaining": 750.0,
+                    "window": {
+                        "windowType": "rolling",
+                        "startsAt": "2026-11-07T00:00:00Z",
+                        "endsAt": "2026-11-07T05:00:00Z",
+                        "resetAt": null,
+                    },
+                    "observedAt": 1_799_564_400u64,
+                    "source": "official_api",
+                    "freshness": "fresh",
+                    "status": "available",
+                }],
+                "source": "official_api",
+                "lastUpdatedAt": 1_799_564_400u64,
+                "errorCode": null,
+                "errorMessage": null,
+                "capabilityLevel": "L3",
+            })
+        );
+    }
+
+    #[test]
+    fn notification_view_model_serializes_with_the_contracted_shape() {
+        let view = NotificationViewModel {
+            id: "n1".to_owned(),
+            kind: "low_quota".to_owned(),
+            severity: "warning".to_owned(),
+            title: "Low quota".to_owned(),
+            message: "5h window is 80% consumed".to_owned(),
+            account_id: Some("a1".to_owned()),
+            provider_id: Some("openai".to_owned()),
+            created_at: 1_799_564_400,
+            read_at: None,
+        };
+        assert_eq!(
+            serde_json::to_value(&view).expect("serialize"),
+            serde_json::json!({
+                "id": "n1",
+                "kind": "low_quota",
+                "severity": "warning",
+                "title": "Low quota",
+                "message": "5h window is 80% consumed",
+                "accountId": "a1",
+                "providerId": "openai",
+                "createdAt": 1_799_564_400u64,
+                "readAt": null,
+            })
+        );
+    }
+
+    #[test]
+    fn manifest_profile_serializes_with_the_contracted_shape() {
+        let profile = crate::providers::builtin::ManifestProfile {
+            id: "deepseek".to_owned(),
+            name: "DeepSeek".to_owned(),
+            base_url: "https://api.deepseek.com".to_owned(),
+            api_format: "openai-compatible".to_owned(),
+            custom_base_url: false,
+            brand: None,
+            variant: None,
+            level: "L3".to_owned(),
+            account_types: vec!["prepaid".to_owned()],
+            quota_units: vec!["currency".to_owned()],
+            target_windows: vec!["balance".to_owned()],
+            endpoints: crate::providers::manifest::ManifestEndpoints {
+                models: Some("/models".to_owned()),
+                balance: Some("/user/balance".to_owned()),
+                usage: None,
+                quota: None,
+                reset: None,
+            },
+        };
+        assert_eq!(
+            serde_json::to_value(&profile).expect("serialize"),
+            serde_json::json!({
+                "id": "deepseek",
+                "name": "DeepSeek",
+                "baseUrl": "https://api.deepseek.com",
+                "apiFormat": "openai-compatible",
+                "customBaseUrl": false,
+                "brand": null,
+                "variant": null,
+                "level": "L3",
+                "accountTypes": ["prepaid"],
+                "quotaUnits": ["currency"],
+                "targetWindows": ["balance"],
+                "endpoints": {
+                    "models": "/models",
+                    "balance": "/user/balance",
+                    "usage": null,
+                    "quota": null,
+                    "reset": null,
+                },
+            })
+        );
+    }
+
     #[test]
     fn proxy_urls_must_be_absolute_http_or_https() {
         assert!(validate_proxy_url("http://127.0.0.1:7890").is_ok());

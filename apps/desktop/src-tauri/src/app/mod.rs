@@ -388,7 +388,10 @@ fn show_bubble(app: AppHandle, state: State<'_, Arc<Mutex<RuntimeState>>>) -> Re
     // exempts us from then re-inflates the window on first paint. Re-apply the
     // style and the configured size while the window is still hidden.
     apply_tool_window_style(&bubble);
-    let _ = bubble.set_size(tauri::LogicalSize::new(56.0_f64, 56.0_f64));
+    let _ = bubble.set_size(tauri::LogicalSize::new(
+        BUBBLE_LOGICAL_SIZE,
+        BUBBLE_LOGICAL_SIZE,
+    ));
 
     let saved = state
         .lock()
@@ -486,6 +489,12 @@ fn persist_bubble_position(
 
 /// Distance beyond which a dragged position no longer snaps to an edge.
 const EDGE_SNAP_THRESHOLD_PX: f64 = 48.0;
+
+/// The bubble's logical footprint. Its width is also the morph anchor's
+/// diameter, and the window is re-requested at this size after the OS width
+/// clamp is lifted; tauri.conf.json declares the same numbers for the window
+/// itself. Change all of them together.
+const BUBBLE_LOGICAL_SIZE: f64 = 56.0;
 
 /// Snaps a physical position to the nearest monitor edge per axis when it is
 /// within [`EDGE_SNAP_THRESHOLD_PX`]. Dragging near a border (or corner)
@@ -820,7 +829,10 @@ fn stabilize_bubble_window(app: AppHandle) -> Result<(), String> {
         .get_webview_window("bubble")
         .ok_or_else(|| "bubble window unavailable".to_string())?;
     apply_tool_window_style(&bubble);
-    let _ = bubble.set_size(tauri::LogicalSize::new(56.0_f64, 56.0_f64));
+    let _ = bubble.set_size(tauri::LogicalSize::new(
+        BUBBLE_LOGICAL_SIZE,
+        BUBBLE_LOGICAL_SIZE,
+    ));
     Ok(())
 }
 
@@ -1145,7 +1157,10 @@ pub fn run() {
                         // style above exists; re-requesting the configured
                         // size now that the clamp is lifted brings the window
                         // down to its real 56×56 logical footprint.
-                        let _ = window.set_size(tauri::LogicalSize::new(56.0_f64, 56.0_f64));
+                        let _ = window.set_size(tauri::LogicalSize::new(
+                            BUBBLE_LOGICAL_SIZE,
+                            BUBBLE_LOGICAL_SIZE,
+                        ));
                     } else {
                         // The dashboard must be born inside the work area so
                         // its bottom dock is visible at the default size —

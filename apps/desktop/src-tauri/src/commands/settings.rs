@@ -1,6 +1,6 @@
 //! Settings command surface, split out of the former single-file module.
 
-use super::{CredentialStore, CommandError, State, Arc, AppRuntime};
+use super::{AppRuntime, Arc, CommandError, CredentialStore, State};
 
 /// OS credential-store reference for the user-configured proxy URL. It may
 /// embed proxy credentials (`http://user:pass@host:port`), so it rides the
@@ -32,11 +32,66 @@ pub(super) fn validate_proxy_url(value: &str) -> Result<String, CommandError> {
     }
 }
 
-/// Returns the configured proxy URL for the settings page (the user's own
-/// input, needed to pre-fill the edit field). `None` means direct.
+/// The sentinel that replaces a stored proxy password across IPC. `proxy_get`
+/// masks the password so it never re-enters the webview; `proxy_set` splices
+/// the stored password back when the submitted URL still carries the sentinel
+/// (the user edited host or username but left the masked password alone).
+const PROXY_PASSWORD_MASK: &str = "__tokenowl_masked__";
+
+/// Splits `scheme://user:password@rest` into (prefix through `user:`,
+/// password, `@rest`). `None` when the URL carries no non-empty password.
+fn split_proxy_password(url: &str) -> Option<(String, String, String)> {
+    let scheme_end = url.find("://")?;
+    let authority_start = scheme_end + 3;
+    let authority = &url[authority_start..];
+    let at = authority.rfind('@')?;
+    let userinfo = &authority[..at];
+    let colon = userinfo.find(':')?;
+    let password = userinfo[colon + 1..].to_owned();
+    if password.is_empty() {
+        return None;
+    }
+    Some((
+        url[..=authority_start + colon].to_owned(),
+        password,
+        url[authority_start + at..].to_owned(),
+    ))
+}
+
+/// Masks an embedded proxy password for the settings round-trip. A URL
+/// without credentials passes through untouched.
+pub(super) fn mask_proxy_password(url: &str) -> String {
+    match split_proxy_password(url) {
+        Some((prefix, _, suffix)) => format!("{prefix}{PROXY_PASSWORD_MASK}{suffix}"),
+        None => url.to_owned(),
+    }
+}
+
+/// Restores the real password when the submitted URL still carries the mask.
+/// Without a stored password to restore, the sentinel degrades to empty
+/// (`user:@host` is a valid credentialless userinfo).
+pub(super) fn restore_masked_password(submitted: &str, stored: Option<&str>) -> String {
+    let Some((prefix, password, suffix)) = split_proxy_password(submitted) else {
+        return submitted.to_owned();
+    };
+    if password != PROXY_PASSWORD_MASK {
+        return submitted.to_owned();
+    }
+    if let Some((_, real, _)) = stored.and_then(split_proxy_password) {
+        return format!("{prefix}{real}{suffix}");
+    }
+    let prefix = prefix.strip_suffix(':').unwrap_or(&prefix);
+    format!("{prefix}{suffix}")
+}
+
+/// Returns the configured proxy URL for the settings page, with any embedded
+/// password masked so the secret never re-enters the webview. `None` means
+/// direct.
 #[tauri::command]
 pub fn proxy_get(state: State<'_, Arc<AppRuntime>>) -> Result<Option<String>, CommandError> {
-    Ok(proxy_setting(&state.credentials))
+    Ok(proxy_setting(&state.credentials)
+        .as_deref()
+        .map(mask_proxy_password))
 }
 
 /// Stores or clears the proxy URL. Takes effect on the next app start — the
@@ -48,7 +103,9 @@ pub fn proxy_set(
 ) -> Result<(), CommandError> {
     match url {
         Some(value) => {
-            let validated = validate_proxy_url(&value)?;
+            let stored = proxy_setting(&state.credentials);
+            let merged = restore_masked_password(value.trim(), stored.as_deref());
+            let validated = validate_proxy_url(&merged)?;
             state.credentials.set(PROXY_CREDENTIAL_REF, &validated)?;
         }
         None => {

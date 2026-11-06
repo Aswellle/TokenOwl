@@ -66,6 +66,7 @@ export function ProxySection({ bridge }: { bridge: DashboardBridge }) {
         />
         <span className="field__help">{copy.proxy.help}</span>
         <span className="field__help">{copy.proxy.restartNote}</span>
+        <span className="field__help">{copy.proxy.maskedNote}</span>
         <div className="proxy__actions">
           <button
             className="btn btn--quiet"

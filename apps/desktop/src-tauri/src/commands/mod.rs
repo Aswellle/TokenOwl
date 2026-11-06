@@ -232,6 +232,42 @@ mod tests {
     }
 
     #[test]
+    fn proxy_passwords_round_trip_through_the_mask() {
+        // The stored secret never re-enters the webview in the clear...
+        let masked = mask_proxy_password("http://user:s3cret@proxy.corp:3128");
+        assert_eq!(masked, "http://user:__tokenowl_masked__@proxy.corp:3128");
+        assert!(!masked.contains("s3cret"));
+        // ...and a save that kept the sentinel restores it.
+        let restored = restore_masked_password(&masked, Some("http://user:s3cret@proxy.corp:3128"));
+        assert_eq!(restored, "http://user:s3cret@proxy.corp:3128");
+        // Editing other parts while keeping the mask keeps the password.
+        let edited = restore_masked_password(
+            "http://user:__tokenowl_masked__@proxy2.corp:8080",
+            Some("http://user:s3cret@proxy.corp:3128"),
+        );
+        assert_eq!(edited, "http://user:s3cret@proxy2.corp:8080");
+        // With nothing stored the sentinel degrades to empty credentials.
+        assert_eq!(
+            restore_masked_password("http://user:__tokenowl_masked__@p:1", None),
+            "http://user@p:1"
+        );
+        // Credential-free URLs pass through both directions untouched.
+        assert_eq!(
+            mask_proxy_password("http://127.0.0.1:7890"),
+            "http://127.0.0.1:7890"
+        );
+        assert_eq!(
+            restore_masked_password("http://127.0.0.1:7890", None),
+            "http://127.0.0.1:7890"
+        );
+        // A typed-in password replaces the mask outright.
+        assert_eq!(
+            restore_masked_password("http://user:newpass@p:1", Some("http://user:old@p:1")),
+            "http://user:newpass@p:1"
+        );
+    }
+
+    #[test]
     fn proxy_config_keeps_global_policies() {
         let config = HttpClientConfig::from_adapter_limits_with_proxy(
             Duration::from_secs(15),

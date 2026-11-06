@@ -11,6 +11,15 @@ import type { AccountViewModel } from "../../../types";
 
 const springPanel = { type: "spring", bounce: 0, duration: 0.42 } as const;
 
+/**
+ * Only credential-class failures are recoverable by replacing the key.
+ * Rate limits, network failures, and provider outages resolve on their own;
+ * offering a key update there sends users to "fix" the wrong thing.
+ */
+function isAuthFailure(code: string | null | undefined): boolean {
+  return code === "AuthRequired" || code === "AuthExpired" || code === "CredentialError";
+}
+
 const springItem = { type: "spring", bounce: 0, duration: 0.36 } as const;
 
 const listVariants = {
@@ -119,7 +128,11 @@ export function AccountRow({
         <Notice tone="warning">{copy.notices.accountStale}</Notice>
       )}
 
-      {account.status === "error" && (
+      {account.status === "error" && account.errorCode === "RateLimited" && (
+        <Notice tone="warning">{copy.notices.rateLimited}</Notice>
+      )}
+
+      {account.status === "error" && isAuthFailure(account.errorCode) && (
         <div className="account__recovery">
           <button
             className="btn btn--quiet"

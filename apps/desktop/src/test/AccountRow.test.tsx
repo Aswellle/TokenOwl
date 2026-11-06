@@ -240,4 +240,81 @@ describe("AccountRow", () => {
     );
     expect(screen.getByText(/接口没有返回可识别的额度字段/)).toBeInTheDocument();
   });
+
+  it("offers the key update for credential failures and names it as the fix", () => {
+    render(
+      <AccountRow
+        account={{
+          ...mockAccount,
+          status: "error",
+          freshness: "unknown",
+          snapshots: [],
+          errorCode: "AuthExpired",
+          errorMessage: "provider rejected the credential",
+        }}
+        index={0}
+        now={Date.now()}
+        refreshing={false}
+        deleting={false}
+        updatingKey={false}
+        onUpdateKey={vi.fn(async () => true)}
+        onOpen={() => {}}
+        onRefresh={() => {}}
+        onDelete={() => {}}
+      />,
+    );
+    expect(screen.getByRole("button", { name: /更新账户 Test Account 的 API 密钥/ })).toBeInTheDocument();
+  });
+
+  it("withholds the key update for rate limiting and says why", () => {
+    render(
+      <AccountRow
+        account={{
+          ...mockAccount,
+          status: "error",
+          freshness: "unknown",
+          snapshots: [],
+          errorCode: "RateLimited",
+          errorMessage: "provider answered 429",
+        }}
+        index={0}
+        now={Date.now()}
+        refreshing={false}
+        deleting={false}
+        updatingKey={false}
+        onUpdateKey={vi.fn(async () => true)}
+        onOpen={() => {}}
+        onRefresh={() => {}}
+        onDelete={() => {}}
+      />,
+    );
+    expect(screen.queryByRole("button", { name: /更新账户 Test Account 的 API 密钥/ })).not.toBeInTheDocument();
+    expect(screen.getByText(/供应商正在限流/)).toBeInTheDocument();
+  });
+
+  it("offers no recovery action for failures a key cannot fix", () => {
+    render(
+      <AccountRow
+        account={{
+          ...mockAccount,
+          status: "error",
+          freshness: "unknown",
+          snapshots: [],
+          errorCode: "NetworkUnavailable",
+          errorMessage: "provider request timed out",
+        }}
+        index={0}
+        now={Date.now()}
+        refreshing={false}
+        deleting={false}
+        updatingKey={false}
+        onUpdateKey={vi.fn(async () => true)}
+        onOpen={() => {}}
+        onRefresh={() => {}}
+        onDelete={() => {}}
+      />,
+    );
+    expect(screen.queryByRole("button", { name: /更新账户 Test Account 的 API 密钥/ })).not.toBeInTheDocument();
+    expect(screen.queryByText(/供应商正在限流/)).not.toBeInTheDocument();
+  });
 });

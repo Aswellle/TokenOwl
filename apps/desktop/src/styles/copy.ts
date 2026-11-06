@@ -204,6 +204,7 @@ export const copy = {
     updateKeyFailed: "密钥更新失败，原密钥保持不变。",
     keyExpired:
       "该账户的密钥已失效或被拒绝，可在账户行使用“更新密钥”更换；历史记录会保留。",
+    rateLimited: "供应商正在限流，稍后自动重试即可，无需更换密钥。",
     bridgeUnavailable: "本地服务不可用",
     localOnly: "数据仅保存在本机",
     offlineTitle: "本地服务不可用",

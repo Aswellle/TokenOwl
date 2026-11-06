@@ -585,7 +585,9 @@ impl LocalRepository {
 
     /// Inserts a notification unless the same `dedup_key` was already recorded
     /// within `cooldown_secs`. Returns `true` when the row was written, i.e.
-    /// the caller may raise the banner.
+    /// the caller may raise the banner. The cooldown check and the insert run
+    /// in one transaction, so two racing writers cannot both pass the check
+    /// and double-raise.
     pub fn insert_notification(
         &self,
         record: NotificationRecord,
@@ -593,7 +595,8 @@ impl LocalRepository {
         now: u64,
     ) -> Result<bool, StorageError> {
         let cooldown_start = now.saturating_sub(cooldown_secs);
-        let recent: i64 = self.connection.query_row(
+        let transaction = self.connection.unchecked_transaction()?;
+        let recent: i64 = transaction.query_row(
             "SELECT COUNT(*) FROM notifications WHERE dedup_key = ?1 AND created_at > ?2",
             params![record.dedup_key, cooldown_start],
             |row| row.get(0),
@@ -601,7 +604,6 @@ impl LocalRepository {
         if recent > 0 {
             return Ok(false);
         }
-        let transaction = self.connection.unchecked_transaction()?;
         transaction.execute(
             "INSERT INTO notifications
                 (id, account_id, provider_id, kind, severity, title, message, dedup_key, created_at, read_at)

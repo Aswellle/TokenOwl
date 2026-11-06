@@ -1,6 +1,10 @@
 //! Notification command surface, split out of the former single-file module.
 
-use super::{Serialize, State, Arc, AppRuntime, CommandError, unix_seconds, NotificationPreferences, StorageError, PREFERENCES_KEY, LocalRepository, AppHandle, OsNotificationSink, Emitter, Notification};
+use super::{
+    AppHandle, AppRuntime, Arc, CommandError, Emitter, LocalRepository, Notification,
+    NotificationPreferences, OsNotificationSink, PREFERENCES_KEY, Serialize, State, StorageError,
+    unix_seconds,
+};
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]

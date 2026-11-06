@@ -1,6 +1,9 @@
 //! LAN consent and trust command surface, split out of the former single-file module.
 
-use super::{LanConsentLedger, CommandError, unix_seconds, LocalRepository, StorageError, State, Arc, AppRuntime};
+use super::{
+    AppRuntime, Arc, CommandError, LanConsentLedger, LocalRepository, State, StorageError,
+    unix_seconds,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct LanConsentRecord {

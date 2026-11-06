@@ -1,6 +1,9 @@
 //! History command surface, split out of the former single-file module.
 
-use super::{Serialize, State, Arc, AppRuntime, CommandError, unix_seconds, aggregate_daily_usage, HashMap, range_usage};
+use super::{
+    AppRuntime, Arc, CommandError, HashMap, Serialize, State, aggregate_daily_usage, range_usage,
+    unix_seconds,
+};
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]

@@ -63,6 +63,15 @@ impl ManifestCapability {
     }
 }
 
+fn level_rank(level: &str) -> u8 {
+    match level {
+        "L4" => 4,
+        "L3" => 3,
+        "L2" => 2,
+        _ => 1,
+    }
+}
+
 /// Endpoint paths declared in the manifest.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -123,6 +132,36 @@ impl ProviderManifest {
     /// callers should validate the source before parsing.
     pub fn from_yaml(yaml: &str) -> Result<Self, serde_yaml::Error> {
         serde_yaml::from_str(yaml)
+    }
+
+    /// The declared capability level clamped to what the declared endpoints
+    /// can actually support. `docs/09` defines the levels by endpoint reach:
+    /// L4 full quota needs a quota endpoint plus usage plus reset, L3 needs a
+    /// readable usage or balance, L2 needs a models endpoint. Clamping keeps
+    /// a community manifest from advertising a level its endpoints cannot
+    /// deliver; the audited builtin manifests declare within their bounds,
+    /// which a test asserts.
+    pub fn effective_capability_level(&self) -> Option<String> {
+        let ceiling = if self.endpoints.quota.is_some()
+            && self.endpoints.usage.is_some()
+            && self.endpoints.reset.is_some()
+        {
+            "L4"
+        } else if self.endpoints.usage.is_some() || self.endpoints.balance.is_some() {
+            "L3"
+        } else if self.endpoints.models.is_some() {
+            "L2"
+        } else {
+            "L1"
+        };
+        self.capability.as_ref().map(|capability| {
+            let declared = capability.level_id();
+            if level_rank(declared) > level_rank(ceiling) {
+                ceiling.to_owned()
+            } else {
+                declared.to_owned()
+            }
+        })
     }
 
     /// Network policy the transport cannot honor, as a user-presentable
@@ -405,6 +444,51 @@ capability:
     fn registration_validation_accepts_a_well_formed_manifest() {
         let manifest = ProviderManifest::from_yaml(OPENAI_MANIFEST).expect("valid YAML");
         assert_eq!(manifest.validate_for_registration(), Ok(()));
+    }
+
+    /// A declared level is clamped to what the declared endpoints can
+    /// deliver: L4 demands quota + usage + reset, L3 a usage or balance
+    /// endpoint, L2 a models endpoint. Without endpoints at all, only L1
+    /// survives.
+    #[test]
+    fn capability_level_is_clamped_to_the_endpoint_reach() {
+        let declared_l4 = |endpoints: &str| {
+            let yaml = format!(
+                "id: t\nversion: 1\nname: T\ncategory: official\nregion: global\nauth:\n  - api_key\nbaseUrl: https://t.example/v1\nendpoints:\n{endpoints}capability:\n  level: L4\n  accountTypes: [api]\n  quotaUnits: [token]\n  targetWindows: [monthly]\n"
+            );
+            ProviderManifest::from_yaml(&yaml)
+                .expect("valid YAML")
+                .effective_capability_level()
+        };
+        assert_eq!(
+            declared_l4("  quota: /q\n  usage: /u\n  reset: /r\n").as_deref(),
+            Some("L4"),
+            "the full endpoint set supports L4"
+        );
+        assert_eq!(
+            declared_l4("  usage: /u\n").as_deref(),
+            Some("L3"),
+            "usage alone caps at L3"
+        );
+        assert_eq!(
+            declared_l4("  models: /m\n").as_deref(),
+            Some("L2"),
+            "models alone caps at L2"
+        );
+        assert_eq!(
+            declared_l4("").as_deref(),
+            Some("L1"),
+            "no endpoints caps at L1"
+        );
+    }
+
+    /// A manifest with no capability block derives nothing: absence of
+    /// knowledge stays absence.
+    #[test]
+    fn capability_absence_stays_absence() {
+        let yaml = "id: t\nversion: 1\nname: T\ncategory: official\nregion: global\nauth:\n  - api_key\nbaseUrl: https://t.example/v1\nendpoints:\n  quota: /q\n";
+        let manifest = ProviderManifest::from_yaml(yaml).expect("valid YAML");
+        assert_eq!(manifest.effective_capability_level(), None);
     }
 
     /// Every bundled manifest must clear the full registration contract —

@@ -199,7 +199,7 @@ pub fn provider_matrix() -> Vec<ProviderMatrixRow> {
                     .api_format
                     .clone()
                     .unwrap_or_else(|| "openai-compatible".to_owned()),
-                level: Some(capability.level_id().to_owned()),
+                level: manifest.effective_capability_level(),
                 account_types: split_list(&capability.account_types),
                 quota_units: split_list(&capability.quota_units),
                 target_windows: split_list(&capability.target_windows),
@@ -288,10 +288,9 @@ pub fn builtin_capability_level(provider_id: &str) -> Option<String> {
             .iter()
             .map(|(manifest_id, yaml)| {
                 let level = ProviderManifest::from_yaml(yaml).ok().map(|manifest| {
-                    manifest.capability.as_ref().map_or_else(
-                        || "L1".to_owned(),
-                        |capability| capability.level_id().to_owned(),
-                    )
+                    manifest
+                        .effective_capability_level()
+                        .unwrap_or_else(|| "L1".to_owned())
                 });
                 (*manifest_id, level)
             })
@@ -327,6 +326,9 @@ pub fn manifest_profiles() -> Vec<ManifestProfile> {
 fn profile_from_manifest(
     manifest: crate::providers::manifest::ProviderManifest,
 ) -> ManifestProfile {
+    let level = manifest
+        .effective_capability_level()
+        .unwrap_or_else(|| "L1".to_owned());
     let capability = manifest.capability.clone().unwrap_or_default();
     ManifestProfile {
         id: manifest.id,
@@ -339,7 +341,7 @@ fn profile_from_manifest(
         custom_base_url: manifest.custom_base_url.unwrap_or(false),
         brand: manifest.brand,
         variant: manifest.variant,
-        level: capability.level_id().to_owned(),
+        level,
         account_types: capability.account_types,
         quota_units: capability.quota_units,
         target_windows: capability.target_windows,
@@ -515,6 +517,14 @@ mod tests {
             let manifest = crate::providers::manifest::ProviderManifest::from_yaml(yaml)
                 .expect("embedded manifest parses");
             let capability = manifest.capability.as_ref().expect("capability block");
+            // The clamped level must equal the declared one: every builtin
+            // manifest is audited against docs/09, so a mismatch here means
+            // the declaration promises more than its endpoints deliver.
+            assert_eq!(
+                manifest.effective_capability_level().as_deref(),
+                Some(capability.level_id()),
+                "builtin manifest {id} declares a level its endpoints cannot support"
+            );
             let row = provider_matrix()
                 .into_iter()
                 .find(|row| row.id == *id)

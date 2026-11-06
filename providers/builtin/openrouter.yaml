@@ -41,7 +41,9 @@ mapping:
       currency: USD
       role: used
 capability:
-  level: L4
+  # /key reports usage and remaining balance but no windowed quota, reset, or
+  # account identity, so docs/09 caps this provider at L3.
+  level: L3
   accountTypes: [prepaid, api]
   quotaUnits: [currency]
   targetWindows: [balance, usage, daily, weekly, monthly]

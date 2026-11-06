@@ -916,6 +916,7 @@ pub(crate) async fn refresh_accounts(
         }
     };
     let mut failed_requested = false;
+    let mut single_failure: Option<CommandError> = None;
     for wave in account_ids.chunks(REFRESH_WAVE_SIZE) {
         let mut tasks = Vec::with_capacity(wave.len());
         for account_id in wave {
@@ -961,23 +962,32 @@ pub(crate) async fn refresh_accounts(
                 // no explicit release to forget on a new early-return path.
                 let failed_id = account_id.clone();
                 outcome.map(|()| account_id).map_err(|error| {
-                    // Only the stable error code crosses the task boundary;
-                    // the full error text can echo provider payload details.
+                    // The stable code drives the log line; the full error
+                    // travels too so a single-account request can surface it.
+                    // Display strings are built from kinds, statuses, and
+                    // constants — provider response bodies never enter them.
                     let code = match &error {
                         CommandError::Provider(provider) => provider.code.name().to_owned(),
                         CommandError::Storage(_) => "Storage".to_owned(),
                         _ => "CommandFailed".to_owned(),
                     };
-                    (failed_id, code)
+                    (failed_id, code, error)
                 })
             }));
         }
         for task in tasks {
             match task.await {
                 Ok(Ok(_)) => {}
-                Ok(Err((account_id, code))) => {
+                Ok(Err((account_id, code, error))) => {
                     tracing::warn!(account = %account_id, code = %code, "refresh failed");
                     failed_requested |= refresh_one;
+                    // A single-account request surfaces the original failure
+                    // so its stable code reaches the webview (the expired-key
+                    // branch keys on it); multi-account waves only report
+                    // through the snapshot event.
+                    if refresh_one {
+                        single_failure = Some(error);
+                    }
                 }
                 Err(join_error) => {
                     tracing::warn!("refresh task joined with error: {join_error}");
@@ -987,9 +997,9 @@ pub(crate) async fn refresh_accounts(
         }
     }
     if refresh_one && failed_requested {
-        return Err(CommandError::InvalidInput(
-            "failed to refresh account".to_owned(),
-        ));
+        return Err(single_failure.unwrap_or_else(|| {
+            CommandError::InvalidInput("failed to refresh account".to_owned())
+        }));
     }
     // The bubble is a separate webview and never sees this command's return
     // value; error snapshots and account changes reach it only through this
@@ -2301,12 +2311,34 @@ mod tests {
 
     #[test]
     fn provider_error_kind_names_match_their_variants() {
+        // The frontend branches on these codes across IPC (bridge helpers,
+        // the account-row recovery actions), so a rename is a wire-contract
+        // change. `ProviderErrorKind::name` is an exhaustive match, so a new
+        // variant fails the build until it is handled; this pins the exact
+        // strings every existing variant crosses the boundary with.
+        assert_eq!(ProviderErrorKind::AuthRequired.name(), "AuthRequired");
         assert_eq!(ProviderErrorKind::AuthExpired.name(), "AuthExpired");
-        assert_eq!(ProviderErrorKind::RateLimited.name(), "RateLimited");
         assert_eq!(
             ProviderErrorKind::NetworkUnavailable.name(),
             "NetworkUnavailable"
         );
+        assert_eq!(ProviderErrorKind::Timeout.name(), "Timeout");
+        assert_eq!(ProviderErrorKind::TlsError.name(), "TlsError");
+        assert_eq!(ProviderErrorKind::RateLimited.name(), "RateLimited");
+        assert_eq!(
+            ProviderErrorKind::ProviderUnavailable.name(),
+            "ProviderUnavailable"
+        );
+        assert_eq!(ProviderErrorKind::InvalidResponse.name(), "InvalidResponse");
+        assert_eq!(ProviderErrorKind::ParserFailed.name(), "ParserFailed");
+        assert_eq!(
+            ProviderErrorKind::UnsupportedCapability.name(),
+            "UnsupportedCapability"
+        );
+        assert_eq!(ProviderErrorKind::ConfigInvalid.name(), "ConfigInvalid");
+        assert_eq!(ProviderErrorKind::CredentialError.name(), "CredentialError");
+        assert_eq!(ProviderErrorKind::StorageError.name(), "StorageError");
+        assert_eq!(ProviderErrorKind::Unknown.name(), "Unknown");
     }
 
     /// Persists a provider row plus its account so the foreign key on

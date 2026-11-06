@@ -137,6 +137,11 @@ impl LocalRepository {
             }
         }
         connection.pragma_update(None, "synchronous", "NORMAL")?;
+        // Refresh waves hold several connections against the same file at
+        // once. Without a busy handler a write-lock conflict returns
+        // SQLITE_BUSY immediately; waiting here turns that structural
+        // transient failure into a short pause instead.
+        connection.busy_timeout(std::time::Duration::from_secs(5))?;
         migrations::apply_migrations(&connection, database_path)?;
         Ok(Self { connection })
     }

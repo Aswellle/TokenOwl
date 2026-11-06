@@ -1066,17 +1066,17 @@ pub fn notification_preferences_set(
 /// and OS sink chain. Only reached via the `TOKENOWL_TEST_BANNER=1` startup
 /// hook; the timestamped dedup key keeps repeat drills outside the cooldown.
 pub(crate) fn run_test_banner_drill(state: &AppRuntime, app: &tauri::AppHandle) {
-    let prefs = match load_notification_preferences(state) {
-        Ok(prefs) => prefs,
-        Err(error) => {
-            tracing::error!(target: "drill", error = %error, "banner drill: preferences unavailable");
-            return;
-        }
-    };
     let repository = match state.repository() {
         Ok(repository) => repository,
         Err(error) => {
             tracing::error!(target: "drill", error = %error, "banner drill: repository unavailable");
+            return;
+        }
+    };
+    let prefs = match load_notification_preferences_from(&repository) {
+        Ok(prefs) => prefs,
+        Err(error) => {
+            tracing::error!(target: "drill", error = %error, "banner drill: preferences unavailable");
             return;
         }
     };
@@ -1107,7 +1107,14 @@ pub(crate) fn run_test_banner_drill(state: &AppRuntime, app: &tauri::AppHandle) 
 fn load_notification_preferences(
     state: &AppRuntime,
 ) -> Result<NotificationPreferences, CommandError> {
-    let value = state.repository()?.get_setting(PREFERENCES_KEY)?;
+    let repository = state.repository()?;
+    load_notification_preferences_from(&repository)
+}
+
+fn load_notification_preferences_from(
+    repository: &LocalRepository,
+) -> Result<NotificationPreferences, CommandError> {
+    let value = repository.get_setting(PREFERENCES_KEY)?;
     value
         .map(|value| {
             serde_json::from_value::<NotificationPreferences>(value)
@@ -1143,11 +1150,11 @@ pub(crate) fn enqueue_account_notifications(
     sink: &dyn notifications::NotificationSink,
     account_id: &str,
 ) -> Result<Vec<Notification>, CommandError> {
-    let prefs = load_notification_preferences(state)?;
+    let repository = state.repository()?;
+    let prefs = load_notification_preferences_from(&repository)?;
     if !prefs.enabled {
         return Ok(Vec::new());
     }
-    let repository = state.repository()?;
     let account = repository
         .account(account_id)?
         .ok_or_else(|| CommandError::InvalidInput("account not found".to_owned()))?;

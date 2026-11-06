@@ -1044,18 +1044,10 @@ async fn updater_drill(app: AppHandle) {
 
 fn start_background_tasks(app: &AppHandle) {
     let handle = app.clone();
-    let (shutdown_tx, mut shutdown_rx) = tokio::sync::watch::channel(false);
     let updater_running = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
-
-    // Store the shutdown sender so other tasks can signal shutdown.
-    let _ = app.manage(shutdown_tx);
 
     tauri::async_runtime::spawn(async move {
         loop {
-            if *shutdown_rx.borrow() {
-                break;
-            }
-
             // Prevent concurrent updater checks.
             if !updater_running.swap(true, std::sync::atomic::Ordering::SeqCst) {
                 let running = updater_running.clone();
@@ -1079,15 +1071,15 @@ fn start_background_tasks(app: &AppHandle) {
             }
             // The freshness policy's `stale_after` is the refresh cadence
             // target: refreshing this often keeps data younger than the
-            // stale boundary unless a refresh fails.
+            // stale boundary unless a refresh fails. The loop needs no
+            // shutdown signal: it is a child of the async runtime, which
+            // the process tears down whole on exit.
             let sleep_duration = handle
                 .try_state::<Arc<commands::AppRuntime>>()
                 .map_or(std::time::Duration::from_secs(600), |runtime| {
                     runtime.freshness_policy.refresh_cadence()
                 });
-            tokio::time::timeout(sleep_duration, shutdown_rx.changed())
-                .await
-                .ok();
+            tokio::time::sleep(sleep_duration).await;
         }
     });
 }

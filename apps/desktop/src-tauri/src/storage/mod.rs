@@ -98,7 +98,13 @@ pub struct HistorySample {
 }
 
 /// History observations older than this are pruned whenever new ones land.
-pub const HISTORY_RETENTION_SECS: u64 = 90 * 86_400;
+///
+/// The dashboard's usage heatmap renders 26 weeks (182 days); retention must
+/// cover that window plus statistical margin, so it holds a full year. The
+/// old 90-day value pruned data the UI still displayed as an always-empty
+/// band. Pruning only ever affects the future: data already removed by the
+/// old policy cannot be recovered by raising the constant.
+pub const HISTORY_RETENTION_SECS: u64 = 365 * 86_400;
 
 /// Synchronous repository. Tauri callers can place it behind `Arc<Mutex<_>>`.
 pub struct LocalRepository {
@@ -1035,6 +1041,46 @@ mod tests {
             repository.history_samples(0, late + 1).expect("samples"),
             [],
             "history rows cascade with the account"
+        );
+    }
+
+    /// The retention cut is exact: an observation exactly at the cutoff
+    /// (`now - retention`) stays, one second older is pruned. The heatmap's
+    /// visible window depends on this boundary being inclusive.
+    #[test]
+    fn history_retention_boundary_is_inclusive_of_the_cutoff() {
+        let repository = LocalRepository::open_in_memory().expect("database");
+        repository.upsert_provider(&config(), 1).expect("provider");
+        repository.upsert_account(&account(), 1).expect("account");
+        let now = 100_000_000_u64;
+        let cutoff = now - HISTORY_RETENTION_SECS;
+        // The monotonic guard requires ascending insertions per account.
+        let just_outside = cutoff - 1;
+        repository
+            .upsert_snapshot_set(
+                "account-1",
+                &QuotaSnapshotSet::new(vec![snapshot()]),
+                just_outside,
+            )
+            .expect("oldest record");
+        repository
+            .upsert_snapshot_set(
+                "account-1",
+                &QuotaSnapshotSet::new(vec![snapshot()]),
+                cutoff,
+            )
+            .expect("record exactly at the cutoff");
+        // A fresh refresh triggers the prune pass over everything older
+        // than `now - retention`.
+        repository
+            .upsert_snapshot_set("account-1", &QuotaSnapshotSet::new(vec![snapshot()]), now)
+            .expect("fresh record");
+        let samples = repository.history_samples(0, now + 1).expect("samples");
+        let observed: Vec<u64> = samples.iter().map(|sample| sample.observed_at).collect();
+        assert_eq!(
+            observed,
+            vec![cutoff, now],
+            "the cutoff observation survives; one second older does not"
         );
     }
 

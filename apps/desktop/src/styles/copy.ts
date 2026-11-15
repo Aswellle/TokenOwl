@@ -377,6 +377,9 @@ export const copy = {
   history: {
     title: "历史趋势",
     intro: "从本机开始记录后逐日累积（保留一年）；没有记录的日期不代表零消耗。",
+    export: (format: string) => `导出 ${format.toUpperCase()}`,
+    exportFailed: "导出失败，请重试。",
+    exported: (path: string) => `已导出到 ${path}`,
     empty: "历史从每次自动刷新开始逐日累积。添加一个账户并等待下一次刷新，这里就会出现第一天的用量。",
     loadFailed: "历史数据暂时无法读取，请稍后重试。",
     tokens30: "近 30 天 Tokens",

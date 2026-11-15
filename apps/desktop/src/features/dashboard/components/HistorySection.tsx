@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import type { HistoryExportResult } from "../../../types";
 import { motion } from "motion/react";
 import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { copy } from "../../../styles/copy";
@@ -143,6 +144,8 @@ export function HistorySection({
   reloadSignal: number;
 }) {
   const [summary, setSummary] = useState<HistorySummaryViewModel | null>(null);
+  const [exportResult, setExportResult] = useState<HistoryExportResult | null>(null);
+  const [exportFailed, setExportFailed] = useState(false);
   const [breakdown, setBreakdown] = useState<Map<number, HistoryDayAccountViewModel[]>>(new Map());
   const [failed, setFailed] = useState(false);
   const cellRefs = useRef<Array<HTMLButtonElement | null>>([]);
@@ -288,6 +291,17 @@ export function HistorySection({
     return points;
   }, [summary]);
   const peak = Math.max(0, ...trend.map((point) => point.tokens ?? 0));
+
+  const exportAs = async (format: "csv" | "json") => {
+    setExportFailed(false);
+    try {
+      const result = await bridge.exportHistory(format);
+      setExportResult(result);
+    } catch {
+      setExportResult(null);
+      setExportFailed(true);
+    }
+  };
 
   return (
     <section className="section history-section" aria-label={copy.a11y.historyRegion}>
@@ -464,6 +478,24 @@ export function HistorySection({
             </>
           ) : (
             <p className="section__empty">{copy.history.empty}</p>
+          )}
+          <div className="local-usage__actions">
+            <button className="btn btn--quiet" type="button" onClick={() => void exportAs("csv")}>
+              {copy.history.export("CSV")}
+            </button>
+            <button className="btn btn--quiet" type="button" onClick={() => void exportAs("json")}>
+              {copy.history.export("JSON")}
+            </button>
+          </div>
+          {exportFailed && (
+            <p className="form__error" role="alert">
+              {copy.history.exportFailed}
+            </p>
+          )}
+          {exportResult && (
+            <p className="history__note" role="status">
+              {copy.history.exported(exportResult.path)}
+            </p>
           )}
           <p className="history__note">{copy.history.intro}</p>
           </motion.div>

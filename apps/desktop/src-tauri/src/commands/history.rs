@@ -1,5 +1,7 @@
 //! History command surface, split out of the former single-file module.
 
+use std::fmt::Write as _;
+
 use super::{
     AppRuntime, Arc, CommandError, HashMap, Serialize, State, aggregate_daily_usage, range_usage,
     unix_seconds,
@@ -36,6 +38,158 @@ pub(super) fn local_offset_at(timestamp: i64) -> i32 {
         .timestamp_opt(timestamp, 0)
         .single()
         .map_or(0, |dt| dt.offset().fix().local_minus_utc())
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HistoryExportResult {
+    /// Absolute path of the written file, shown to the user so they can
+    /// collect it. Only the export directory under the app data dir is ever
+    /// written.
+    pub path: String,
+    pub rows: usize,
+}
+
+/// Escapes one CSV field per RFC 4180: quotes double up, fields carrying
+/// separators, quotes, or newlines are wrapped in quotes.
+pub(super) fn csv_field(value: &str) -> String {
+    let needs_quoting =
+        value.contains(',') || value.contains('"') || value.contains('\n') || value.contains('\r');
+    if needs_quoting {
+        format!("\"{}\"", value.replace('"', "\"\""))
+    } else {
+        value.to_owned()
+    }
+}
+
+/// One exported row: local-midnight day bucket plus the derived figures.
+pub(super) type ExportRow = (u64, String, f64, Option<f64>, Option<String>);
+
+/// Builds the export rows from the recorded history: one row per observed
+/// day, dropping days without observations. The account column stays in the
+/// schema (as "all-accounts") so per-account exports keep a stable shape.
+pub(super) fn collect_export_rows(
+    repository: &crate::storage::LocalRepository,
+    from: u64,
+    to: u64,
+    account_id: Option<&str>,
+) -> Result<Vec<ExportRow>, CommandError> {
+    let mut samples = repository.history_samples(from, to)?;
+    if let Some(id) = account_id {
+        samples.retain(|sample| sample.account_id == id);
+    }
+    let daily = aggregate_daily_usage(
+        &samples
+            .into_iter()
+            .map(|sample| crate::domain::history::DailySample {
+                account_id: sample.account_id,
+                metric_key: sample.metric_key,
+                observed_at: sample.observed_at,
+                used: sample.used,
+                remaining: sample.remaining,
+                unit: sample.unit,
+                currency: sample.currency,
+            })
+            .collect::<Vec<_>>(),
+        local_offset_at,
+    );
+    let mut rows: Vec<ExportRow> = Vec::new();
+    for day in &daily {
+        if !day.has_data || (day.tokens_used <= 0.0 && day.cost.is_none()) {
+            continue;
+        }
+        rows.push((
+            day.day_start,
+            "all-accounts".to_owned(),
+            day.tokens_used,
+            day.cost,
+            day.currency.clone(),
+        ));
+    }
+    Ok(rows)
+}
+
+/// Renders the rows as CSV (RFC 4180 escaping) or pretty JSON.
+pub(super) fn render_export(format: &str, rows: &[ExportRow]) -> String {
+    if format == "json" {
+        return serde_json::to_string_pretty(
+            &rows
+                .iter()
+                .map(|(day, account, tokens, cost, currency)| {
+                    serde_json::json!({
+                        "day": chrono::DateTime::from_timestamp(i64::try_from(*day).unwrap_or(0), 0)
+                            .map(|t| t.format("%Y-%m-%d").to_string()),
+                        "account": account,
+                        "tokens": tokens,
+                        "cost": cost,
+                        "currency": currency,
+                    })
+                })
+                .collect::<Vec<_>>(),
+        )
+        .unwrap_or_else(|_| "[]".to_owned());
+    }
+    let mut out = String::from(
+        "day,account,tokens,cost,currency
+",
+    );
+    for (day, account, tokens, cost, currency) in rows {
+        let day_text = chrono::DateTime::from_timestamp(i64::try_from(*day).unwrap_or(0), 0)
+            .map_or_else(String::new, |t| t.format("%Y-%m-%d").to_string());
+        let cost_text = cost.map_or_else(String::new, |cost| format!("{cost}"));
+        let _ = writeln!(
+            out,
+            "{},{},{},{},{}",
+            day_text,
+            csv_field(account),
+            tokens,
+            cost_text,
+            csv_field(currency.as_deref().unwrap_or_default()),
+        );
+    }
+    out
+}
+
+/// Exports the aggregated daily usage (same aggregation as the trend view)
+/// as CSV or JSON into `<app data>/exports/`. The export carries account
+/// labels and derived usage only — never credentials, credential refs, or
+/// keyring material. Days outside the retention window are absent by
+/// construction; the file is a snapshot of what the local database holds.
+#[tauri::command]
+pub fn history_export(
+    state: State<'_, Arc<AppRuntime>>,
+    format: String,
+    days: Option<u32>,
+    account_id: Option<String>,
+) -> Result<HistoryExportResult, CommandError> {
+    let days = days.unwrap_or(182).clamp(7, 365);
+    let format: &str = match format.as_str() {
+        "csv" | "json" => format.as_str(),
+        other => {
+            return Err(CommandError::InvalidInput(format!(
+                "unsupported export format `{other}` (csv or json)"
+            )));
+        }
+    };
+    let now = unix_seconds();
+    let from = now.saturating_sub(u64::from(days) * 86_400);
+    let repository = state.repository()?;
+    let rows = collect_export_rows(&repository, from, now, account_id.as_deref())?;
+
+    let export_dir = state.data_dir.join("exports");
+    std::fs::create_dir_all(&export_dir).map_err(|error| {
+        CommandError::InvalidInput(format!("cannot create the export directory: {error}"))
+    })?;
+    let stamp = chrono::Utc::now().format("%Y%m%d-%H%M%S");
+    let path = export_dir.join(format!("tokenowl-history-{stamp}.{format}"));
+    let written_rows = rows.len();
+    let body = render_export(format, &rows);
+    std::fs::write(&path, body)
+        .map_err(|error| CommandError::InvalidInput(format!("cannot write the export: {error}")))?;
+    Ok(HistoryExportResult {
+        path: path.to_string_lossy().into_owned(),
+        rows: written_rows,
+    })
 }
 
 #[tauri::command]
@@ -227,16 +381,19 @@ pub fn history_breakdown(
     state: State<'_, Arc<AppRuntime>>,
     days: Option<u32>,
 ) -> Result<Vec<HistoryDayBreakdownViewModel>, CommandError> {
+    let labels: HashMap<String, String> = {
+        let repository = state.repository()?;
+        repository
+            .accounts()?
+            .into_iter()
+            .map(|account| (account.id, account.label))
+            .collect()
+    };
     let range_days = days.unwrap_or(30).clamp(7, 365);
     let now = unix_seconds();
     let from = now.saturating_sub(u64::from(range_days) * 86_400);
     let repository = state.repository()?;
     let samples = repository.history_samples(from, now)?;
-    let labels: HashMap<String, String> = repository
-        .accounts()?
-        .into_iter()
-        .map(|account| (account.id, account.label))
-        .collect();
 
     let mut per_account: HashMap<String, Vec<crate::domain::history::DailySample>> = HashMap::new();
     for sample in samples {
@@ -285,4 +442,24 @@ pub fn history_breakdown(
             accounts,
         })
         .collect())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn csv_fields_escape_letting_separators_survive() {
+        assert_eq!(csv_field("plain"), "plain");
+        assert_eq!(csv_field("a,b"), "\"a,b\"");
+        assert_eq!(csv_field("say \"hi\""), "\"say \"\"hi\"\"\"");
+        assert_eq!(
+            csv_field(
+                "line
+break"
+            ),
+            "\"line
+break\""
+        );
+    }
 }

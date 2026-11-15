@@ -414,6 +414,9 @@ export function createMockBridge(): DashboardBridge {
     async clearLocalUsage() {
       return 0;
     },
+    async exportHistory() {
+      return { path: "C:\mock\export.csv", rows: 0 };
+    },
     async getProxy() {
       await new Promise((resolve) => setTimeout(resolve, latency()));
       return hasScenario("proxy-set") ? "http://127.0.0.1:7890" : null;

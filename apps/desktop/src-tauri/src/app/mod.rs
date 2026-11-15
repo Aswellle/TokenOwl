@@ -1207,6 +1207,7 @@ pub fn run() {
             commands::local_usage_scan,
             commands::local_usage_summary,
             commands::local_usage_clear,
+            commands::history_export,
             commands::notifications_list,
             commands::notifications_mark_read,
             commands::notification_preferences_get,

@@ -6,6 +6,7 @@ import type {
   CredentialUpdateResult,
   LocalUsageSourceView,
   LocalUsageSummary,
+  HistoryExportResult,
   DashboardBridge,
   GenericOpenAiAccountInput,
   HistoryDayBreakdownViewModel,
@@ -104,6 +105,8 @@ export const tauriBridge: DashboardBridge = {  listAccounts: () => invoke<Accoun
   localUsageSummary: (days?: number) =>
     invoke<LocalUsageSummary>("local_usage_summary", days ? { days } : undefined),
   clearLocalUsage: () => invoke<number>("local_usage_clear"),
+  exportHistory: (format: "csv" | "json") =>
+    invoke<HistoryExportResult>("history_export", { format }),
   getDockCollapsed: () => invoke<boolean>("dock_state_get"),
   setDockCollapsed: (collapsed: boolean) =>
     invoke<void>("dock_state_set", { collapsed }),

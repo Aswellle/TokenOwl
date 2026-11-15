@@ -120,6 +120,12 @@ export interface LocalUsageSummary {
   sourceCounts: Array<[string, number]>;
 }
 
+/** Result of a history export: the file path under the app data dir. */
+export interface HistoryExportResult {
+  path: string;
+  rows: number;
+}
+
 /** Result of a credential update. Only `validated_and_saved` means the
  * provider accepted the new key and it replaced the old one; every other
  * outcome leaves the previous key untouched. */
@@ -313,6 +319,7 @@ export interface DashboardBridge {
   scanLocalUsage(): Promise<LocalUsageScanResult[]>;
   localUsageSummary(days?: number): Promise<LocalUsageSummary>;
   clearLocalUsage(): Promise<number>;
+  exportHistory(format: "csv" | "json"): Promise<HistoryExportResult>;
   refresh(accountId?: string): Promise<AccountViewModel[]>;
   checkForUpdate(): Promise<UpdateInfo | null>;
   installUpdate(): Promise<void>;

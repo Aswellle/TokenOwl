@@ -99,6 +99,7 @@ function makeBridge(summary: HistorySummaryViewModel): DashboardBridge {
       sourceCounts: [],
     })),
     clearLocalUsage: vi.fn(async () => 0),
+    exportHistory: vi.fn(async () => ({ path: "C:\mock\export.csv", rows: 0 })),
     refresh: vi.fn(async () => []),
     checkForUpdate: vi.fn(async () => null),
     installUpdate: vi.fn(async () => {}),

@@ -84,6 +84,7 @@ describe("setup form submit wiring", () => {
 
   it("creates the account through the form's submit path", async () => {
     mockCreateAccount.mockResolvedValue({
+      diagnostics: { status: "healthy" },
       id: "acc-1",
       providerId: "generic.openai_compatible:acc-1",
       providerName: "OpenAI 兼容",

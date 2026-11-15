@@ -256,10 +256,16 @@ impl OpenAiCompatibleAdapter {
                 match parsed {
                     Ok(Some(set)) => EndpointOutcome::Snapshots(set),
                     Ok(None) => EndpointOutcome::Unrecognized,
-                    Err(error) => EndpointOutcome::Failed(error),
+                    Err(mut error) => {
+                        error.metric = Some(kind.to_owned());
+                        EndpointOutcome::Failed(error)
+                    }
                 }
             }
-            Err(error) => EndpointOutcome::Failed(error),
+            Err(mut error) => {
+                error.metric = Some(kind.to_owned());
+                EndpointOutcome::Failed(error)
+            }
         }
     }
 
@@ -272,13 +278,17 @@ impl OpenAiCompatibleAdapter {
         endpoint: &str,
         credentials: &CredentialStore,
     ) -> ResetFetch {
+        let attributed = |mut error: ProviderError| {
+            error.metric = Some("reset".to_owned());
+            error
+        };
         let url = match endpoint_url(config, endpoint) {
             Ok(url) => url,
-            Err(error) => return ResetFetch::Failed(error),
+            Err(error) => return ResetFetch::Failed(attributed(error)),
         };
         let headers = match request_headers(config, credentials) {
             Ok(headers) => headers,
-            Err(error) => return ResetFetch::Failed(error),
+            Err(error) => return ResetFetch::Failed(attributed(error)),
         };
         let request = self
             .client
@@ -287,7 +297,7 @@ impl OpenAiCompatibleAdapter {
             .header("accept", "application/json");
         let response = match self.client.send_capped(request).await {
             Ok(response) => response,
-            Err(error) => return ResetFetch::Failed(error),
+            Err(error) => return ResetFetch::Failed(attributed(error)),
         };
         if let Some(mapping) = config
             .field_mappings
@@ -297,7 +307,7 @@ impl OpenAiCompatibleAdapter {
             return match crate::domain::provider::parse_reset_response(&response, mapping) {
                 Ok(Some(observation)) => ResetFetch::Observation(observation),
                 Ok(None) => ResetFetch::Unrecognized,
-                Err(error) => ResetFetch::Failed(error),
+                Err(error) => ResetFetch::Failed(attributed(error)),
             };
         }
         match parse_configured(config, &response) {
@@ -310,7 +320,7 @@ impl OpenAiCompatibleAdapter {
                 ResetFetch::Snapshots(set)
             }
             Ok(_) => ResetFetch::Unrecognized,
-            Err(error) => ResetFetch::Failed(error),
+            Err(error) => ResetFetch::Failed(attributed(error)),
         }
     }
 
@@ -326,6 +336,10 @@ impl OpenAiCompatibleAdapter {
         account_id: &str,
         credentials: &CredentialStore,
     ) -> ProviderResult<FetchResult> {
+        let attributed = |mut error: ProviderError| {
+            error.metric = Some("models".to_owned());
+            error
+        };
         match self.probe_models(config, credentials).await {
             Ok(ProbeOutcome::Verified) => {
                 let source = if crate::providers::builtin::is_builtin_provider_id(&config.id) {
@@ -357,7 +371,7 @@ impl OpenAiCompatibleAdapter {
                 | ProbeOutcome::Rejected(error)
                 | ProbeOutcome::Indeterminate(error),
             )
-            | Err(error) => Err(error),
+            | Err(error) => Err(attributed(error)),
         }
     }
 

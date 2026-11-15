@@ -118,18 +118,23 @@ export function useAccounts(bridge: DashboardBridge) {
     [bridge],
   );
 
+  /** "Saved" and "verified" are different facts: create always persists the
+   * configuration (and the key rides the OS store), while the best-effort
+   * first refresh decides whether the connection is proven. The dialog shows
+   * the verified banner only on a healthy first refresh; a failed one keeps
+   * the account with its error state instead of pretending success. */
   const handleCreate = useCallback(
     async (
       input: Omit<GenericOpenAiAccountInput, "apiKey"> & { apiKeyInput: HTMLInputElement },
-    ): Promise<boolean> => {
+    ): Promise<{ saved: boolean; verified: boolean }> => {
       if (!input.label || !input.baseUrl) {
         setFormError(copy.form.missingAccount);
-        return false;
+        return { saved: false, verified: false };
       }
       const secret = input.apiKeyInput.value;
       if (!secret.trim()) {
         setFormError(copy.form.missingKey);
-        return false;
+        return { saved: false, verified: false };
       }
       setFormSubmitting(true);
       setFormError(null);
@@ -148,13 +153,12 @@ export function useAccounts(bridge: DashboardBridge) {
         setAccounts((current) => [...current.filter((item) => item.id !== account.id), account]);
         setPhase("ready");
         setNotice(null);
-        // A fresh form for the next account; failures keep every field so the
-        // user can correct and retry without retyping the secret.
+        // The key is safely stored at this point; the form must not keep it.
         input.apiKeyInput.value = "";
-        return true;
+        return { saved: true, verified: account.diagnostics?.status === "healthy" };
       } catch {
         setFormError(copy.form.failed);
-        return false;
+        return { saved: false, verified: false };
       } finally {
         setFormSubmitting(false);
       }

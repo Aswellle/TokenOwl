@@ -209,11 +209,27 @@ export const copy = {
     keyExpired:
       "该账户的密钥已失效或被拒绝，可在账户行使用“更新密钥”更换；历史记录会保留。",
     rateLimited: "供应商正在限流，稍后自动重试即可，无需更换密钥。",
+    nextRetry: (time: string) => `将在 ${time} 左右自动重试。`,
     bridgeUnavailable: "本地服务不可用",
     localOnly: "数据仅保存在本机",
     offlineTitle: "本地服务不可用",
     offlineBody: "无法连接 TokenOwl 的本地服务。恢复后账户与快照会自动回来，不需要重新添加。",
   },
+
+  refreshDiagnostics: {
+    AuthRequired: "供应商拒绝了当前密钥；可使用“更新密钥”更换。",
+    AuthExpired: "密钥已失效或过期；可使用“更新密钥”更换。",
+    CredentialError: "本机凭据读取失败；请重新保存一次密钥。",
+    RateLimited: "供应商正在限流；等待自动重试即可，无需更换密钥。",
+    NetworkUnavailable: "网络不可用或无法解析供应商地址；检查网络与代理设置。",
+    Timeout: "供应商响应超时；网络恢复后会自动重试。",
+    TlsError: "TLS 握手失败；检查系统证书与时间，不建议关闭证书校验。",
+    ProviderUnavailable: "供应商服务端错误；稍后自动重试。",
+    InvalidResponse: "供应商响应无法解析；其接口格式可能已变化。",
+    ParserFailed: "供应商响应格式异常；其接口可能已变化。",
+    UnsupportedCapability: "该供应商或端点不提供此项能力，这不是故障。",
+    ConfigInvalid: "账户配置无效；检查接口地址与端点路径。",
+  } as Record<string, string>,
 
   keyUpdate: {
     title: "更新 API 密钥",
@@ -290,6 +306,8 @@ export const copy = {
     invalidEndpoint: "额度、用量、余额接口必须是以 / 开头的相对路径。",
     failed: "账户连接失败，请检查接口地址与密钥后重试。",
     connected: "账户已连接，它已出现在列表中；快照随首次刷新填充。",
+    savedUnverified:
+      "账户已保存，但暂时无法验证连接。密钥已写入系统凭据库；查看账户行的错误说明，纠正后可重试刷新。",
     credentialsNote: "凭据只保存在本机系统凭据库。",
     endpointLabels: {
       models: "模型",

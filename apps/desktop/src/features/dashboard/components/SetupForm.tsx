@@ -29,7 +29,7 @@ export function SetupForm({
   submitting: boolean;
   error: string | null;
   onCancel: () => void;
-  onSubmit: (input: Omit<GenericOpenAiAccountInput, "apiKey"> & { apiKeyInput: HTMLInputElement }) => Promise<boolean>;
+  onSubmit: (input: Omit<GenericOpenAiAccountInput, "apiKey"> & { apiKeyInput: HTMLInputElement }) => Promise<{ saved: boolean; verified: boolean }>;
 }) {
   const [profiles, setProfiles] = useState<ManifestProfileViewModel[]>([]);
   const [packSkipped, setPackSkipped] = useState<string[]>([]);
@@ -94,18 +94,19 @@ export function SetupForm({
     setBaseUrl(CUSTOM_DEFAULT_BASE_URL[format]);
   };
 
-  // A successful connection resets the form for the next account and says so
-  // next to the submit button — the rail updates too, but the user is looking
-  // at the button they just pressed.
-  const [connected, setConnected] = useState(false);
+  // A saved account resets the form for the next entry and says so next to
+  // the submit button. Saved and verified are different facts: `true` means
+  // the first refresh proved the connection, `false` means the account was
+  // stored but the provider could not be verified yet — that reads as a
+  // warning, never as "connected".
+  const [connected, setConnected] = useState<boolean | null>(null);
   useEffect(() => {
-    if (!connected) return;
-    const timer = window.setTimeout(() => setConnected(false), 4_000);
+    if (connected === null) return;
+    const timer = window.setTimeout(() => setConnected(null), 6_000);
     return () => window.clearTimeout(timer);
   }, [connected]);
 
   const resetAfterConnect = () => {
-    setConnected(true);
     setLabel("");
     setProfileId("custom");
     setCustomFormat("openai_compatible");
@@ -222,8 +223,8 @@ export function SetupForm({
 
   const sendAccount = async (lanConsentToken?: string) => {
     const apiKeyInput = apiKeyRef.current;
-    if (!apiKeyInput || !apiKeyInput.value.trim()) return false;
-    return onSubmit({
+    if (!apiKeyInput || !apiKeyInput.value.trim()) return null;
+    const result = await onSubmit({
       providerId: profile ? profile.id : "generic.openai_compatible",
       label: label.trim(),
       baseUrl: effectiveBaseUrl.trim(),
@@ -234,6 +235,9 @@ export function SetupForm({
       lanConsentToken,
       apiKeyInput,
     });
+    // null = the submit never ran (missing key); the hook returns the
+    // saved/verified pair for every actual attempt.
+    return result ?? { saved: false, verified: false };
   };
 
   const submit = async (event: { preventDefault(): void }) => {
@@ -260,8 +264,11 @@ export function SetupForm({
     }
     setConsentBusy(false);
     if (token === null) {
-      const connectedOk = await sendAccount();
-      if (connectedOk) resetAfterConnect();
+      const result = await sendAccount();
+      if (result && result.saved) {
+        setConnected(result.verified);
+        resetAfterConnect();
+      }
       return;
     }
     setLanConsent({ token });
@@ -325,8 +332,9 @@ export function SetupForm({
             const remember = rememberLan;
             setRememberLan(false);
             setLanConsent(null);
-            void sendAccount(token).then(async (connectedOk) => {
-              if (!connectedOk) return;
+            void sendAccount(token).then(async (result) => {
+              if (!result?.saved) return;
+              setConnected(result.verified);
               if (remember) {
                 // A public or reclassified target is rejected by Rust; a
                 // failed remember never blocks the created account.
@@ -628,9 +636,14 @@ export function SetupForm({
           </span>
         </div>
       </div>
-      {connected && (
+      {connected !== null && connected && (
         <p className="form__success" role="status">
           {copy.form.connected}
+        </p>
+      )}
+      {connected !== null && !connected && (
+        <p className="form__error" role="status">
+          {copy.form.savedUnverified}
         </p>
       )}
       <div className="form__footer">

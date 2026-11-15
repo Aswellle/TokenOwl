@@ -95,6 +95,16 @@ mod tests {
             error_code: None,
             error_message: None,
             capability_level: Some("L3".to_owned()),
+            diagnostics: RefreshDiagnosticsViewModel {
+                status: "healthy".to_owned(),
+                error_code: None,
+                http_status: None,
+                endpoint_kind: None,
+                last_attempt_at: Some(1_799_564_400),
+                last_success_at: Some(1_799_564_400),
+                next_retry_at: None,
+                consecutive_failures: 0,
+            },
         };
         assert_eq!(
             serde_json::to_value(&view).expect("serialize"),
@@ -130,6 +140,16 @@ mod tests {
                 "errorCode": null,
                 "errorMessage": null,
                 "capabilityLevel": "L3",
+                "diagnostics": {
+                    "status": "healthy",
+                    "errorCode": null,
+                    "httpStatus": null,
+                    "endpointKind": null,
+                    "lastAttemptAt": 1_799_564_400u64,
+                    "lastSuccessAt": 1_799_564_400u64,
+                    "nextRetryAt": null,
+                    "consecutiveFailures": 0,
+                },
             })
         );
     }

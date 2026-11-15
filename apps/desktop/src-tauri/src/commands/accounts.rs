@@ -326,6 +326,48 @@ pub struct AccountViewModel {
     /// for custom accounts. Lets the UI explain an always-empty account as
     /// "no key-level quota published" instead of a failure.
     pub capability_level: Option<String>,
+    /// Structured, secret-free view of the last refresh attempt: what ran,
+    /// what failed, and when the next attempt lands.
+    pub diagnostics: RefreshDiagnosticsViewModel,
+}
+
+/// Refresh diagnostics carried per account view. Only stable codes, HTTP
+/// statuses, endpoint kinds, and timestamps cross the IPC boundary — never
+/// URLs, headers, or response bodies.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RefreshDiagnosticsViewModel {
+    /// `idle` | `refreshing` | `healthy` | `failed`.
+    pub status: String,
+    pub error_code: Option<String>,
+    pub http_status: Option<u16>,
+    /// `models` | `quota` | `usage` | `balance` | `reset` when attributed.
+    pub endpoint_kind: Option<String>,
+    pub last_attempt_at: Option<u64>,
+    pub last_success_at: Option<u64>,
+    pub next_retry_at: Option<u64>,
+    pub consecutive_failures: u32,
+}
+
+impl RefreshDiagnosticsViewModel {
+    fn from_state(state: &crate::domain::state::RefreshState) -> Self {
+        let status = match state.status {
+            crate::domain::state::RefreshStatus::Idle => "idle",
+            crate::domain::state::RefreshStatus::Refreshing => "refreshing",
+            crate::domain::state::RefreshStatus::Succeeded => "healthy",
+            crate::domain::state::RefreshStatus::Failed => "failed",
+        };
+        Self {
+            status: status.to_owned(),
+            error_code: state.error_code.clone(),
+            http_status: state.http_status,
+            endpoint_kind: state.endpoint_kind.clone(),
+            last_attempt_at: state.last_started_at,
+            last_success_at: state.last_success_at,
+            next_retry_at: state.next_attempt_at,
+            consecutive_failures: state.consecutive_failures,
+        }
+    }
 }
 
 #[tauri::command]
@@ -1444,6 +1486,7 @@ pub(super) fn account_view_to_model(view: AccountViewDto) -> AccountViewModel {
         capability_level: crate::providers::builtin::builtin_capability_level(
             &view.account.provider_id,
         ),
+        diagnostics: RefreshDiagnosticsViewModel::from_state(&view.refresh),
         provider_id: view.account.provider_id,
         provider_name,
         label: view.account.label,

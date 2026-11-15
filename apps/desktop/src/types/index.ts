@@ -46,6 +46,20 @@ export interface QuotaViewModel {
   status?: "available" | "partial" | "unavailable" | "error";
 }
 
+/** Structured, secret-free view of the last refresh attempt. Only stable
+ * codes, HTTP statuses, endpoint kinds, and timestamps cross the IPC
+ * boundary. */
+export interface RefreshDiagnostics {
+  status: "idle" | "refreshing" | "healthy" | "failed";
+  errorCode?: string | null;
+  httpStatus?: number | null;
+  endpointKind?: "models" | "quota" | "usage" | "balance" | "reset" | null;
+  lastAttemptAt?: number | null;
+  lastSuccessAt?: number | null;
+  nextRetryAt?: number | null;
+  consecutiveFailures?: number;
+}
+
 export interface AccountViewModel {
   id: string;
   providerId: string;
@@ -59,6 +73,7 @@ export interface AccountViewModel {
   lastUpdatedAt?: string | number | null;
   errorCode?: string | null;
   errorMessage?: string | null;
+  diagnostics?: RefreshDiagnostics | null;
   /** Provider manifest capability level (L1..L4); null for custom accounts.
    * An always-empty L1/L2 account is "no key-level quota published", not a
    * fetch failure. */

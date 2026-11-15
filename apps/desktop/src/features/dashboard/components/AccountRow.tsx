@@ -131,8 +131,16 @@ export function AccountRow({
         <Notice tone="warning">{copy.notices.accountStale}</Notice>
       )}
 
-      {account.status === "error" && account.errorCode === "RateLimited" && (
-        <Notice tone="warning">{copy.notices.rateLimited}</Notice>
+      {/* Diagnostics by stable error code: every failure class names the
+          next action instead of a generic fault. The old snapshot stays
+          visible; freshness is surfaced separately. */}
+      {account.status === "error" && account.errorCode && (
+        <Notice tone="warning">
+          {copy.refreshDiagnostics[account.errorCode] ?? copy.notices.accountError}
+          {account.diagnostics?.nextRetryAt
+            ? ` ${copy.notices.nextRetry(new Date(account.diagnostics.nextRetryAt * 1000).toLocaleTimeString())}`
+            : ""}
+        </Notice>
       )}
 
       {account.status === "error" && isAuthFailure(account.errorCode) && (

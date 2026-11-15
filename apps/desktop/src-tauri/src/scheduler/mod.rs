@@ -84,6 +84,8 @@ pub async fn refresh_account(
                 started_at,
                 format!("{:?}", error.code),
                 Some(delay.as_secs()),
+                error.http_status,
+                error.metric.clone(),
             )?;
             Err(RefreshError::Provider(error))
         }

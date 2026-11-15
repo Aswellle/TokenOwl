@@ -215,6 +215,11 @@ pub struct ProviderError {
     pub retry_at: Option<String>,
     pub retryable: bool,
     pub http_status: Option<u16>,
+    /// Which endpoint kind produced the error (`models`, `quota`, `usage`,
+    /// `balance`, `reset`) when the adapter can attribute it; `None` for
+    /// transport-level failures before an endpoint was chosen.
+    #[serde(default)]
+    pub metric: Option<String>,
 }
 
 impl ProviderError {
@@ -233,6 +238,7 @@ impl ProviderError {
             retry_at: None,
             retryable,
             http_status: None,
+            metric: None,
         }
     }
 

@@ -501,6 +501,11 @@ impl LocalRepository {
         state.consecutive_failures = 0;
         state.last_completed_at = Some(completed_at);
         state.next_attempt_at = None;
+        state.last_success_at = Some(completed_at);
+        // A success also clears the failure attribution: the diagnostic
+        // fields describe the most recent attempt.
+        state.http_status = None;
+        state.endpoint_kind = None;
         // `last_error_code` deliberately survives: the notification pipeline
         // reads it to announce a recovery exactly once, then clears it through
         // `clear_recovered_error`. Clearing here would make the transition
@@ -527,6 +532,8 @@ impl LocalRepository {
         failed_at: u64,
         error_code: impl Into<String>,
         next_attempt_at: Option<u64>,
+        http_status: Option<u16>,
+        endpoint_kind: Option<String>,
     ) -> Result<RefreshState, StorageError> {
         let mut state = self.refresh_state(account_id)?;
         state.status = RefreshStatus::Failed;
@@ -538,6 +545,8 @@ impl LocalRepository {
         // recovered from.
         state.last_error_code = Some(code.clone());
         state.error_code = Some(code);
+        state.http_status = http_status;
+        state.endpoint_kind = endpoint_kind;
         self.save_refresh_state(account_id, &state, failed_at)?;
         Ok(state)
     }

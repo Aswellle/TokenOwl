@@ -243,6 +243,17 @@ pub struct RefreshState {
     /// not, and a recovery notice keys on it.
     #[serde(default)]
     pub last_error_code: Option<String>,
+    /// Wall-clock second of the most recent successful refresh; survives
+    /// later failures so the UI can say "last good data at T".
+    #[serde(default)]
+    pub last_success_at: Option<u64>,
+    /// HTTP status of the most recent failed refresh, when one was received.
+    #[serde(default)]
+    pub http_status: Option<u16>,
+    /// Endpoint kind (`models`/`quota`/`usage`/`balance`/`reset`) the most
+    /// recent failure is attributed to, when known.
+    #[serde(default)]
+    pub endpoint_kind: Option<String>,
 }
 
 impl Default for RefreshState {
@@ -255,6 +266,9 @@ impl Default for RefreshState {
             next_attempt_at: None,
             error_code: None,
             last_error_code: None,
+            last_success_at: None,
+            http_status: None,
+            endpoint_kind: None,
         }
     }
 }

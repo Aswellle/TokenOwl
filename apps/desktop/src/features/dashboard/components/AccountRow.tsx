@@ -65,6 +65,8 @@ export function AccountRow({
   const relative = formatRelative(account.lastUpdatedAt ?? account.snapshots[0]?.observedAt, now);
   const source = displaySource(account.source ?? account.snapshots[0]?.source);
   const hasSnapshots = account.snapshots.length > 0;
+  const onlyConnectionProbe =
+    hasSnapshots && account.snapshots.every((quota) => quota.status === "unavailable");
   const freshness = copy.freshness[account.freshness] ?? copy.freshness.unknown;
 
   return (
@@ -148,7 +150,11 @@ export function AccountRow({
         </div>
       )}
 
-      {hasSnapshots ? (
+      {/* A connection probe that found no quota surface answers with one
+          explicit unavailable card: the explanatory notice replaces the
+          valueless card list so "connected, no key-level quota" reads as
+          health, not as a failure. */}
+      {hasSnapshots && !onlyConnectionProbe ? (
         <ul className="quotas">
           {account.snapshots.map((quota) => (
             <QuotaMetric key={quota.id} quota={quota} now={now} />
@@ -160,13 +166,11 @@ export function AccountRow({
             <IconAlert size={14} />
           </span>
           <span>
-            {account.status === "unavailable"
-              ? // An L1/L2 provider never publishes key-level quota; naming
-                // that beats a "no recognizable fields" failure reading.
-                account.capabilityLevel === "L1" || account.capabilityLevel === "L2"
-                ? copy.quota.noQuotaCapability
-                : copy.quota.emptyUnavailable
-              : copy.quota.emptyBody}
+            {account.capabilityLevel === "L1" || account.capabilityLevel === "L2"
+              ? copy.quota.noQuotaCapability
+              : onlyConnectionProbe || account.status === "unavailable"
+                ? copy.quota.emptyUnavailable
+                : copy.quota.emptyBody}
           </span>
         </div>
       )}

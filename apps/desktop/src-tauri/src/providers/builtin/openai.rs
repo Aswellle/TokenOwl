@@ -101,6 +101,10 @@ impl OpenAiCompatibleAdapter {
     /// endpoint becomes an error snapshot while its siblings keep updating.
     /// When every endpoint fails, the first provider error is returned so the
     /// refresh pipeline keeps the last known good values.
+    ///
+    /// A provider that declares only a models endpoint has no quota surface to
+    /// fetch: the models probe is the whole refresh answer instead (see
+    /// [`Self::fetch_models_health`]).
     pub async fn fetch(
         &self,
         config: &OpenAiCompatibleConfig,
@@ -116,10 +120,9 @@ impl OpenAiCompatibleAdapter {
         }
         let endpoints = configured_quota_endpoints(config);
         if endpoints.is_empty() {
-            return Err(ProviderError::new(
-                ProviderErrorKind::UnsupportedCapability,
-                "provider has no quota, usage, or balance endpoint",
-            ));
+            return self
+                .fetch_models_health(config, account_id, credentials)
+                .await;
         }
         let mut outcomes = Vec::with_capacity(endpoints.len());
         for (kind, endpoint) in &endpoints {
@@ -198,6 +201,139 @@ impl OpenAiCompatibleAdapter {
             }
             Err(error) => EndpointOutcome::Failed(error),
         }
+    }
+
+    /// Model-only refresh answer (L2 health probe). A provider with no
+    /// quota/usage/balance endpoint proves its credential through the models
+    /// endpoint, exactly as the Anthropic and Gemini native adapters do. A
+    /// verified probe yields one explicit [`SnapshotStatus::Unavailable`]
+    /// snapshot — connection healthy, zero invented quota values, nothing
+    /// recorded into history — instead of a fetch failure.
+    async fn fetch_models_health(
+        &self,
+        config: &OpenAiCompatibleConfig,
+        account_id: &str,
+        credentials: &CredentialStore,
+    ) -> ProviderResult<FetchResult> {
+        match self.probe_models(config, credentials).await {
+            Ok(ProbeOutcome::Verified) => {
+                let source = if crate::providers::builtin::is_builtin_provider_id(&config.id) {
+                    DataSource::OfficialApi
+                } else {
+                    DataSource::CustomEndpoint
+                };
+                let snapshot = QuotaSnapshot {
+                    id: Some(MODELS_PROBE_SNAPSHOT_ID.to_owned()),
+                    account_id: Some(account_id.to_owned()),
+                    metric_id: Some("models".to_owned()),
+                    metric_name: Some("connection".to_owned()),
+                    status: SnapshotStatus::Unavailable,
+                    source,
+                    ..QuotaSnapshot::unknown()
+                };
+                let observed_at = unix_seconds();
+                Ok(FetchResult {
+                    snapshots: QuotaSnapshotSet::new(vec![snapshot]),
+                    observed_at,
+                })
+            }
+            // Every non-verified verdict fails the refresh with its own
+            // structured error — including the probe's request-building
+            // failures (invalid config, unusable credential reference),
+            // which arrive as the outer `Err`.
+            Ok(
+                ProbeOutcome::Malformed(error)
+                | ProbeOutcome::Rejected(error)
+                | ProbeOutcome::Indeterminate(error),
+            )
+            | Err(error) => Err(error),
+        }
+    }
+
+    /// Calls the configured models endpoint and classifies the wire outcome.
+    /// `Err` is reserved for failures before a request can be built (invalid
+    /// config, credential resolution); everything on the wire — including
+    /// transport timeouts — comes back as a [`ProbeOutcome`].
+    pub async fn probe_models(
+        &self,
+        config: &OpenAiCompatibleConfig,
+        credentials: &CredentialStore,
+    ) -> ProviderResult<ProbeOutcome> {
+        let Some(endpoint) = config.models_endpoint.as_deref() else {
+            return Err(ProviderError::new(
+                ProviderErrorKind::UnsupportedCapability,
+                "provider declares no models endpoint to probe",
+            ));
+        };
+        let url = endpoint_url(config, endpoint)?;
+        let headers = request_headers(config, credentials)?;
+        let request = self
+            .client
+            .get(url)
+            .headers(headers)
+            .header("accept", "application/json");
+        let outcome = self.client.send_capped(request).await;
+        Ok(match outcome {
+            Ok(response) => classify_models_response(&response),
+            Err(error) => ProbeOutcome::Indeterminate(error),
+        })
+    }
+}
+
+/// Snapshot id of the model-only health answer. Tests and UI heuristics key
+/// on the metric id, never on a display string.
+pub const MODELS_PROBE_SNAPSHOT_ID: &str = "models-probe";
+
+/// What a models probe concluded. `Verified` proves the credential and the
+/// endpoint work without inventing any quota value; `Rejected` proves the
+/// credential was refused; `Indeterminate` means the answer says nothing
+/// about the credential (network, rate limit, server outage); `Malformed`
+/// means authentication passed but the payload was unusable.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ProbeOutcome {
+    Verified,
+    Rejected(ProviderError),
+    Indeterminate(ProviderError),
+    Malformed(ProviderError),
+}
+
+/// Pure wire-status classification for the models probe. A 2xx must at least
+/// be JSON to count as verified — the model list itself is never retained.
+fn classify_models_response(response: &crate::domain::provider::ProviderResponse) -> ProbeOutcome {
+    match response.status {
+        200..=299 => match serde_json::from_str::<serde_json::Value>(&response.body) {
+            Ok(_) => ProbeOutcome::Verified,
+            Err(error) => ProbeOutcome::Malformed(ProviderError::parser_failed(format!(
+                "models probe returned invalid JSON: {error}"
+            ))),
+        },
+        401 | 403 => ProbeOutcome::Rejected(ProviderError::auth_required(response.status)),
+        408 => ProbeOutcome::Indeterminate(
+            ProviderError::new(ProviderErrorKind::Timeout, "provider request timed out")
+                .with_status(response.status),
+        ),
+        429 => ProbeOutcome::Indeterminate(ProviderError::rate_limited(
+            response.status,
+            response
+                .headers
+                .iter()
+                .find(|(key, _)| key.eq_ignore_ascii_case("retry-after"))
+                .map(|(_, value)| value.clone()),
+        )),
+        500..=599 => ProbeOutcome::Indeterminate(
+            ProviderError::new(
+                ProviderErrorKind::ProviderUnavailable,
+                "provider returned a server error",
+            )
+            .with_status(response.status),
+        ),
+        status => ProbeOutcome::Indeterminate(
+            ProviderError::new(
+                ProviderErrorKind::InvalidResponse,
+                format!("unexpected provider HTTP status {status}"),
+            )
+            .with_status(status),
+        ),
     }
 }
 
@@ -604,5 +740,100 @@ mod tests {
         ])
         .expect("one working endpoint is enough");
         assert_eq!(merged.len(), 1);
+    }
+
+    /// The models probe maps every wire status class to its verdict: 2xx
+    /// verifies, 401/403 reject, 429/5xx/transport stay indeterminate.
+    #[test]
+    fn models_probe_classification_covers_every_status_class() {
+        use crate::domain::provider::ProviderResponse;
+        assert_eq!(
+            classify_models_response(&ProviderResponse::new(200, r#"{"data":[]}"#)),
+            ProbeOutcome::Verified
+        );
+        let rejected = classify_models_response(&ProviderResponse::new(401, "{}"));
+        let ProbeOutcome::Rejected(error) = rejected else {
+            panic!("401 must reject");
+        };
+        assert_eq!(error.code, ProviderErrorKind::AuthRequired);
+        assert_eq!(error.http_status, Some(401));
+
+        let limited = classify_models_response(
+            &ProviderResponse::new(429, "{}").with_header("Retry-After", "30"),
+        );
+        let ProbeOutcome::Indeterminate(error) = limited else {
+            panic!("429 is indeterminate, not a key rejection");
+        };
+        assert_eq!(error.code, ProviderErrorKind::RateLimited);
+        assert_eq!(error.retry_at.as_deref(), Some("30"));
+
+        let server_error = classify_models_response(&ProviderResponse::new(503, "{}"));
+        assert!(matches!(server_error, ProbeOutcome::Indeterminate(_)));
+
+        let unexpected = classify_models_response(&ProviderResponse::new(302, ""));
+        assert!(matches!(unexpected, ProbeOutcome::Indeterminate(_)));
+    }
+
+    /// A 2xx body that is not JSON at all is a structure error, not a
+    /// verified credential — an HTML login page must not read as healthy.
+    #[test]
+    fn models_probe_2xx_non_json_body_is_malformed_not_verified() {
+        use crate::domain::provider::ProviderResponse;
+        let outcome = classify_models_response(&ProviderResponse::new(200, "<html>gateway</html>"));
+        let ProbeOutcome::Malformed(error) = outcome else {
+            panic!("non-JSON 2xx must be malformed");
+        };
+        assert_eq!(error.code, ProviderErrorKind::ParserFailed);
+    }
+
+    /// A model-only provider answers its refresh with one explicit unknown
+    /// snapshot: connection healthy, no invented quota values.
+    #[test]
+    fn model_only_probe_snapshot_carries_no_quota_values() {
+        let snapshot = QuotaSnapshot {
+            id: Some(MODELS_PROBE_SNAPSHOT_ID.to_owned()),
+            account_id: Some("account-1".to_owned()),
+            metric_id: Some("models".to_owned()),
+            metric_name: Some("connection".to_owned()),
+            status: SnapshotStatus::Unavailable,
+            source: DataSource::OfficialApi,
+            ..QuotaSnapshot::unknown()
+        };
+        assert_eq!(snapshot.used, None);
+        assert_eq!(snapshot.limit, None);
+        assert_eq!(snapshot.remaining, None);
+        assert_eq!(snapshot.reset_at, None);
+    }
+
+    /// Every builtin manifest that declares only a models endpoint rides the
+    /// probe path: no quota endpoints configured, models endpoint present,
+    /// and the declared level is the L2 the probe can actually deliver.
+    #[test]
+    fn models_only_builtins_route_through_the_probe() {
+        use crate::providers::manifest::ProviderManifest;
+        let mut model_only = 0;
+        for (id, yaml) in crate::providers::builtin::BUILTIN_MANIFESTS {
+            let manifest = ProviderManifest::from_yaml(yaml).expect("embedded manifest parses");
+            let config = manifest.to_config();
+            let quota_endpoints = configured_quota_endpoints(&config);
+            if quota_endpoints.is_empty() && config.models_endpoint.is_some() {
+                model_only += 1;
+                assert!(
+                    config.validate().is_ok(),
+                    "model-only manifest {id} must validate"
+                );
+                assert!(
+                    matches!(
+                        manifest.effective_capability_level().as_deref(),
+                        Some("L2" | "L1")
+                    ),
+                    "model-only manifest {id} must not promise more than the probe delivers"
+                );
+            }
+        }
+        assert!(
+            model_only >= 5,
+            "expected several model-only builtins to exercise the probe path, found {model_only}"
+        );
     }
 }

@@ -169,6 +169,7 @@ export const copy = {
     balance: "余额",
     usage: "用量",
     quota: "额度",
+    connection: "API 连接",
   } as Record<string, string>,
 
   windowTypes: {

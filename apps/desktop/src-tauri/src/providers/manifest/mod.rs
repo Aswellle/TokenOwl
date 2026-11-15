@@ -93,6 +93,24 @@ pub struct ManifestMapping {
     /// reports several account figures at once); each becomes its own metric.
     #[serde(default)]
     pub metrics: Option<Vec<ManifestFieldMapping>>,
+    /// How to read a dedicated reset endpoint's timestamp. Declared, never
+    /// inferred: the timestamp format must be one of the three known units.
+    #[serde(default)]
+    pub reset: Option<ManifestResetMapping>,
+}
+
+/// Reset-endpoint mapping: where the timestamp lives, how to read it, and
+/// which window it belongs to.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ManifestResetMapping {
+    /// Dot-path to the raw timestamp value.
+    pub value: String,
+    /// `rfc3339` (default), `unix_seconds`, or `unix_millis`.
+    pub timestamp_format: Option<String>,
+    /// Optional dot-path whose value identifies the target metric/window.
+    /// Without it the reset stays an account-level observation.
+    pub window_id: Option<String>,
 }
 
 /// Single field mapping.
@@ -225,6 +243,34 @@ impl ProviderManifest {
                     ));
                 }
             }
+            if let Some(reset) = mapping.reset.as_ref() {
+                if reset.value.trim().is_empty()
+                    || reset.value.chars().count() > 128
+                    || reset.value.chars().any(char::is_whitespace)
+                {
+                    return Err(
+                        "mapping.reset.value must be 1-128 characters without whitespace"
+                            .to_owned(),
+                    );
+                }
+                if let Some(format) = reset.timestamp_format.as_deref()
+                    && !matches!(format, "rfc3339" | "unix_seconds" | "unix_millis")
+                {
+                    return Err(format!(
+                        "mapping.reset.timestampFormat `{format}` must be rfc3339, unix_seconds, or unix_millis"
+                    ));
+                }
+                if let Some(window_id) = reset.window_id.as_deref()
+                    && (window_id.trim().is_empty()
+                        || window_id.chars().count() > 128
+                        || window_id.chars().any(char::is_whitespace))
+                {
+                    return Err(
+                        "mapping.reset.windowId must be 1-128 characters without whitespace"
+                            .to_owned(),
+                    );
+                }
+            }
             for (index, metric) in mapping.metrics.iter().flatten().enumerate() {
                 if metric.value.trim().is_empty()
                     || metric.value.chars().count() > 128
@@ -352,6 +398,13 @@ impl ProviderManifest {
                 balance: mapping.balance.as_ref().map(to_domain),
                 usage: mapping.usage.as_ref().map(to_domain),
                 metrics: mapping.metrics.iter().flatten().map(to_domain).collect(),
+                reset: mapping.reset.as_ref().map(|reset| {
+                    crate::domain::provider::ResetFieldMapping {
+                        value: reset.value.clone(),
+                        timestamp_format: reset.timestamp_format.clone(),
+                        window_id: reset.window_id.clone(),
+                    }
+                }),
             }
         });
         OpenAiCompatibleConfig {
@@ -775,5 +828,74 @@ endpoints: {}
     fn invalid_yaml_is_rejected() {
         let result = ProviderManifest::from_yaml("invalid: [yaml");
         assert!(result.is_err());
+    }
+
+    const RESET_MANIFEST: &str = r"
+id: reset-fixture
+version: 1
+name: Reset Fixture
+auth:
+  - api_key
+baseUrl: https://reset.example/v1
+endpoints:
+  usage: /usage
+  reset: /reset
+mapping:
+  usage:
+    value: data.used
+    unit: token
+  reset:
+    value: data.reset_at
+    timestampFormat: unix_seconds
+    windowId: data.metric_id
+";
+
+    /// A declared reset mapping parses, passes validation, and rides the
+    /// domain config so the adapter actually requests the endpoint.
+    #[test]
+    fn reset_mapping_parses_and_rides_the_config() {
+        let manifest = ProviderManifest::from_yaml(RESET_MANIFEST).expect("valid YAML");
+        assert_eq!(manifest.validate_for_registration(), Ok(()));
+        let config = manifest.to_config();
+        let reset = config
+            .field_mappings
+            .as_ref()
+            .and_then(|mappings| mappings.reset.as_ref())
+            .expect("reset mapping");
+        assert_eq!(reset.value, "data.reset_at");
+        assert_eq!(reset.timestamp_format.as_deref(), Some("unix_seconds"));
+        assert_eq!(reset.window_id.as_deref(), Some("data.metric_id"));
+        assert_eq!(config.reset_endpoint.as_deref(), Some("/reset"));
+    }
+
+    /// An undeclared timestamp format is a load-time error, not a runtime
+    /// guessing game about the value's magnitude.
+    #[test]
+    fn reset_mapping_rejects_undeclared_timestamp_formats() {
+        for format in ["epoch", "timestamp", "RFC3339"] {
+            let yaml = RESET_MANIFEST.replace("unix_seconds", format);
+            let manifest = ProviderManifest::from_yaml(&yaml).expect("valid YAML");
+            let error = manifest
+                .validate_schema_bounds()
+                .expect_err("undeclared format must be rejected");
+            assert!(
+                error.contains("mapping.reset.timestampFormat"),
+                "`{format}`: unexpected reason `{error}`"
+            );
+        }
+    }
+
+    /// An empty reset value path fails the same structural bounds as the
+    /// other mappings.
+    #[test]
+    fn reset_mapping_rejects_unusable_value_paths() {
+        for value in ["", "has space", &"x".repeat(129)] {
+            let yaml = RESET_MANIFEST.replace("data.reset_at", value);
+            let manifest = ProviderManifest::from_yaml(&yaml).expect("valid YAML");
+            assert!(
+                manifest.validate_schema_bounds().is_err(),
+                "reset value `{value}` must fail the bounds"
+            );
+        }
     }
 }

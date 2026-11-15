@@ -119,12 +119,12 @@ impl OpenAiCompatibleAdapter {
             ));
         }
         let endpoints = configured_quota_endpoints(config);
-        if endpoints.is_empty() {
+        if endpoints.is_empty() && config.reset_endpoint.is_none() {
             return self
                 .fetch_models_health(config, account_id, credentials)
                 .await;
         }
-        let mut outcomes = Vec::with_capacity(endpoints.len());
+        let mut outcomes = Vec::with_capacity(endpoints.len() + 1);
         for (kind, endpoint) in &endpoints {
             outcomes.push((
                 *kind,
@@ -132,7 +132,67 @@ impl OpenAiCompatibleAdapter {
                     .await,
             ));
         }
+        // A declared reset endpoint is a real request with its own mapping,
+        // not decoration: fetch it, parse it, and bind the observation to the
+        // window the provider names — or keep it as an account-level reset
+        // card when no window is declared. A failed reset endpoint never
+        // erases its siblings' quota data.
+        let mut reset_observation = None;
+        if let Some(reset_path) = config.reset_endpoint.as_deref() {
+            match self
+                .fetch_reset_endpoint(config, reset_path, credentials)
+                .await
+            {
+                ResetFetch::Observation(observation) => {
+                    outcomes.push((
+                        "reset",
+                        EndpointOutcome::Snapshots(QuotaSnapshotSet::new(vec![QuotaSnapshot {
+                            id: Some(RESET_SNAPSHOT_ID.to_owned()),
+                            metric_id: Some("reset".to_owned()),
+                            metric_name: Some("reset".to_owned()),
+                            reset_at: Some(observation.reset_at.clone()),
+                            status: SnapshotStatus::Partial,
+                            ..QuotaSnapshot::unknown()
+                        }])),
+                    ));
+                    reset_observation = Some(observation);
+                }
+                ResetFetch::Snapshots(set) => {
+                    outcomes.push(("reset", EndpointOutcome::Snapshots(set)));
+                }
+                ResetFetch::Unrecognized => {
+                    outcomes.push(("reset", EndpointOutcome::Unrecognized));
+                }
+                ResetFetch::Failed(error) => {
+                    outcomes.push(("reset", EndpointOutcome::Failed(error)));
+                }
+            }
+        }
         let mut snapshots = merge_endpoint_outcomes(outcomes)?;
+        // When the provider named a window, the reset belongs there: the
+        // standalone reset card folds into the target snapshot. A reset that
+        // names no window — or names an unknown one — stays its own card
+        // instead of being copied onto every window with invented precision.
+        if let Some(observation) = reset_observation
+            && let Some(window_id) = observation.window_id.as_deref()
+        {
+            let target = snapshots.iter_mut().find(|snapshot| {
+                snapshot.metric_id.as_deref() == Some(window_id)
+                    || snapshot.id.as_deref() == Some(window_id)
+            });
+            if let Some(target) = target {
+                target.reset_at = Some(observation.reset_at.clone());
+                if let Some(window) = target.window.as_mut() {
+                    window.reset_at = Some(observation.reset_at.clone());
+                } else {
+                    target.window = Some(crate::domain::provider::QuotaWindow {
+                        reset_at: Some(observation.reset_at.clone()),
+                        ..crate::domain::provider::QuotaWindow::default()
+                    });
+                }
+                snapshots.retain(|snapshot| snapshot.id.as_deref() != Some(RESET_SNAPSHOT_ID));
+            }
+        }
         // The parsers are shared by custom and built-in accounts and default
         // to `CustomEndpoint`. A built-in manifest's traffic is the provider's
         // official API, and the UI's source label should say so.
@@ -200,6 +260,57 @@ impl OpenAiCompatibleAdapter {
                 }
             }
             Err(error) => EndpointOutcome::Failed(error),
+        }
+    }
+
+    /// Requests the declared reset endpoint. With a manifest mapping the
+    /// timestamp is parsed through it (declared format, never inferred);
+    /// without one, the lenient parser's reset-bearing fields answer instead.
+    async fn fetch_reset_endpoint(
+        &self,
+        config: &OpenAiCompatibleConfig,
+        endpoint: &str,
+        credentials: &CredentialStore,
+    ) -> ResetFetch {
+        let url = match endpoint_url(config, endpoint) {
+            Ok(url) => url,
+            Err(error) => return ResetFetch::Failed(error),
+        };
+        let headers = match request_headers(config, credentials) {
+            Ok(headers) => headers,
+            Err(error) => return ResetFetch::Failed(error),
+        };
+        let request = self
+            .client
+            .get(url)
+            .headers(headers)
+            .header("accept", "application/json");
+        let response = match self.client.send_capped(request).await {
+            Ok(response) => response,
+            Err(error) => return ResetFetch::Failed(error),
+        };
+        if let Some(mapping) = config
+            .field_mappings
+            .as_ref()
+            .and_then(|mappings| mappings.reset.as_ref())
+        {
+            return match crate::domain::provider::parse_reset_response(&response, mapping) {
+                Ok(Some(observation)) => ResetFetch::Observation(observation),
+                Ok(None) => ResetFetch::Unrecognized,
+                Err(error) => ResetFetch::Failed(error),
+            };
+        }
+        match parse_configured(config, &response) {
+            Ok(Some(set))
+                if set
+                    .snapshots
+                    .iter()
+                    .any(|snapshot| snapshot.reset_at.is_some() || snapshot.window.is_some()) =>
+            {
+                ResetFetch::Snapshots(set)
+            }
+            Ok(_) => ResetFetch::Unrecognized,
+            Err(error) => ResetFetch::Failed(error),
         }
     }
 
@@ -284,6 +395,23 @@ impl OpenAiCompatibleAdapter {
 /// on the metric id, never on a display string.
 pub const MODELS_PROBE_SNAPSHOT_ID: &str = "models-probe";
 
+/// Snapshot id of a standalone (window-unbound) reset-endpoint observation.
+pub const RESET_SNAPSHOT_ID: &str = "reset-endpoint";
+
+/// Result of requesting the configured reset endpoint.
+#[derive(Debug, Clone, PartialEq)]
+enum ResetFetch {
+    /// The declared reset mapping resolved to a timestamp observation.
+    Observation(crate::domain::provider::ResetObservation),
+    /// No reset mapping declared (custom accounts): the lenient parser
+    /// recognized reset-bearing fields in the response.
+    Snapshots(QuotaSnapshotSet),
+    /// The endpoint answered but exposed no reset value.
+    Unrecognized,
+    /// The request or its payload failed structurally.
+    Failed(ProviderError),
+}
+
 /// What a models probe concluded. `Verified` proves the credential and the
 /// endpoint work without inventing any quota value; `Rejected` proves the
 /// credential was refused; `Indeterminate` means the answer says nothing
@@ -342,10 +470,14 @@ fn parse_configured(
     response: &crate::domain::provider::ProviderResponse,
 ) -> ProviderResult<Option<QuotaSnapshotSet>> {
     match config.field_mappings.as_ref() {
-        Some(mappings) => {
+        // A manifest that declared quota mappings is parsed by them: name
+        // guessing could misread its response shape.
+        Some(mappings) if mappings.has_quota_mappings() => {
             crate::domain::provider::parse_openai_compatible_with_mappings(response, mappings)
         }
-        None => crate::domain::provider::parse_openai_compatible_lenient(response),
+        // Mappings that only carry the reset mapping (or none at all) leave
+        // the quota fields to the built-in lenient field-name search.
+        _ => crate::domain::provider::parse_openai_compatible_lenient(response),
     }
 }
 

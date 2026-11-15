@@ -170,6 +170,7 @@ export const copy = {
     usage: "用量",
     quota: "额度",
     connection: "API 连接",
+    reset: "重置时间",
   } as Record<string, string>,
 
   windowTypes: {

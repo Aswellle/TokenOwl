@@ -805,24 +805,176 @@ pub struct FieldMappings {
     /// entry becomes its own snapshot labeled by `name`.
     #[serde(default)]
     pub metrics: Vec<FieldMapping>,
+    /// Mapping for a dedicated reset endpoint: where the window-reset
+    /// timestamp lives and how to read it. The timestamp format is declared,
+    /// never guessed from the value's digit count.
+    #[serde(default)]
+    pub reset: Option<ResetFieldMapping>,
+}
+
+impl FieldMappings {
+    /// Whether the mappings cover any quota-bearing response field. A
+    /// mappings block that only carries the reset mapping leaves the quota
+    /// fields to the lenient parser instead of resolving nothing.
+    pub fn has_quota_mappings(&self) -> bool {
+        self.balance.is_some() || self.usage.is_some() || !self.metrics.is_empty()
+    }
+}
+
+/// A manifest's declaration of how to read a reset endpoint's timestamp.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResetFieldMapping {
+    /// Dot-path to the raw timestamp value in the response.
+    pub value: String,
+    /// `rfc3339` (the default), `unix_seconds`, or `unix_millis`. The three
+    /// are distinct declarations — the parser refuses to infer the unit from
+    /// the value's magnitude.
+    pub timestamp_format: Option<String>,
+    /// Optional dot-path whose value identifies which metric/window the
+    /// reset belongs to. Without it the reset stays an account-level
+    /// observation and is never copied onto every window.
+    pub window_id: Option<String>,
+}
+
+/// Unix-seconds ceiling of an accepted reset instant: 3000-01-01T00:00:00Z.
+const RESET_MAX_UNIX_SECONDS: f64 = 32_504_328_000.0;
+/// Unix-millis ceiling of an accepted reset instant: 3000-01-01T00:00:00Z.
+const RESET_MAX_UNIX_MILLIS: f64 = 32_504_328_000_000.0;
+
+/// Walks a dot-path into a JSON value; array indices are supported as path
+/// segments (`data.0.reset_at`). Shared by the field mappings and the reset
+/// mapping so the two path grammars can never drift.
+fn lookup_dot_path<'a>(value: &'a Value, path: &str) -> Option<&'a Value> {
+    let mut current = value;
+    for segment in path.split('.') {
+        current = match current {
+            Value::Object(map) => map.get(segment)?,
+            Value::Array(items) => {
+                let index: usize = segment.parse().ok()?;
+                items.get(index)?
+            }
+            _ => return None,
+        };
+    }
+    Some(current)
+}
+
+impl ResetFieldMapping {
+    fn lookup<'a>(&self, value: &'a Value) -> Option<&'a Value> {
+        lookup_dot_path(value, &self.value)
+    }
+
+    fn lookup_window_id<'a>(&self, value: &'a Value) -> Option<&'a Value> {
+        let path = self.window_id.as_deref()?;
+        lookup_dot_path(value, path)
+    }
+}
+
+/// One parsed reset-endpoint observation, normalized to RFC 3339 UTC.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResetObservation {
+    /// Normalized RFC 3339 UTC instant of the window reset.
+    pub reset_at: String,
+    /// The window/metric identity the provider attached, when declared.
+    pub window_id: Option<String>,
+}
+
+/// Parses a dedicated reset endpoint's response through the manifest's reset
+/// mapping. `Ok(None)` when the payload answers but resolves to no timestamp
+/// — unknown stays unknown, never an invented reset.
+pub fn parse_reset_response(
+    response: &ProviderResponse,
+    mapping: &ResetFieldMapping,
+) -> ProviderResult<Option<ResetObservation>> {
+    classify_http_status(response)?;
+    let value: Value = serde_json::from_str(&response.body)
+        .map_err(|error| ProviderError::parser_failed(format!("invalid JSON response: {error}")))?;
+    let Some(raw) = mapping.lookup(&value) else {
+        return Ok(None);
+    };
+    let format = mapping.timestamp_format.as_deref().unwrap_or("rfc3339");
+    let reset_at = match format {
+        "rfc3339" => {
+            let text = match raw {
+                Value::String(text) => text.trim().to_owned(),
+                _ => {
+                    return Err(ProviderError::invalid_response(
+                        "reset timestamp must be an RFC 3339 string",
+                    ));
+                }
+            };
+            chrono::DateTime::parse_from_rfc3339(&text)
+                .map_err(|_| {
+                    ProviderError::invalid_response(
+                        "reset timestamp is not a valid RFC 3339 instant",
+                    )
+                })
+                // Offset timestamps normalize to UTC so every stored reset
+                // instant shares one spelling.
+                .map(|instant| {
+                    instant
+                        .with_timezone(&chrono::Utc)
+                        .to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
+                })?
+        }
+        "unix_seconds" | "unix_millis" => {
+            // The unit is a declaration, never inferred from magnitude. A
+            // numeric value is accepted only inside the 1970–3000 window for
+            // the declared unit; anything else is a misdeclared format.
+            let ceiling = if format == "unix_seconds" {
+                RESET_MAX_UNIX_SECONDS
+            } else {
+                RESET_MAX_UNIX_MILLIS
+            };
+            let number = match raw {
+                Value::Number(number) => number.as_f64().filter(|number| number.is_finite()),
+                Value::String(text) => text.trim().parse::<f64>().ok().filter(|n| n.is_finite()),
+                _ => None,
+            }
+            .ok_or_else(|| ProviderError::invalid_response("reset timestamp must be a number"))?;
+            if !(0.0..=ceiling).contains(&number) {
+                return Err(ProviderError::invalid_response(
+                    "reset timestamp is outside the accepted epoch range for its declared format",
+                ));
+            }
+            let timestamp: u64 = number.to_string().parse().map_err(|_| {
+                ProviderError::invalid_response("reset timestamp must be a whole number")
+            })?;
+            let seconds = if format == "unix_millis" {
+                timestamp / 1_000
+            } else {
+                timestamp
+            };
+            chrono::DateTime::from_timestamp(i64::try_from(seconds).unwrap_or(0), 0)
+                .map(|instant| instant.to_rfc3339_opts(chrono::SecondsFormat::Secs, true))
+                .ok_or_else(|| ProviderError::invalid_response("reset timestamp is out of range"))?
+        }
+        other => {
+            return Err(ProviderError::new(
+                ProviderErrorKind::ConfigInvalid,
+                format!(
+                    "reset timestampFormat `{other}` must be one of rfc3339, unix_seconds, unix_millis"
+                ),
+            ));
+        }
+    };
+    let window_id = mapping.lookup_window_id(&value).map(|raw| match raw {
+        Value::String(text) => text.clone(),
+        Value::Number(number) => number.to_string(),
+        other => other.to_string(),
+    });
+    Ok(Some(ResetObservation {
+        reset_at,
+        window_id,
+    }))
 }
 
 impl FieldMapping {
     /// Evaluates the dot-path against a JSON value; array indices are
     /// supported as path segments (`data.0.total_used`).
     fn lookup<'a>(&self, value: &'a Value) -> Option<&'a Value> {
-        let mut current = value;
-        for segment in self.value.split('.') {
-            current = match current {
-                Value::Object(map) => map.get(segment)?,
-                Value::Array(items) => {
-                    let index: usize = segment.parse().ok()?;
-                    items.get(index)?
-                }
-                _ => return None,
-            };
-        }
-        Some(current)
+        lookup_dot_path(value, &self.value)
     }
 
     fn as_f64(&self, value: &Value) -> Option<f64> {
@@ -1533,6 +1685,7 @@ mod tests {
                 name: None,
             }),
             metrics: Vec::new(),
+            reset: None,
         };
         let set = parse_openai_compatible_with_mappings(&response, &mappings)
             .expect("parse")
@@ -1576,6 +1729,7 @@ mod tests {
                 name: None,
             }),
             metrics: Vec::new(),
+            reset: None,
         };
         let set = parse_openai_compatible_with_mappings(&response, &mappings)
             .expect("parse")
@@ -1604,6 +1758,7 @@ mod tests {
                 name: None,
             }),
             metrics: Vec::new(),
+            reset: None,
         };
         // "lots" is not numeric -> balance skipped; "12" is a numeric string
         // and an explicit mapping declares its semantics, so usage parses.
@@ -1613,6 +1768,132 @@ mod tests {
         assert_eq!(set.len(), 1);
         assert_eq!(set.snapshots[0].metric_id.as_deref(), Some("usage"));
         assert_eq!(set.snapshots[0].used, Some(12.0));
+    }
+
+    /// The reset parser reads the declared timestamp format exactly: rfc3339
+    /// strings, unix seconds, and unix millis normalize to the same UTC
+    /// instant without inferring the unit from magnitude.
+    #[test]
+    fn reset_parser_honors_each_declared_timestamp_format() {
+        let rfc = parse_reset_response(
+            &ProviderResponse::new(200, r#"{"data":{"reset_at":"2026-11-24T12:00:00+08:00"}}"#),
+            &ResetFieldMapping {
+                value: "data.reset_at".to_owned(),
+                timestamp_format: Some("rfc3339".to_owned()),
+                window_id: None,
+            },
+        )
+        .expect("parse")
+        .expect("observation");
+        // Offset timestamps normalize to UTC.
+        assert_eq!(rfc.reset_at, "2026-11-24T04:00:00Z");
+
+        let seconds = parse_reset_response(
+            &ProviderResponse::new(200, r#"{"reset": 1764000000}"#),
+            &ResetFieldMapping {
+                value: "reset".to_owned(),
+                timestamp_format: Some("unix_seconds".to_owned()),
+                window_id: None,
+            },
+        )
+        .expect("parse")
+        .expect("observation");
+        assert_eq!(seconds.reset_at, "2025-11-24T16:00:00Z");
+
+        let millis = parse_reset_response(
+            &ProviderResponse::new(200, r#"{"reset": 1764000000000}"#),
+            &ResetFieldMapping {
+                value: "reset".to_owned(),
+                timestamp_format: Some("unix_millis".to_owned()),
+                window_id: None,
+            },
+        )
+        .expect("parse")
+        .expect("observation");
+        assert_eq!(millis.reset_at, "2025-11-24T16:00:00Z");
+    }
+
+    /// The windowId path is carried through so the adapter can bind the
+    /// reset to the window the provider named.
+    #[test]
+    fn reset_parser_carries_the_window_identity() {
+        let observation = parse_reset_response(
+            &ProviderResponse::new(200, r#"{"window":"tokens-5h","resets_at":1764000000}"#),
+            &ResetFieldMapping {
+                value: "resets_at".to_owned(),
+                timestamp_format: Some("unix_seconds".to_owned()),
+                window_id: Some("window".to_owned()),
+            },
+        )
+        .expect("parse")
+        .expect("observation");
+        assert_eq!(observation.window_id.as_deref(), Some("tokens-5h"));
+        assert_eq!(observation.reset_at, "2025-11-24T16:00:00Z");
+    }
+
+    /// A response without the mapped value is unknown, never an invented
+    /// reset; a malformed timestamp or a misdeclared format is a structured
+    /// error.
+    #[test]
+    fn reset_parser_rejects_unusable_values_without_inventing() {
+        let mapping = |format: &str| ResetFieldMapping {
+            value: "data.reset_at".to_owned(),
+            timestamp_format: Some(format.to_owned()),
+            window_id: None,
+        };
+        assert!(
+            parse_reset_response(
+                &ProviderResponse::new(200, r#"{"data":{}}"#),
+                &mapping("rfc3339"),
+            )
+            .expect("parse")
+            .is_none(),
+            "missing value stays unknown"
+        );
+        for (format, body) in [
+            ("rfc3339", r#"{"data":{"reset_at":"next tuesday"}}"#),
+            ("rfc3339", r#"{"data":{"reset_at":123}}"#),
+            ("unix_seconds", r#"{"data":{"reset_at":-5}}"#),
+            ("unix_seconds", r#"{"data":{"reset_at":32504328001}}"#),
+            ("unix_seconds", r#"{"data":{"reset_at":"soon"}}"#),
+        ] {
+            let error = parse_reset_response(&ProviderResponse::new(200, body), &mapping(format))
+                .expect_err("unusable value must fail");
+            assert!(
+                matches!(
+                    error.code,
+                    ProviderErrorKind::InvalidResponse | ProviderErrorKind::ParserFailed
+                ),
+                "{format}/{body}: unexpected kind {:?}",
+                error.code
+            );
+        }
+        let error = parse_reset_response(
+            &ProviderResponse::new(200, r#"{"data":{"reset_at":123}}"#),
+            &ResetFieldMapping {
+                value: "data.reset_at".to_owned(),
+                timestamp_format: Some("epoch".to_owned()),
+                window_id: None,
+            },
+        )
+        .expect_err("undeclared format");
+        assert_eq!(error.code, ProviderErrorKind::ConfigInvalid);
+    }
+
+    /// HTTP error mapping is shared with the quota parsers: a rejected reset
+    /// request is an auth error, not a silent unknown.
+    #[test]
+    fn reset_parser_maps_http_errors_like_quota_parsers() {
+        let error = parse_reset_response(
+            &ProviderResponse::new(401, "{}"),
+            &ResetFieldMapping {
+                value: "data.reset_at".to_owned(),
+                timestamp_format: None,
+                window_id: None,
+            },
+        )
+        .expect_err("unauthorized reset");
+        assert_eq!(error.code, ProviderErrorKind::AuthRequired);
     }
 
     #[test]
@@ -1678,6 +1959,7 @@ mod tests {
                 },
             ],
             balance: None,
+            reset: None,
         };
         let set = parse_openai_compatible_with_mappings(&response, &mappings)
             .expect("parse")

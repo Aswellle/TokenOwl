@@ -51,6 +51,12 @@ pub struct ManifestCapability {
     pub quota_units: Vec<String>,
     pub target_windows: Vec<String>,
     pub priority: Option<String>,
+    /// Date (YYYY-MM-DD) the provider surface was last verified against its
+    /// fixtures and real API. Absent means "never recorded" — the README
+    /// generator and matrix surface that honestly instead of implying a
+    /// standing verification.
+    #[serde(default)]
+    pub last_verified_at: Option<String>,
 }
 
 impl ManifestCapability {

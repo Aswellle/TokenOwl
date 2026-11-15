@@ -3,6 +3,7 @@
 //! test. Regenerate with `TOKENOWL_UPDATE_README=1 cargo test --test readme_sync`
 //! and review the diff.
 
+use std::fmt::Write as _;
 use std::path::PathBuf;
 
 use tokenowl_lib::providers::manifest::ProviderManifest;
@@ -48,8 +49,9 @@ fn generated_section() -> String {
             .as_ref()
             .and_then(|capability| capability.last_verified_at.clone())
             .unwrap_or_else(|| "未声明".to_owned());
-        rows.push_str(&format!(
-            "| {} ({}) | `{}` | {} | {} | {} |\n",
+        let _ = writeln!(
+            rows,
+            "| {} ({}) | `{}` | {} | {} | {} |",
             manifest.name,
             manifest.id,
             format,
@@ -60,7 +62,7 @@ fn generated_section() -> String {
                 endpoints.join("、")
             },
             verified,
-        ));
+        );
         match levels.iter_mut().find(|(name, _)| *name == level) {
             Some((_, count)) => *count += 1,
             None => levels.push((level, 1)),

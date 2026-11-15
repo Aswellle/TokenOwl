@@ -3,6 +3,7 @@ import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import type {
   AccountViewModel,
+  CredentialUpdateResult,
   DashboardBridge,
   GenericOpenAiAccountInput,
   HistoryDayBreakdownViewModel,
@@ -60,7 +61,7 @@ export const tauriBridge: DashboardBridge = {  listAccounts: () => invoke<Accoun
   lanTrustRemove: (url: string) => invoke<void>("lan_trust_remove", { url }),
   deleteAccount: (accountId: string) => invoke<void>("accounts_delete", { accountId }),
   updateAccountCredential: (accountId: string, apiKey: string) =>
-    invoke<AccountViewModel>("accounts_update_credential", { accountId, apiKey }),
+    invoke<CredentialUpdateResult>("accounts_update_credential", { accountId, apiKey }),
   refresh: (accountId?: string) =>
     invoke<AccountViewModel[]>("accounts_refresh", accountId ? { accountId } : undefined),
   checkForUpdate: () => invoke<UpdateInfo | null>("updater_check"),

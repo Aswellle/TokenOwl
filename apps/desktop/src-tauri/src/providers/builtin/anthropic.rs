@@ -161,6 +161,44 @@ impl AnthropicAdapter {
         };
         Ok((identity, account, response.headers))
     }
+    /// Credential verdict for a candidate key, through the same models
+    /// probe the refresh uses. A transport outage or rate limit says
+    /// nothing about the credential and must never read as a rejection.
+    pub async fn probe_credential(
+        &self,
+        config: &OpenAiCompatibleConfig,
+        credentials: &CredentialStore,
+    ) -> ProviderResult<crate::scheduler::CredentialVerdict> {
+        let verdict = |health: HealthStatus| match health {
+            HealthStatus::Healthy => crate::scheduler::CredentialVerdict::Verified,
+            HealthStatus::Degraded => crate::scheduler::CredentialVerdict::Indeterminate(
+                ProviderError::rate_limited(429, None),
+            ),
+            HealthStatus::Unhealthy => {
+                crate::scheduler::CredentialVerdict::Indeterminate(ProviderError::new(
+                    ProviderErrorKind::ProviderUnavailable,
+                    "Anthropic API answered with a server error",
+                ))
+            }
+            HealthStatus::Unknown => crate::scheduler::CredentialVerdict::Indeterminate(
+                ProviderError::invalid_response("models probe answered with an unexpected status"),
+            ),
+        };
+        match self.probe(config, credentials).await {
+            Ok((health, _, _)) => Ok(verdict(health)),
+            // Auth rejections are the only errors that prove the credential
+            // was refused; everything else stays indeterminate.
+            Err(error)
+                if matches!(
+                    error.code,
+                    ProviderErrorKind::AuthExpired | ProviderErrorKind::AuthRequired
+                ) =>
+            {
+                Ok(crate::scheduler::CredentialVerdict::Rejected(error))
+            }
+            Err(error) => Ok(crate::scheduler::CredentialVerdict::Indeterminate(error)),
+        }
+    }
 }
 
 #[async_trait::async_trait]

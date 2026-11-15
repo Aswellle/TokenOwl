@@ -362,7 +362,10 @@ export function createMockBridge(): DashboardBridge {
       if (hasScenario("key-fail")) throw new Error("模拟密钥更新失败");
       const target = accounts.find((account) => account.id === accountId);
       if (!target) throw new Error("模拟账户不存在");
-      return structuredClone(target);
+      return {
+        outcome: "validated_and_saved" as const,
+        account: structuredClone(target),
+      };
     },
     async getProxy() {
       await new Promise((resolve) => setTimeout(resolve, latency()));

@@ -3,6 +3,7 @@ import { copy } from "../../../styles/copy";
 import { bridgeErrorCode, bridgeErrorText } from "../../../lib/tauri";
 import type {
   AccountViewModel,
+  CredentialUpdateResult,
   DashboardBridge,
   GenericOpenAiAccountInput,
 } from "../../../types";
@@ -177,22 +178,33 @@ export function useAccounts(bridge: DashboardBridge) {
     [bridge],
   );
 
-  /** Replaces an account's key; the returned view model already carries the
-   * validating refresh's outcome, success or error alike. */
+  /** Replaces an account's key through the validate-then-commit rotation:
+   * the backend probes the candidate under a one-time reference and only
+   * overwrites the old key when the provider accepted it. The result tells
+   * the dialog whether to close (`validated_and_saved`) or keep the input
+   * with an explanation. */
   const handleUpdateCredential = useCallback(
-    async (accountId: string, apiKey: string): Promise<boolean> => {
+    async (accountId: string, apiKey: string): Promise<CredentialUpdateResult> => {
       setUpdatingKeyId(accountId);
       try {
-        const updated = await bridge.updateAccountCredential(accountId, apiKey);
-        setAccounts((current) =>
-          current.map((account) => (account.id === accountId ? updated : account)),
-        );
+        const result = await bridge.updateAccountCredential(accountId, apiKey);
+        if (result.account) {
+          const account = result.account;
+          setAccounts((current) =>
+            current.map((item) => (item.id === accountId ? account : item)),
+          );
+        }
         setPhase("ready");
         setNotice(null);
-        return true;
-      } catch {
+        return result;
+      } catch (error) {
+        // A thrown IPC error means the command never completed — no key was
+        // written. Surface it as storage-failed so the dialog stays open.
         setNotice({ text: copy.notices.updateKeyFailed, tone: "danger" });
-        return false;
+        return {
+          outcome: "storage_failed",
+          errorCode: bridgeErrorCode(error) ?? "CommandFailed",
+        };
       } finally {
         setUpdatingKeyId(null);
       }

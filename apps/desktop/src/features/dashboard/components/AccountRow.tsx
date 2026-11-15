@@ -7,7 +7,7 @@ import { StatusChip } from "./StatusChip";
 import { formatRelative, displaySource } from "../../../lib/format";
 import { QuotaMetric } from "./QuotaMetric";
 import { Notice } from "./Notice";
-import type { AccountViewModel } from "../../../types";
+import type { AccountViewModel, CredentialUpdateResult } from "../../../types";
 
 const springPanel = { type: "spring", bounce: 0, duration: 0.42 } as const;
 
@@ -56,10 +56,11 @@ export function AccountRow({
   onOpen: () => void;
   onRefresh: () => void;
   onDelete: () => void;
-  onUpdateKey: (apiKey: string) => Promise<boolean>;
+  onUpdateKey: (apiKey: string) => Promise<CredentialUpdateResult>;
 }) {
   const [confirming, setConfirming] = useState(false);
   const [keyDialog, setKeyDialog] = useState(false);
+  const [keyDialogNotice, setKeyDialogNotice] = useState<string | null>(null);
   const keyInputRef = useRef<HTMLInputElement>(null);
   const reduce = useReducedMotion();
   const relative = formatRelative(account.lastUpdatedAt ?? account.snapshots[0]?.observedAt, now);
@@ -259,13 +260,24 @@ export function AccountRow({
                 placeholder={copy.keyUpdate.placeholder}
                 aria-label={copy.keyUpdate.placeholder}
               />
+              {/* The dialog only closes on validated_and_saved: a rejected
+                  or unverifiable key keeps the user's input and explains
+                  what happened instead of pretending nothing did. */}
+              {keyDialogNotice && (
+                <p className="key-confirm__notice" role="status">
+                  {keyDialogNotice}
+                </p>
+              )}
             </div>
             <div className="confirm__actions">
               <button
                 className="btn btn--quiet"
                 type="button"
                 autoFocus
-                onClick={() => setKeyDialog(false)}
+                onClick={() => {
+                  setKeyDialogNotice(null);
+                  setKeyDialog(false);
+                }}
               >
                 {copy.actions.cancel}
               </button>
@@ -276,11 +288,20 @@ export function AccountRow({
                 onClick={() => {
                   const input = keyInputRef.current;
                   if (!input || !input.value.trim()) return;
-                  void onUpdateKey(input.value).then((saved) => {
-                    if (saved) {
+                  void onUpdateKey(input.value).then((result) => {
+                    if (result.outcome === "validated_and_saved") {
                       input.value = "";
+                      setKeyDialogNotice(null);
                       setKeyDialog(false);
+                      return;
                     }
+                    setKeyDialogNotice(
+                      result.outcome === "rejected"
+                        ? copy.keyUpdate.rejected
+                        : result.outcome === "validation_indeterminate"
+                          ? copy.keyUpdate.indeterminate
+                          : copy.keyUpdate.storageFailed,
+                    );
                   });
                 }}
               >

@@ -1,7 +1,7 @@
 //! Provider refresh: one account, one adapter dispatch, one persistence path.
 
 use crate::credentials::CredentialStore;
-use crate::domain::provider::{ProviderError, ProviderErrorKind};
+use crate::domain::provider::{ProviderError, ProviderErrorKind, ProviderResult};
 use crate::domain::state::{BackoffPolicy, RefreshState, retry_after_delay};
 use crate::providers::builtin::openai::OpenAiCompatibleAdapter;
 use crate::storage::{LocalRepository, StorageError};
@@ -123,6 +123,43 @@ async fn native_fetch<A: crate::domain::provider::ProviderAdapter>(
             snapshots: set,
             observed_at: unix_seconds(),
         })
+}
+
+/// What a candidate-credential probe concluded. Only `Rejected` proves the
+/// credential itself was refused; every transport or server condition says
+/// nothing about the key and must never overwrite a working one.
+#[derive(Debug, Clone, PartialEq)]
+pub enum CredentialVerdict {
+    /// An authenticated endpoint answered with 2xx.
+    Verified,
+    /// The provider refused the credential (401/403).
+    Rejected(ProviderError),
+    /// The answer says nothing about the credential (network, timeout,
+    /// rate limit, server outage, unexpected status).
+    Indeterminate(ProviderError),
+}
+
+/// Probes a candidate credential through the adapter the account's wire
+/// format dispatches to. `Err` is reserved for lookup/config failures; the
+/// wire outcome always comes back as a [`CredentialVerdict`].
+pub async fn probe_account_credential(
+    adapter: &OpenAiCompatibleAdapter,
+    anthropic: &crate::providers::builtin::anthropic::AnthropicAdapter,
+    google: &crate::providers::builtin::google::GoogleAiAdapter,
+    config: &crate::domain::provider::OpenAiCompatibleConfig,
+    credentials: &CredentialStore,
+) -> ProviderResult<CredentialVerdict> {
+    match config.effective_wire_format() {
+        crate::domain::provider::WireFormat::Anthropic => {
+            anthropic.probe_credential(config, credentials).await
+        }
+        crate::domain::provider::WireFormat::GoogleAi => {
+            google.probe_credential(config, credentials).await
+        }
+        crate::domain::provider::WireFormat::OpenAiCompatible => {
+            adapter.probe_credential(config, credentials).await
+        }
+    }
 }
 
 fn unix_seconds() -> u64 {

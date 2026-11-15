@@ -109,6 +109,16 @@ pub(crate) struct LanConsentLedger {
 
 impl AppRuntime {
     pub fn new(database_path: impl Into<PathBuf>) -> Result<Self, String> {
+        Self::new_with_service(database_path, CredentialStore::default())
+    }
+
+    /// [`Self::new`] with an explicit credential store. Tests isolate each
+    /// instance under its own service namespace so parallel test runs cannot
+    /// see each other's keyring entries.
+    pub fn new_with_service(
+        database_path: impl Into<PathBuf>,
+        credentials: CredentialStore,
+    ) -> Result<Self, String> {
         let database_path = database_path.into();
         let data_dir = database_path
             .parent()
@@ -121,7 +131,6 @@ impl AppRuntime {
         // credential store under its own reference, so it never lands in
         // SQLite or a log. A keyring failure leaves the transport direct —
         // availability beats guessing at a half-read secret.
-        let credentials = CredentialStore::default();
         let proxy = proxy_setting(&credentials);
         let adapter =
             OpenAiCompatibleAdapter::with_proxy(proxy.clone(), OpenAiCompatibleConfig::default())
@@ -364,31 +373,247 @@ pub async fn accounts_create(
         .ok_or_else(|| CommandError::InvalidInput("created account could not be read".to_owned()))
 }
 
-/// Overwrites an account's API key and validates it with an immediate
-/// refresh of that account.
+/// Replaces an account's API key only after the provider has accepted the
+/// candidate.
 ///
-/// The keyring entry is replaced under the account's existing credential
-/// reference, so the account, provider row and history are untouched — a
-/// revoked or expired key recovers without the destructive delete-and-recreate
-/// path. Validation is the refresh itself: a rejected key surfaces in the
-/// returned view model as the account's error state, and only keyring or
-/// lookup failures become command errors here.
+/// The candidate is written under a one-time keyring reference
+/// (`{ref}/candidate/{nonce}`) and probed through the account's own adapter;
+/// the stable reference is overwritten only on a verified verdict. Auth
+/// rejections, network timeouts, rate limits, server outages, and keyring
+/// failures are distinct outcomes, and every one of them leaves the previous
+/// key in place. Candidate cleanup failures land in the persistent cleanup
+/// queue the startup sweep retries.
 #[tauri::command]
 pub async fn accounts_update_credential(
     app: AppHandle,
     account_id: String,
     api_key: String,
     state: State<'_, Arc<AppRuntime>>,
-) -> Result<AccountViewModel, CommandError> {
-    update_credential(&state, &account_id, &api_key)?;
-    if let Err(error) = refresh_accounts(state.inner(), Some(&app), Some(account_id.clone())).await
-    {
-        tracing::warn!("post-update refresh failed for account {account_id}: {error}");
+) -> Result<CredentialUpdateResult, CommandError> {
+    let credentials = state.credentials.clone();
+    rotate_account_credential_with(
+        state.inner(),
+        Some(&app),
+        &account_id,
+        &api_key,
+        move |reference, secret| credentials.set(reference, secret),
+    )
+    .await
+}
+
+/// The result of a credential update. `outcome` is one of
+/// `validated_and_saved` (the provider accepted the candidate and the stable
+/// reference now carries it), `rejected` (the provider refused it), and
+/// `validation_indeterminate` / `storage_failed` — in all of which the
+/// previous key is untouched. `error_code` is the stable provider/credential
+/// error kind where one exists; `account` carries the post-operation view
+/// when one is readable.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CredentialUpdateResult {
+    pub outcome: &'static str,
+    pub error_code: Option<String>,
+    pub retry_at: Option<String>,
+    pub account: Option<AccountViewModel>,
+}
+
+/// Keyring reference of one candidate credential. One-time: it exists only
+/// for the probe request and is deleted afterwards, whatever the verdict.
+pub(super) fn candidate_credential_ref(reference: &str) -> String {
+    format!("{reference}/candidate/{}", nanoid::nanoid!(12))
+}
+
+/// The full rotation flow, split from the command so tests can drive it
+/// without a Tauri `State`. `handle` only gates the event emission; the
+/// credential boundaries are identical either way.
+pub async fn rotate_account_credential(
+    runtime: &Arc<AppRuntime>,
+    handle: Option<&AppHandle>,
+    account_id: &str,
+    api_key: &str,
+) -> Result<CredentialUpdateResult, CommandError> {
+    let credentials = runtime.credentials.clone();
+    rotate_account_credential_with(
+        runtime,
+        handle,
+        account_id,
+        api_key,
+        move |reference, secret| credentials.set(reference, secret),
+    )
+    .await
+}
+
+/// [`rotate_account_credential`] with the candidate's keyring write injected,
+/// so tests can exercise the store-failure branch without mocking the OS.
+pub async fn rotate_account_credential_with(
+    runtime: &Arc<AppRuntime>,
+    handle: Option<&AppHandle>,
+    account_id: &str,
+    api_key: &str,
+    set_candidate: impl Fn(&str, &str) -> Result<(), crate::credentials::CredentialError>,
+) -> Result<CredentialUpdateResult, CommandError> {
+    let key = api_key.trim();
+    if key.is_empty() {
+        return Err(CommandError::InvalidInput(
+            "api key must not be empty".to_owned(),
+        ));
     }
-    list_accounts(&state)?
+    let repository = runtime.repository()?;
+    let account = repository
+        .account(account_id)?
+        .ok_or_else(|| CommandError::InvalidInput("account not found".to_owned()))?;
+    let reference = account.credential_ref.clone().ok_or_else(|| {
+        CommandError::InvalidInput("account does not store a keyring credential".to_owned())
+    })?;
+    let config = repository
+        .provider(&account.provider_id)?
+        .ok_or_else(|| CommandError::InvalidInput("provider not found".to_owned()))?;
+
+    let no_account =
+        |outcome: &'static str, error_code: Option<String>, retry_at: Option<String>| {
+            CredentialUpdateResult {
+                outcome,
+                error_code,
+                retry_at,
+                account: None,
+            }
+        };
+
+    // 1. The candidate rides its own one-time keyring reference. A store
+    //    failure here ends the rotation before any request is spent.
+    let candidate_ref = candidate_credential_ref(&reference);
+    if let Err(error) = set_candidate(&candidate_ref, key) {
+        return Ok(no_account(
+            "storage_failed",
+            Some(cleanup_error_code(&error).to_owned()),
+            None,
+        ));
+    }
+    // 2. Probe through the account's own adapter with the candidate
+    //    reference; the stable reference is not read or written yet.
+    let mut probe_config = config.clone();
+    probe_config.credential_ref = Some(candidate_ref.clone());
+    let verdict = crate::scheduler::probe_account_credential(
+        &runtime.adapter,
+        &runtime.anthropic,
+        &runtime.google,
+        &probe_config,
+        &runtime.credentials,
+    )
+    .await;
+    // 3. The candidate reference dies whatever the verdict was; a failed
+    //    delete is queued for the startup sweep instead of leaking a secret.
+    if let Err(error) = runtime.credentials.delete(&candidate_ref)
+        && let Ok(cleanup_repository) = runtime.repository()
+    {
+        let _ = record_pending_cleanup(
+            &cleanup_repository,
+            &candidate_ref,
+            cleanup_error_code(&error),
+            unix_seconds(),
+        );
+    }
+
+    match verdict {
+        Ok(crate::scheduler::CredentialVerdict::Verified) => {
+            commit_candidate(runtime, handle, account_id, key).await
+        }
+        Ok(crate::scheduler::CredentialVerdict::Rejected(error)) => {
+            tracing::warn!(account = %account_id, code = %error.code.name(), "candidate credential rejected");
+            Ok(uncommitted_result(
+                runtime,
+                "rejected",
+                error.code.name(),
+                error.retry_at,
+                account_id,
+            )?)
+        }
+        Ok(crate::scheduler::CredentialVerdict::Indeterminate(error)) => {
+            tracing::warn!(account = %account_id, code = %error.code.name(), "candidate credential validation indeterminate");
+            Ok(uncommitted_result(
+                runtime,
+                "validation_indeterminate",
+                error.code.name(),
+                error.retry_at,
+                account_id,
+            )?)
+        }
+        Err(error) => {
+            tracing::warn!(account = %account_id, code = %error.code.name(), "candidate credential probe could not run");
+            Ok(uncommitted_result(
+                runtime,
+                "validation_indeterminate",
+                error.code.name(),
+                None,
+                account_id,
+            )?)
+        }
+    }
+}
+
+/// The verified path: commit the candidate under the stable reference, then
+/// refresh the account so the UI picks up real quota data. A failed commit
+/// reports `storage_failed` with the previous key still in place.
+async fn commit_candidate(
+    runtime: &Arc<AppRuntime>,
+    handle: Option<&AppHandle>,
+    account_id: &str,
+    key: &str,
+) -> Result<CredentialUpdateResult, CommandError> {
+    // The keyring replaces atomically: a failed set leaves the previous key
+    // in the store.
+    if let Err(error) = update_credential(runtime, account_id, key) {
+        let code = match &error {
+            CommandError::Credential(credential_error) => {
+                cleanup_error_code(credential_error).to_owned()
+            }
+            _ => "Storage".to_owned(),
+        };
+        let view = list_accounts(runtime)?
+            .into_iter()
+            .find(|view| view.id == account_id);
+        return Ok(CredentialUpdateResult {
+            outcome: "storage_failed",
+            error_code: Some(code),
+            retry_at: None,
+            account: view,
+        });
+    }
+    // Post-commit refresh best-effort: the probe already proved the key; the
+    // refresh brings real quota data into the UI.
+    if let Err(error) = refresh_accounts(runtime, handle, Some(account_id.to_owned())).await {
+        tracing::warn!("post-rotation refresh failed for account {account_id}: {error}");
+    }
+    let view = list_accounts(runtime)?
         .into_iter()
-        .find(|item| item.id == account_id)
-        .ok_or_else(|| CommandError::InvalidInput("updated account could not be read".to_owned()))
+        .find(|view| view.id == account_id);
+    Ok(CredentialUpdateResult {
+        outcome: "validated_and_saved",
+        error_code: None,
+        retry_at: None,
+        account: view,
+    })
+}
+
+/// The result for every verdict that did NOT commit the candidate: the
+/// stable reference still carries the old key, and the account view reflects
+/// the pre-rotation state.
+fn uncommitted_result(
+    runtime: &Arc<AppRuntime>,
+    outcome: &'static str,
+    error_code: &str,
+    retry_at: Option<String>,
+    account_id: &str,
+) -> Result<CredentialUpdateResult, CommandError> {
+    let view = list_accounts(runtime)?
+        .into_iter()
+        .find(|view| view.id == account_id);
+    Ok(CredentialUpdateResult {
+        outcome,
+        error_code: Some(error_code.to_owned()),
+        retry_at,
+        account: view,
+    })
 }
 
 #[tauri::command]
@@ -425,7 +650,7 @@ pub fn accounts_delete(
 }
 
 /// Settings key holding credential deletions that failed and must be retried.
-pub(super) const CLEANUP_SETTING_KEY: &str = "credential_cleanup_pending";
+pub const CLEANUP_SETTING_KEY: &str = "credential_cleanup_pending";
 
 /// One orphaned credential reference waiting for a retry. Only the stable
 /// error code is kept — never the secret, and never the store's raw error

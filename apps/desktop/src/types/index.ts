@@ -65,6 +65,16 @@ export interface AccountViewModel {
   capabilityLevel?: string | null;
 }
 
+/** Result of a credential update. Only `validated_and_saved` means the
+ * provider accepted the new key and it replaced the old one; every other
+ * outcome leaves the previous key untouched. */
+export interface CredentialUpdateResult {
+  outcome: "validated_and_saved" | "rejected" | "validation_indeterminate" | "storage_failed";
+  errorCode?: string | null;
+  retryAt?: string | null;
+  account?: AccountViewModel | null;
+}
+
 export interface GenericOpenAiAccountInput {
   /** "generic.openai_compatible" or a built-in provider id ("deepseek", …). */
   providerId: string;
@@ -242,7 +252,7 @@ export interface DashboardBridge {
   deleteAccount(accountId: string): Promise<void>;
   /** Replaces an account's API key in place (history preserved) and returns
    * the account after the validating refresh. */
-  updateAccountCredential(accountId: string, apiKey: string): Promise<AccountViewModel>;
+  updateAccountCredential(accountId: string, apiKey: string): Promise<CredentialUpdateResult>;
   refresh(accountId?: string): Promise<AccountViewModel[]>;
   checkForUpdate(): Promise<UpdateInfo | null>;
   installUpdate(): Promise<void>;

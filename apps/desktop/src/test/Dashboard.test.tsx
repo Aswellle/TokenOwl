@@ -189,7 +189,10 @@ describe("Dashboard state machine", () => {
     const errorAccount = { ...mockAccount, status: "error" as const, errorCode: "AuthExpired" };
     const refreshed = { ...errorAccount, status: "healthy" as const };
     mockListAccounts.mockResolvedValue([errorAccount]);
-    mockUpdateAccountCredential.mockResolvedValue(refreshed);
+    mockUpdateAccountCredential.mockResolvedValue({
+      outcome: "validated_and_saved",
+      account: refreshed,
+    });
     render(<App />);
     await waitFor(() => expect(screen.getByText("Test Account")).toBeInTheDocument());
 

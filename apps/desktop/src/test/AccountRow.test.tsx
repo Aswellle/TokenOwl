@@ -42,7 +42,7 @@ describe("AccountRow", () => {
         refreshing={false}
         deleting={false}
         updatingKey={false}
-        onUpdateKey={vi.fn(async () => true)}
+        onUpdateKey={vi.fn(async () => ({ outcome: "validated_and_saved" as const }))}
         onOpen={() => {}}
         onRefresh={() => {}}
         onDelete={() => {}}
@@ -61,7 +61,7 @@ describe("AccountRow", () => {
         refreshing={false}
         deleting={false}
         updatingKey={false}
-        onUpdateKey={vi.fn(async () => true)}
+        onUpdateKey={vi.fn(async () => ({ outcome: "validated_and_saved" as const }))}
         onOpen={() => {}}
         onRefresh={() => {}}
         onDelete={() => {}}
@@ -81,7 +81,7 @@ describe("AccountRow", () => {
         refreshing={false}
         deleting={false}
         updatingKey={false}
-        onUpdateKey={vi.fn(async () => true)}
+        onUpdateKey={vi.fn(async () => ({ outcome: "validated_and_saved" as const }))}
         onOpen={onOpen}
         onRefresh={onRefresh}
         onDelete={() => {}}
@@ -107,7 +107,7 @@ describe("AccountRow", () => {
         refreshing={false}
         deleting={false}
         updatingKey={false}
-        onUpdateKey={vi.fn(async () => true)}
+        onUpdateKey={vi.fn(async () => ({ outcome: "validated_and_saved" as const }))}
         onOpen={() => {}}
         onRefresh={() => {}}
         onDelete={onDelete}
@@ -136,7 +136,7 @@ describe("AccountRow", () => {
         refreshing={true}
         deleting={false}
         updatingKey={false}
-        onUpdateKey={vi.fn(async () => true)}
+        onUpdateKey={vi.fn(async () => ({ outcome: "validated_and_saved" as const }))}
         onOpen={() => {}}
         onRefresh={() => {}}
         onDelete={() => {}}
@@ -156,7 +156,7 @@ describe("AccountRow", () => {
         refreshing={false}
         deleting={false}
         updatingKey={false}
-        onUpdateKey={vi.fn(async () => true)}
+        onUpdateKey={vi.fn(async () => ({ outcome: "validated_and_saved" as const }))}
         onOpen={() => {}}
         onRefresh={() => {}}
         onDelete={() => {}}
@@ -180,7 +180,7 @@ describe("AccountRow", () => {
         refreshing={false}
         deleting={false}
         updatingKey={false}
-        onUpdateKey={vi.fn(async () => true)}
+        onUpdateKey={vi.fn(async () => ({ outcome: "validated_and_saved" as const }))}
         onOpen={() => {}}
         onRefresh={() => {}}
         onDelete={() => {}}
@@ -207,7 +207,7 @@ describe("AccountRow", () => {
         refreshing={false}
         deleting={false}
         updatingKey={false}
-        onUpdateKey={vi.fn(async () => true)}
+        onUpdateKey={vi.fn(async () => ({ outcome: "validated_and_saved" as const }))}
         onOpen={() => {}}
         onRefresh={() => {}}
         onDelete={() => {}}
@@ -232,7 +232,7 @@ describe("AccountRow", () => {
         refreshing={false}
         deleting={false}
         updatingKey={false}
-        onUpdateKey={vi.fn(async () => true)}
+        onUpdateKey={vi.fn(async () => ({ outcome: "validated_and_saved" as const }))}
         onOpen={() => {}}
         onRefresh={() => {}}
         onDelete={() => {}}
@@ -257,7 +257,7 @@ describe("AccountRow", () => {
         refreshing={false}
         deleting={false}
         updatingKey={false}
-        onUpdateKey={vi.fn(async () => true)}
+        onUpdateKey={vi.fn(async () => ({ outcome: "validated_and_saved" as const }))}
         onOpen={() => {}}
         onRefresh={() => {}}
         onDelete={() => {}}
@@ -282,7 +282,7 @@ describe("AccountRow", () => {
         refreshing={false}
         deleting={false}
         updatingKey={false}
-        onUpdateKey={vi.fn(async () => true)}
+        onUpdateKey={vi.fn(async () => ({ outcome: "validated_and_saved" as const }))}
         onOpen={() => {}}
         onRefresh={() => {}}
         onDelete={() => {}}
@@ -308,7 +308,7 @@ describe("AccountRow", () => {
         refreshing={false}
         deleting={false}
         updatingKey={false}
-        onUpdateKey={vi.fn(async () => true)}
+        onUpdateKey={vi.fn(async () => ({ outcome: "validated_and_saved" as const }))}
         onOpen={() => {}}
         onRefresh={() => {}}
         onDelete={() => {}}
@@ -316,5 +316,72 @@ describe("AccountRow", () => {
     );
     expect(screen.queryByRole("button", { name: /更新账户 Test Account 的 API 密钥/ })).not.toBeInTheDocument();
     expect(screen.queryByText(/供应商正在限流/)).not.toBeInTheDocument();
+  });
+
+  it("keeps the key dialog open with an explanation when the key is rejected", async () => {
+    render(
+      <AccountRow
+        account={{
+          ...mockAccount,
+          status: "error",
+          freshness: "unknown",
+          snapshots: [],
+          errorCode: "AuthExpired",
+        }}
+        index={0}
+        now={Date.now()}
+        refreshing={false}
+        deleting={false}
+        updatingKey={false}
+        onUpdateKey={vi.fn(async () => ({ outcome: "rejected" as const, errorCode: "AuthRequired" }))}
+        onOpen={() => {}}
+        onRefresh={() => {}}
+        onDelete={() => {}}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /更新账户 Test Account 的 API 密钥/ }));
+    const input = screen.getByLabelText("新的 API 密钥");
+    fireEvent.change(input, { target: { value: "sk-wrong" } });
+    fireEvent.click(screen.getByRole("button", { name: "保存并验证" }));
+
+    // The provider refused the key: the dialog stays open, the typed input
+    // stays in the field, and the notice names what to do next.
+    expect(await screen.findByText(/新密钥被供应商拒绝/)).toBeInTheDocument();
+    expect(screen.getByLabelText("新的 API 密钥")).toBeInTheDocument();
+    expect((screen.getByLabelText("新的 API 密钥") as HTMLInputElement).value).toBe("sk-wrong");
+  });
+
+  it("keeps the key dialog open when validation is indeterminate", async () => {
+    render(
+      <AccountRow
+        account={{
+          ...mockAccount,
+          status: "error",
+          freshness: "unknown",
+          snapshots: [],
+          errorCode: "AuthExpired",
+        }}
+        index={0}
+        now={Date.now()}
+        refreshing={false}
+        deleting={false}
+        updatingKey={false}
+        onUpdateKey={vi.fn(async () => ({
+          outcome: "validation_indeterminate" as const,
+          errorCode: "Timeout",
+        }))}
+        onOpen={() => {}}
+        onRefresh={() => {}}
+        onDelete={() => {}}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /更新账户 Test Account 的 API 密钥/ }));
+    fireEvent.change(screen.getByLabelText("新的 API 密钥"), {
+      target: { value: "sk-unknown" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "保存并验证" }));
+
+    expect(await screen.findByText(/暂时无法验证新密钥/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "保存并验证" })).toBeInTheDocument();
   });
 });

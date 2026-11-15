@@ -376,6 +376,53 @@ impl OpenAiCompatibleAdapter {
                 "provider declares no models endpoint to probe",
             ));
         };
+        self.probe_endpoint(config, endpoint, credentials).await
+    }
+
+    /// Credential verdict for a candidate key: probes the models endpoint
+    /// when the provider declares one, else its first quota-bearing
+    /// endpoint. A 2xx body the app cannot parse still proves the
+    /// credential — authentication happens at the HTTP layer.
+    pub async fn probe_credential(
+        &self,
+        config: &OpenAiCompatibleConfig,
+        credentials: &CredentialStore,
+    ) -> ProviderResult<crate::scheduler::CredentialVerdict> {
+        config.validate()?;
+        let outcome = if config.models_endpoint.is_some() {
+            self.probe_models(config, credentials).await?
+        } else {
+            match configured_quota_endpoints(config).into_iter().next() {
+                Some((_kind, endpoint)) => {
+                    self.probe_endpoint(config, endpoint, credentials).await?
+                }
+                None => {
+                    return Err(ProviderError::new(
+                        ProviderErrorKind::UnsupportedCapability,
+                        "provider declares no endpoint to probe",
+                    ));
+                }
+            }
+        };
+        Ok(match outcome {
+            ProbeOutcome::Verified | ProbeOutcome::Malformed(_) => {
+                crate::scheduler::CredentialVerdict::Verified
+            }
+            ProbeOutcome::Rejected(error) => crate::scheduler::CredentialVerdict::Rejected(error),
+            ProbeOutcome::Indeterminate(error) => {
+                crate::scheduler::CredentialVerdict::Indeterminate(error)
+            }
+        })
+    }
+
+    /// One GET against an endpoint, classified through the shared probe
+    /// verdicts. The request never carries a body or query.
+    async fn probe_endpoint(
+        &self,
+        config: &OpenAiCompatibleConfig,
+        endpoint: &str,
+        credentials: &CredentialStore,
+    ) -> ProviderResult<ProbeOutcome> {
         let url = endpoint_url(config, endpoint)?;
         let headers = request_headers(config, credentials)?;
         let request = self
@@ -385,7 +432,7 @@ impl OpenAiCompatibleAdapter {
             .header("accept", "application/json");
         let outcome = self.client.send_capped(request).await;
         Ok(match outcome {
-            Ok(response) => classify_models_response(&response),
+            Ok(response) => classify_probe_response(&response),
             Err(error) => ProbeOutcome::Indeterminate(error),
         })
     }
@@ -425,9 +472,10 @@ pub enum ProbeOutcome {
     Malformed(ProviderError),
 }
 
-/// Pure wire-status classification for the models probe. A 2xx must at least
-/// be JSON to count as verified — the model list itself is never retained.
-fn classify_models_response(response: &crate::domain::provider::ProviderResponse) -> ProbeOutcome {
+/// Pure wire-status classification shared by the models probe and the
+/// candidate-credential probe. A 2xx must at least be JSON to count as
+/// verified — the payload itself is never retained.
+fn classify_probe_response(response: &crate::domain::provider::ProviderResponse) -> ProbeOutcome {
     match response.status {
         200..=299 => match serde_json::from_str::<serde_json::Value>(&response.body) {
             Ok(_) => ProbeOutcome::Verified,
@@ -880,17 +928,17 @@ mod tests {
     fn models_probe_classification_covers_every_status_class() {
         use crate::domain::provider::ProviderResponse;
         assert_eq!(
-            classify_models_response(&ProviderResponse::new(200, r#"{"data":[]}"#)),
+            classify_probe_response(&ProviderResponse::new(200, r#"{"data":[]}"#)),
             ProbeOutcome::Verified
         );
-        let rejected = classify_models_response(&ProviderResponse::new(401, "{}"));
+        let rejected = classify_probe_response(&ProviderResponse::new(401, "{}"));
         let ProbeOutcome::Rejected(error) = rejected else {
             panic!("401 must reject");
         };
         assert_eq!(error.code, ProviderErrorKind::AuthRequired);
         assert_eq!(error.http_status, Some(401));
 
-        let limited = classify_models_response(
+        let limited = classify_probe_response(
             &ProviderResponse::new(429, "{}").with_header("Retry-After", "30"),
         );
         let ProbeOutcome::Indeterminate(error) = limited else {
@@ -899,10 +947,10 @@ mod tests {
         assert_eq!(error.code, ProviderErrorKind::RateLimited);
         assert_eq!(error.retry_at.as_deref(), Some("30"));
 
-        let server_error = classify_models_response(&ProviderResponse::new(503, "{}"));
+        let server_error = classify_probe_response(&ProviderResponse::new(503, "{}"));
         assert!(matches!(server_error, ProbeOutcome::Indeterminate(_)));
 
-        let unexpected = classify_models_response(&ProviderResponse::new(302, ""));
+        let unexpected = classify_probe_response(&ProviderResponse::new(302, ""));
         assert!(matches!(unexpected, ProbeOutcome::Indeterminate(_)));
     }
 
@@ -911,7 +959,7 @@ mod tests {
     #[test]
     fn models_probe_2xx_non_json_body_is_malformed_not_verified() {
         use crate::domain::provider::ProviderResponse;
-        let outcome = classify_models_response(&ProviderResponse::new(200, "<html>gateway</html>"));
+        let outcome = classify_probe_response(&ProviderResponse::new(200, "<html>gateway</html>"));
         let ProbeOutcome::Malformed(error) = outcome else {
             panic!("non-JSON 2xx must be malformed");
         };

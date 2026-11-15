@@ -117,6 +117,54 @@ impl GoogleAiAdapter {
             _ => Ok(ProbeOutcome::UnknownStatus(status)),
         }
     }
+
+    /// Credential verdict for a candidate key, through the same models
+    /// probe the refresh uses. A transport outage or rate limit says
+    /// nothing about the credential and must never read as a rejection.
+    pub async fn probe_credential(
+        &self,
+        config: &OpenAiCompatibleConfig,
+        credentials: &CredentialStore,
+    ) -> ProviderResult<crate::scheduler::CredentialVerdict> {
+        match self.probe(config, credentials).await {
+            Ok(ProbeOutcome::Healthy) => Ok(crate::scheduler::CredentialVerdict::Verified),
+            Ok(ProbeOutcome::Rejected(status)) => Ok(
+                crate::scheduler::CredentialVerdict::Rejected(auth_error(status)),
+            ),
+            Ok(ProbeOutcome::RateLimited) => {
+                Ok(crate::scheduler::CredentialVerdict::Indeterminate(
+                    ProviderError::rate_limited(429, None),
+                ))
+            }
+            Ok(ProbeOutcome::ServerError(status)) => {
+                Ok(crate::scheduler::CredentialVerdict::Indeterminate(
+                    ProviderError::new(
+                        ProviderErrorKind::ProviderUnavailable,
+                        "Gemini API answered with a server error",
+                    )
+                    .with_status(status),
+                ))
+            }
+            Ok(ProbeOutcome::UnknownStatus(status)) => {
+                Ok(crate::scheduler::CredentialVerdict::Indeterminate(
+                    ProviderError::new(
+                        ProviderErrorKind::InvalidResponse,
+                        "models probe answered with an unexpected status",
+                    )
+                    .with_status(status),
+                ))
+            }
+            Err(error)
+                if matches!(
+                    error.code,
+                    ProviderErrorKind::AuthExpired | ProviderErrorKind::AuthRequired
+                ) =>
+            {
+                Ok(crate::scheduler::CredentialVerdict::Rejected(error))
+            }
+            Err(error) => Ok(crate::scheduler::CredentialVerdict::Indeterminate(error)),
+        }
+    }
 }
 
 enum ProbeOutcome {

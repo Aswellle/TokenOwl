@@ -1329,6 +1329,13 @@ button:disabled {
   text-wrap: pretty;
 }
 
+.key-confirm__notice {
+  color: var(--warning);
+  font-size: var(--step--1);
+  line-height: 1.55;
+  text-wrap: pretty;
+}
+
 .key-confirm__input {
   width: 100%;
   padding: 7px 10px;

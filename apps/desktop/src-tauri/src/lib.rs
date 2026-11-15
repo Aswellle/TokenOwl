@@ -7,6 +7,7 @@ pub mod providers;
 pub mod scheduler;
 pub mod storage;
 pub mod telemetry;
+pub mod usage;
 
 pub mod notifications;
 pub use app::run;

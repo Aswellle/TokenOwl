@@ -28,12 +28,14 @@ mod history;
 mod lan;
 mod notifications;
 mod settings;
+mod usage;
 
 pub use accounts::*;
 pub use history::*;
 pub use lan::*;
 pub use notifications::*;
 pub use settings::*;
+pub use usage::*;
 
 /// Opens the project's GitHub page in the system browser. The URL is a
 /// compile-time constant: the webview never picks arbitrary external URLs.

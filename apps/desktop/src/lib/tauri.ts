@@ -4,6 +4,8 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import type {
   AccountViewModel,
   CredentialUpdateResult,
+  LocalUsageSourceView,
+  LocalUsageSummary,
   DashboardBridge,
   GenericOpenAiAccountInput,
   HistoryDayBreakdownViewModel,
@@ -95,6 +97,13 @@ export const tauriBridge: DashboardBridge = {  listAccounts: () => invoke<Accoun
     invoke<UsageWindowsViewModel>("usage_windows", accountId ? { accountId } : undefined),
   getProxy: () => invoke<string | null>("proxy_get"),
   setProxy: (url: string | null) => invoke<void>("proxy_set", { url }),
+  localUsageSources: () => invoke<LocalUsageSourceView>("local_usage_sources_get"),
+  setLocalUsageSource: (sourceId: string, enabled: boolean) =>
+    invoke<void>("local_usage_source_set", { sourceId, enabled }),
+  scanLocalUsage: () => invoke<unknown[]>("local_usage_scan").then(() => []),
+  localUsageSummary: (days?: number) =>
+    invoke<LocalUsageSummary>("local_usage_summary", days ? { days } : undefined),
+  clearLocalUsage: () => invoke<number>("local_usage_clear"),
   getDockCollapsed: () => invoke<boolean>("dock_state_get"),
   setDockCollapsed: (collapsed: boolean) =>
     invoke<void>("dock_state_set", { collapsed }),

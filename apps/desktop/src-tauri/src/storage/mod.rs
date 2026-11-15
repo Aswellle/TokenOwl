@@ -11,6 +11,7 @@ use crate::domain::provider::{
 use crate::domain::state::{
     AccountMetadata, Freshness, FreshnessPolicy, RefreshState, RefreshStatus,
 };
+use crate::usage::LocalUsageEvent;
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
@@ -95,6 +96,18 @@ pub struct HistorySample {
     pub limit: Option<f64>,
     pub unit: String,
     pub currency: Option<String>,
+}
+
+/// One aggregated local-usage day/model row. Token classes never merge.
+#[derive(Clone, Debug, PartialEq)]
+pub struct LocalUsageDayRow {
+    pub day_start_unix: i64,
+    pub model: String,
+    pub input_tokens: i64,
+    pub output_tokens: i64,
+    pub cache_read_tokens: i64,
+    pub cache_write_tokens: i64,
+    pub event_count: i64,
 }
 
 /// History observations older than this are pruned whenever new ones land.
@@ -689,6 +702,117 @@ impl LocalRepository {
             "UPDATE notifications SET read_at = ?1 WHERE read_at IS NULL",
             [now],
         )?)
+    }
+
+    /// Inserts new local usage events; returns how many were actually new.
+    /// The (`source_id`, `source_event_id`) unique pair makes re-scans
+    /// idempotent — duplicates are ignored, never updated or duplicated.
+    /// The unix copy of `occurred_at` is computed here so the scanner cannot
+    /// store an unparsable timestamp silently.
+    pub fn insert_local_usage_events(
+        &self,
+        source_id: &str,
+        events: &[LocalUsageEvent],
+        scanned_at: u64,
+    ) -> Result<usize, StorageError> {
+        let mut inserted = 0usize;
+        let transaction = self.connection.unchecked_transaction()?;
+        for event in events {
+            let occurred_at_unix = chrono::DateTime::parse_from_rfc3339(&event.occurred_at)
+                .map_err(|_| {
+                    StorageError::InvalidData(
+                        "local usage event carries a non-RFC3339 timestamp".to_owned(),
+                    )
+                })?
+                .timestamp();
+            let changed = transaction.execute(
+                "INSERT OR IGNORE INTO local_usage_events
+                    (source_id, source_event_id, occurred_at, occurred_at_unix,
+                     session_id, model, project_ref, input_tokens, output_tokens,
+                     cache_read_tokens, cache_write_tokens, cost_estimate, scanned_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+                params![
+                    source_id,
+                    event.source_event_id,
+                    event.occurred_at,
+                    occurred_at_unix,
+                    event.session_id,
+                    event.model,
+                    event.project_ref,
+                    event.input_tokens.and_then(|v| i64::try_from(v).ok()),
+                    event.output_tokens.and_then(|v| i64::try_from(v).ok()),
+                    event.cache_read_tokens.and_then(|v| i64::try_from(v).ok()),
+                    event.cache_write_tokens.and_then(|v| i64::try_from(v).ok()),
+                    event.cost_estimate,
+                    scanned_at,
+                ],
+            )?;
+            inserted += changed;
+        }
+        transaction.commit()?;
+        Ok(inserted)
+    }
+
+    /// Per-day, per-model totals of local usage inside `[from, to)` (unix
+    /// seconds). Different token classes stay separate; cost is always
+    /// unknown because no price table ships with the app.
+    pub fn local_usage_daily(
+        &self,
+        from: u64,
+        to: u64,
+    ) -> Result<Vec<LocalUsageDayRow>, StorageError> {
+        let mut statement = self.connection.prepare(
+            "SELECT occurred_at_unix / 86400 * 86400 AS day_bucket,
+                    COALESCE(model, 'unknown') AS model,
+                    SUM(COALESCE(input_tokens, 0)),
+                    SUM(COALESCE(output_tokens, 0)),
+                    SUM(COALESCE(cache_read_tokens, 0)),
+                    SUM(COALESCE(cache_write_tokens, 0)),
+                    COUNT(*)
+               FROM local_usage_events
+              WHERE occurred_at_unix >= ?1 AND occurred_at_unix < ?2
+              GROUP BY day_bucket, model
+              ORDER BY day_bucket DESC, model",
+        )?;
+        let rows = statement.query_map(params![from, to], |row| {
+            Ok(LocalUsageDayRow {
+                day_start_unix: row.get(0)?,
+                model: row.get(1)?,
+                input_tokens: row.get::<_, Option<i64>>(2)?.unwrap_or(0),
+                output_tokens: row.get::<_, Option<i64>>(3)?.unwrap_or(0),
+                cache_read_tokens: row.get::<_, Option<i64>>(4)?.unwrap_or(0),
+                cache_write_tokens: row.get::<_, Option<i64>>(5)?.unwrap_or(0),
+                event_count: row.get(6)?,
+            })
+        })?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(StorageError::from)
+    }
+
+    /// Number of stored local usage events per source, for the source
+    /// status card.
+    pub fn local_usage_counts(&self) -> Result<Vec<(String, i64)>, StorageError> {
+        let mut statement = self.connection.prepare(
+            "SELECT source_id, COUNT(*) FROM local_usage_events GROUP BY source_id ORDER BY source_id",
+        )?;
+        let rows = statement.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(StorageError::from)
+    }
+
+    /// Removes every local usage event — the explicit "delete this source's
+    /// data" action behind the opt-in toggle.
+    pub fn clear_local_usage_events(&self, source_id: Option<&str>) -> Result<usize, StorageError> {
+        let changed = match source_id {
+            Some(source) => self.connection.execute(
+                "DELETE FROM local_usage_events WHERE source_id = ?1",
+                [source],
+            )?,
+            None => self
+                .connection
+                .execute("DELETE FROM local_usage_events", [])?,
+        };
+        Ok(changed)
     }
 
     /// Bounds history growth: drops rows older than `retention_secs`, then

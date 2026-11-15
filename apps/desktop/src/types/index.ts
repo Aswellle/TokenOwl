@@ -80,6 +80,46 @@ export interface AccountViewModel {
   capabilityLevel?: string | null;
 }
 
+/** A known local coding-agent usage source and its privacy contract. */
+export interface LocalUsageSourceInfo {
+  id: string;
+  name: string;
+  directories: string[];
+  fileTypes: string[];
+  collected: string[];
+  neverCollected: string[];
+  verified: boolean;
+}
+
+export interface LocalUsageSourceView {
+  sources: LocalUsageSourceInfo[];
+  enabled: string[];
+}
+
+export interface LocalUsageScanResult {
+  sourceId: string;
+  scannedFiles: number;
+  newEvents: number;
+  skipped: string[];
+  errors: string[];
+}
+
+export interface LocalUsageDayView {
+  dayStartUnix: number;
+  model: string;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  eventCount: number;
+}
+
+export interface LocalUsageSummary {
+  days: LocalUsageDayView[];
+  totals: LocalUsageDayView;
+  sourceCounts: Array<[string, number]>;
+}
+
 /** Result of a credential update. Only `validated_and_saved` means the
  * provider accepted the new key and it replaced the old one; every other
  * outcome leaves the previous key untouched. */
@@ -268,6 +308,11 @@ export interface DashboardBridge {
   /** Replaces an account's API key in place (history preserved) and returns
    * the account after the validating refresh. */
   updateAccountCredential(accountId: string, apiKey: string): Promise<CredentialUpdateResult>;
+  localUsageSources(): Promise<LocalUsageSourceView>;
+  setLocalUsageSource(sourceId: string, enabled: boolean): Promise<void>;
+  scanLocalUsage(): Promise<LocalUsageScanResult[]>;
+  localUsageSummary(days?: number): Promise<LocalUsageSummary>;
+  clearLocalUsage(): Promise<number>;
   refresh(accountId?: string): Promise<AccountViewModel[]>;
   checkForUpdate(): Promise<UpdateInfo | null>;
   installUpdate(): Promise<void>;

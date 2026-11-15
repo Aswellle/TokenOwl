@@ -64,8 +64,28 @@ function makeBridge(overrides: Partial<DashboardBridge> = {}): DashboardBridge {
     ),
     deleteAccount: vi.fn(async () => {}),
     updateAccountCredential: vi.fn(async () => {
-      throw new Error("not expected in notification tests");
+      throw new Error("not used");
     }),
+    localUsageSources: vi.fn(async () => ({
+      sources: [],
+      enabled: [],
+    })),
+    setLocalUsageSource: vi.fn(async () => {}),
+    scanLocalUsage: vi.fn(async () => []),
+    localUsageSummary: vi.fn(async () => ({
+      days: [],
+      totals: {
+        dayStartUnix: 0,
+        model: "total",
+        inputTokens: 0,
+        outputTokens: 0,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        eventCount: 0,
+      },
+      sourceCounts: [],
+    })),
+    clearLocalUsage: vi.fn(async () => 0),
     refresh: vi.fn(async () => []),
     checkForUpdate: vi.fn(async () => null),
     installUpdate: vi.fn(async () => {}),

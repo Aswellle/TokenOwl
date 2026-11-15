@@ -367,6 +367,53 @@ export function createMockBridge(): DashboardBridge {
         account: structuredClone(target),
       };
     },
+    async localUsageSources() {
+      return {
+        sources: [
+          {
+            id: "claude-code",
+            name: "Claude Code",
+            directories: ["~/.claude/projects"],
+            fileTypes: ["*.jsonl"],
+            collected: ["时间戳", "会话 ID", "模型名", "项目标识", "四类 Token 计数"],
+            neverCollected: ["提示词正文", "回复正文", "源码片段"],
+            verified: true,
+          },
+          {
+            id: "codex",
+            name: "Codex CLI",
+            directories: ["~/.codex/sessions"],
+            fileTypes: ["*.jsonl"],
+            collected: ["时间戳", "会话 ID", "模型名", "三类 Token 计数"],
+            neverCollected: ["提示词正文", "回复正文", "工作目录路径"],
+            verified: false,
+          },
+        ],
+        enabled: [],
+      };
+    },
+    async setLocalUsageSource() {},
+    async scanLocalUsage() {
+      return [];
+    },
+    async localUsageSummary() {
+      return {
+        days: [],
+        totals: {
+          dayStartUnix: 0,
+          model: "total",
+          inputTokens: 0,
+          outputTokens: 0,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          eventCount: 0,
+        },
+        sourceCounts: [],
+      };
+    },
+    async clearLocalUsage() {
+      return 0;
+    },
     async getProxy() {
       await new Promise((resolve) => setTimeout(resolve, latency()));
       return hasScenario("proxy-set") ? "http://127.0.0.1:7890" : null;

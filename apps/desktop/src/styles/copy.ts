@@ -231,6 +231,31 @@ export const copy = {
     ConfigInvalid: "账户配置无效；检查接口地址与端点路径。",
   } as Record<string, string>,
 
+  localUsage: {
+    title: "本地 Agent 使用量",
+    intro:
+      "读取本机 AI 编码工具的会话记录，统计 Token 用量。与远端 API 额度是完全独立的数据域，绝不合并显示；默认关闭，启用前请先确认要读取的目录与字段。",
+    loadFailed: "无法读取本地使用量设置。",
+    toggleFailed: "切换来源状态失败，请重试。",
+    scanFailed: "扫描失败，请重试。",
+    clearFailed: "清除失败，请重试。",
+    scan: "立即扫描",
+    scanning: "正在扫描…",
+    clear: "清除全部本地使用量数据",
+    reads: (dirs: string) => `读取目录：${dirs}`,
+    collects: (fields: string) => `采集字段：${fields}`,
+    neverCollects: (fields: string) => `绝不采集：${fields}`,
+    unverifiedParser: "（解析器尚未在真实安装上核验）",
+    toggleFor: (name: string) => `启用 ${name} 本地使用量来源`,
+    input: "输入",
+    output: "输出",
+    cacheRead: "缓存读",
+    cacheWrite: "缓存写",
+    empty: "暂无本地使用量数据。启用来源并点击扫描后，这里会出现最近的会话统计。",
+    domainNote:
+      "这里的数字来自本机会话记录（快照推导），不来自供应商 API，也不估算费用；无价格表时费用一律显示未知。",
+  },
+
   keyUpdate: {
     title: "更新 API 密钥",
     hint: "输入新的密钥，保存后立即刷新验证；历史记录会保留。",

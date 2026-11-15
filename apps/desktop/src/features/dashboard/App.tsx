@@ -25,6 +25,7 @@ import { BrandMark } from "../../components/BrandMark";
 import { StatusChip } from "./components/StatusChip";
 import { NotificationSection } from "./components/NotificationSection";
 import { HistorySection } from "./components/HistorySection";
+import { LocalUsageSection } from "./components/LocalUsageSection";
 import { ProviderView } from "./components/ProviderView";
 import { ProviderMatrix } from "./components/ProviderMatrix";
 import { SetupForm } from "./components/SetupForm";
@@ -638,7 +639,10 @@ export function App({ bridge = tauriBridge }: AppProps = {}) {
             )}
 
             {view === "history" && (
-              <HistorySection bridge={bridge} accounts={accounts} reloadSignal={historyTick} />
+              <>
+                <HistorySection bridge={bridge} accounts={accounts} reloadSignal={historyTick} />
+                <LocalUsageSection bridge={bridge} reloadSignal={historyTick} />
+              </>
             )}
 
             {view === "notifications" && (

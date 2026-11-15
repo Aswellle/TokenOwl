@@ -164,6 +164,34 @@ impl AppRuntime {
         run_credential_cleanup_sweep(self);
     }
 
+    /// How long the background loop sleeps between refresh waves: the
+    /// shortest refresh interval any provider declares, clamped to a
+    /// provider-friendly window, falling back to the global freshness
+    /// cadence when nothing declares one (or storage is unreadable). The
+    /// lower bound keeps a misconfigured manifest from hammering an API;
+    /// the upper bound is the global cadence so honoring a slow provider
+    /// never makes the dashboard staler than before. 429 Retry-After and
+    /// the failure backoff stay governed by the refresh path itself.
+    pub fn background_refresh_interval(&self) -> std::time::Duration {
+        const FLOOR: std::time::Duration = std::time::Duration::from_secs(60);
+        let fallback = self.freshness_policy.refresh_cadence();
+        let Ok(repository) = self.repository() else {
+            return fallback;
+        };
+        let Ok(providers) = repository.providers() else {
+            return fallback;
+        };
+        match providers
+            .iter()
+            .map(|config| config.default_refresh)
+            .filter(|interval| !interval.is_zero())
+            .min()
+        {
+            Some(interval) => interval.clamp(FLOOR, fallback.max(FLOOR)),
+            None => fallback,
+        }
+    }
+
     pub(super) fn repository(&self) -> Result<LocalRepository, CommandError> {
         LocalRepository::open(&self.database_path).map_err(CommandError::from)
     }
@@ -998,6 +1026,68 @@ pub fn manifest_profiles(
 pub fn provider_matrix() -> Result<Vec<crate::providers::builtin::ProviderMatrixRow>, CommandError>
 {
     Ok(crate::providers::builtin::provider_matrix())
+}
+
+#[cfg(test)]
+mod cadence_tests {
+    use super::*;
+
+    fn runtime_with_intervals(intervals: &[u64]) -> (AppRuntime, PathBuf) {
+        let mut path = std::env::temp_dir();
+        path.push(format!(
+            "tokenowl-cadence-{}-{}.sqlite3",
+            std::process::id(),
+            nanoid::nanoid!(6)
+        ));
+        let runtime = AppRuntime::new(&path).expect("runtime");
+        let repository = runtime.repository().expect("database");
+        for (index, secs) in intervals.iter().enumerate() {
+            let mut config = OpenAiCompatibleConfig::new(
+                format!("cadence-{index}"),
+                "Cadence",
+                "https://cadence.test/v1",
+            );
+            config.default_refresh = std::time::Duration::from_secs(*secs);
+            repository.upsert_provider(&config, 1).expect("provider");
+        }
+        (runtime, path)
+    }
+
+    #[test]
+    fn background_interval_follows_the_fastest_declared_provider() {
+        let (runtime, path) = runtime_with_intervals(&[300, 120]);
+        assert_eq!(
+            runtime.background_refresh_interval(),
+            std::time::Duration::from_secs(120)
+        );
+        drop(runtime);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn background_interval_is_floored_and_never_exceeds_the_global_cadence() {
+        // A 10-second declaration must not hammer an API; a 1-hour one must
+        // not make the dashboard staler than the global cadence.
+        let (runtime, path) = runtime_with_intervals(&[10, 3_600]);
+        let interval = runtime.background_refresh_interval();
+        assert!(interval >= std::time::Duration::from_secs(60));
+        assert!(interval <= runtime.freshness_policy.refresh_cadence());
+        drop(runtime);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn background_interval_falls_back_without_declared_intervals() {
+        // All manifests declare the 300 s default, so the honest no-provider
+        // fallback is the freshness cadence itself.
+        let (runtime, path) = runtime_with_intervals(&[]);
+        assert_eq!(
+            runtime.background_refresh_interval(),
+            runtime.freshness_policy.refresh_cadence()
+        );
+        drop(runtime);
+        let _ = std::fs::remove_file(&path);
+    }
 }
 
 pub(super) fn list_accounts(state: &AppRuntime) -> Result<Vec<AccountViewModel>, CommandError> {

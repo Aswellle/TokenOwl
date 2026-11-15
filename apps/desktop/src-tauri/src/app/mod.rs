@@ -1081,15 +1081,16 @@ fn start_background_tasks(app: &AppHandle) {
             if let Err(error) = &result {
                 tracing::warn!("background refresh failed: {error}");
             }
-            // The freshness policy's `stale_after` is the refresh cadence
-            // target: refreshing this often keeps data younger than the
-            // stale boundary unless a refresh fails. The loop needs no
-            // shutdown signal: it is a child of the async runtime, which
-            // the process tears down whole on exit.
+            // The sleep honors the providers' own refresh intervals
+            // (clamped, see `background_refresh_interval`), so a provider
+            // declaring a faster cadence actually gets one instead of the
+            // global 30-minute cadence. The loop needs no shutdown signal:
+            // it is a child of the async runtime, which the process tears
+            // down whole on exit.
             let sleep_duration = handle
                 .try_state::<Arc<commands::AppRuntime>>()
                 .map_or(std::time::Duration::from_secs(600), |runtime| {
-                    runtime.freshness_policy.refresh_cadence()
+                    runtime.background_refresh_interval()
                 });
             tokio::time::sleep(sleep_duration).await;
         }

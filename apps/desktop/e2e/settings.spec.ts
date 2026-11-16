@@ -124,7 +124,9 @@ test.describe("form validation", () => {
     await openSettings(page);
     await page.getByRole("button", { name: "连接账户" }).click();
     const alert = page.getByRole("alert");
-    await expect(alert).toHaveText("请填写账户名称与接口地址。");
+    // The base URL ships prefilled, so only the label is actually missing —
+    // the explanation must not claim both fields are empty.
+    await expect(alert).toHaveText("请填写账户名称。");
     await expect(page.getByLabel("账户名称")).toBeFocused();
   });
 

@@ -874,6 +874,60 @@ mod tests {
         assert_eq!(resolved.base_url, "https://api.deepseek.com/v1");
     }
 
+    /// A reset endpoint declared by a manifest must survive account
+    /// resolution; it used to be dropped before the provider row was written,
+    /// which made the endpoint unreachable from every later refresh/probe.
+    #[test]
+    fn manifest_declared_reset_endpoint_survives_resolution() {
+        let dir = std::env::temp_dir().join(format!(
+            "tokenowl-community-reset-{}-{}",
+            std::process::id(),
+            nanoid::nanoid!(6)
+        ));
+        let packs = dir.join("community-providers");
+        std::fs::create_dir_all(&packs).expect("pack directory");
+        std::fs::write(
+            packs.join("acme-reset.yaml"),
+            r"schemaVersion: 1
+id: acme-reset
+version: 1
+name: Acme Reset
+auth: [api_key]
+baseUrl: https://acme-reset.test/v1
+endpoints:
+  reset: /reset
+mapping:
+  reset:
+    value: data.reset_at
+    timestampFormat: unix_seconds
+capability:
+  level: L3
+  accountTypes: [api]
+  quotaUnits: [token]
+  targetWindows: [provider-defined]
+",
+        )
+        .expect("manifest write");
+        let input = GenericOpenAiAccountInput {
+            provider_id: "acme-reset".to_owned(),
+            label: "Reset".to_owned(),
+            base_url: "https://ignored.test/v1".to_owned(),
+            api_key: "key".to_owned(),
+            quota_endpoint: None,
+            usage_endpoint: None,
+            balance_endpoint: None,
+            lan_consent_token: None,
+            api_format: None,
+        };
+        let resolved = resolve_new_account(&input, Some(&dir)).expect("community profile resolves");
+        assert_eq!(
+            resolved.endpoints.reset.as_deref(),
+            Some("/reset"),
+            "the declared reset endpoint must reach the persisted provider config"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     /// A gateway profile still has to receive a usable absolute URL: the
     /// placeholder is not a fallback.
     #[test]

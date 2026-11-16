@@ -1409,6 +1409,9 @@ pub(super) struct AccountEndpoints {
     pub(super) quota: Option<String>,
     pub(super) usage: Option<String>,
     pub(super) balance: Option<String>,
+    /// A declared reset endpoint is a real request target, not documentation:
+    /// dropping it here made manifest-declared resets unreachable.
+    pub(super) reset: Option<String>,
 }
 
 /// Everything account persistence needs, resolved from either the generic
@@ -1495,6 +1498,7 @@ pub(super) fn resolve_new_account(
                         quota,
                         usage,
                         balance,
+                        reset: None,
                     },
                     api_key_header: api_key_header_for_format(api_format),
                     api_format: None,
@@ -1518,6 +1522,7 @@ pub(super) fn resolve_new_account(
                     quota: None,
                     usage: None,
                     balance: None,
+                    reset: None,
                 },
                 api_key_header: api_key_header_for_format(api_format),
                 api_format: config_api_format(api_format),
@@ -1553,6 +1558,7 @@ pub(super) fn resolve_new_account(
             quota: profile.endpoints.quota,
             usage: profile.endpoints.usage,
             balance: profile.endpoints.balance,
+            reset: profile.endpoints.reset,
         },
         api_key_header: api_key_header_for_format(&profile.api_format),
         api_format: config_api_format(&profile.api_format),
@@ -1663,6 +1669,7 @@ pub(super) fn persist_new_account(
     config
         .balance_endpoint
         .clone_from(&resolved.endpoints.balance);
+    config.reset_endpoint.clone_from(&resolved.endpoints.reset);
     config.auth_method = AuthMethod::ApiKey;
     config.validate()?;
     state.credentials.set(&credential_ref, api_key)?;

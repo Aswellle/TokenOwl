@@ -194,11 +194,13 @@ export function SetupForm({
   }, [error, classifyError]);
 
   const validateInput = (): { message: string; fieldId: string } | null => {
+    // The message names only what is actually missing; focus always lands on
+    // the field to fix.
     if (!label.trim() && !effectiveBaseUrl.trim())
       return { message: copy.form.missingAccount, fieldId: "account-label" };
-    if (!label.trim()) return { message: copy.form.missingAccount, fieldId: "account-label" };
+    if (!label.trim()) return { message: copy.form.missingLabel, fieldId: "account-label" };
     if (!effectiveBaseUrl.trim())
-      return { message: copy.form.missingAccount, fieldId: "base-url" };
+      return { message: copy.form.missingBaseUrl, fieldId: "base-url" };
     try {
       new URL(effectiveBaseUrl.trim());
     } catch {

@@ -156,7 +156,9 @@ describe("setup form submit wiring", () => {
     fireEvent.submit(screen.getByRole("button", { name: /连接账户|Connect/i }).closest("form")!);
 
     const alert = await screen.findByRole("alert");
-    expect(alert).toHaveTextContent(/请填写账户名称与接口地址/);
+    // The base URL ships prefilled, so only the label is actually missing —
+    // the message must not claim both fields are empty.
+    expect(alert).toHaveTextContent(/请填写账户名称。/);
     expect(mockCreateAccount).not.toHaveBeenCalled();
     expect(screen.getByLabelText(/账户名称|Account name/i)).toHaveFocus();
   });

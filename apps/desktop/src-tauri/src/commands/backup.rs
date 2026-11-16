@@ -163,7 +163,7 @@ fn validate_import_entry(
     entry_index: usize,
     data_dir: &std::path::Path,
     existing: &[crate::domain::state::AccountMetadata],
-    repository: &crate::storage::LocalRepository,
+    existing_base_urls: &std::collections::HashMap<String, String>,
 ) -> AccountImportEntryView {
     let mut reason: Option<String> = None;
     let mut provider_name = entry.provider_id.clone();
@@ -224,11 +224,9 @@ fn validate_import_entry(
     let already_exists = existing.iter().any(|account| {
         provider_prefix(&account.provider_id) == entry.provider_id
             && account.label == label
-            && repository
-                .provider(&account.provider_id)
-                .ok()
-                .flatten()
-                .is_some_and(|provider| provider.base_url == entry.base_url)
+            && existing_base_urls
+                .get(&account.provider_id)
+                .is_some_and(|base_url| base_url == &entry.base_url)
     });
     AccountImportEntryView {
         index: entry_index,
@@ -274,12 +272,31 @@ fn import_preview(
     }
     let repository = runtime.repository()?;
     let existing = repository.accounts()?;
+    // One provider lookup per existing account, not one per entry × account:
+    // the preview compares every row against the same small set of stored
+    // base URLs.
+    let existing_base_urls: std::collections::HashMap<String, String> = existing
+        .iter()
+        .filter_map(|account| {
+            repository
+                .provider(&account.provider_id)
+                .ok()
+                .flatten()
+                .map(|provider| (account.provider_id.clone(), provider.base_url))
+        })
+        .collect();
     let entries = file
         .accounts
         .iter()
         .enumerate()
         .map(|(index, entry)| {
-            validate_import_entry(entry, index, &runtime.data_dir, &existing, &repository)
+            validate_import_entry(
+                entry,
+                index,
+                &runtime.data_dir,
+                &existing,
+                &existing_base_urls,
+            )
         })
         .collect();
     Ok(AccountImportPreview {

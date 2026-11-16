@@ -24,6 +24,8 @@ use tauri::{AppHandle, Emitter, State};
 use thiserror::Error;
 
 mod accounts;
+mod backup;
+mod exports;
 mod history;
 mod lan;
 mod manifest;
@@ -33,6 +35,7 @@ mod settings;
 mod usage;
 
 pub use accounts::*;
+pub use backup::*;
 pub use history::*;
 pub use lan::*;
 pub use manifest::*;

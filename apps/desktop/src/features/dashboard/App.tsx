@@ -30,6 +30,7 @@ import { ProviderView } from "./components/ProviderView";
 import { ProviderMatrix } from "./components/ProviderMatrix";
 import { RefreshSection } from "./components/RefreshSection";
 import { ManifestPlayground } from "./components/ManifestPlayground";
+import { BackupSection } from "./components/BackupSection";
 import { SetupForm } from "./components/SetupForm";
 import { AccountRow } from "./components/AccountRow";
 import { ProxySection } from "./components/ProxySection";
@@ -659,6 +660,11 @@ export function App({ bridge = tauriBridge }: AppProps = {}) {
                   error={formError}
                   onCancel={() => goView("overview")}
                   onSubmit={handleCreate}
+                />
+                <BackupSection
+                  bridge={bridge}
+                  accounts={accounts}
+                  onImported={() => void loadAccounts()}
                 />
                 <RefreshSection bridge={bridge} />
                 <ManifestPlayground bridge={bridge} />

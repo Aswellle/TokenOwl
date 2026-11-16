@@ -129,6 +129,33 @@ export interface LocalUsageSummary {
   sourceCounts: Array<[string, number]>;
 }
 
+/** Result of a secret-free account-config export. */
+export interface AccountConfigExportResult {
+  path: string;
+  accounts: number;
+}
+
+export interface AccountImportEntryViewModel {
+  index: number;
+  providerId: string;
+  providerName: string;
+  label: string;
+  baseUrl: string;
+  apiFormat: string;
+  quotaEndpoint?: string | null;
+  usageEndpoint?: string | null;
+  balanceEndpoint?: string | null;
+  importable: boolean;
+  reason?: string | null;
+  alreadyExists: boolean;
+}
+
+export interface AccountImportPreview {
+  schemaVersion: number;
+  exportedAt: number;
+  entries: AccountImportEntryViewModel[];
+}
+
 /** Result of a history export: the file path under the app data dir. */
 export interface HistoryExportResult {
   path: string;
@@ -381,6 +408,10 @@ export interface DashboardBridge {
   localUsageSummary(days?: number): Promise<LocalUsageSummary>;
   clearLocalUsage(): Promise<number>;
   exportHistory(format: "csv" | "json"): Promise<HistoryExportResult>;
+  /** Writes a secret-free backup of the selected accounts. */
+  exportAccountConfig(accountIds?: string[]): Promise<AccountConfigExportResult>;
+  /** Validates a pasted backup without creating anything. */
+  previewAccountImport(payload: string): Promise<AccountImportPreview>;
   refresh(accountId?: string): Promise<AccountViewModel[]>;
   /** Cadence preference plus the opt-in adaptive policy. */
   getRefreshSettings(): Promise<RefreshSettings>;

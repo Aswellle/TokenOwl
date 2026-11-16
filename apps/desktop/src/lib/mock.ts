@@ -1,4 +1,5 @@
 import type {
+  AccountImportPreview,
   AccountViewModel,
   DashboardBridge,
   GenericOpenAiAccountInput,
@@ -485,6 +486,55 @@ export function createMockBridge(): DashboardBridge {
     async lanTrustRemove() {
       await new Promise((resolve) => setTimeout(resolve, latency()));
       if (hasScenario("lan-trust-fail")) throw new Error("模拟移除失败");
+    },
+    async exportAccountConfig(accountIds?: string[]) {
+      await new Promise((resolve) => setTimeout(resolve, latency()));
+      const count = accountIds ? accountIds.length : accounts.length;
+      return {
+        path: "/mock/exports/tokenowl-accounts-20260101-000000-demo.json",
+        accounts: count,
+      };
+    },
+    async previewAccountImport(payload: string): Promise<AccountImportPreview> {
+      await new Promise((resolve) => setTimeout(resolve, latency()));
+      if (payload.length > 256 * 1024) throw new Error("backup exceeds the import limit");
+      let file: {
+        schemaVersion?: number;
+        exportedAt?: number;
+        accounts?: Array<Record<string, unknown>>;
+      };
+      try {
+        file = JSON.parse(payload);
+      } catch {
+        throw new Error("backup is not valid JSON");
+      }
+      if (file.schemaVersion !== 1) throw new Error("unsupported backup schemaVersion");
+      const entries = (file.accounts ?? []).slice(0, 50).map((raw, index) => {
+        const providerId = String(raw.providerId ?? "");
+        const label = String(raw.label ?? "");
+        const baseUrl = String(raw.baseUrl ?? "");
+        const unknownProvider = providerId === "does-not-exist" || providerId.length === 0;
+        const badUrl = !/^https?:\/\//.test(baseUrl);
+        return {
+          index,
+          providerId,
+          providerName: providerId,
+          label,
+          baseUrl,
+          apiFormat: String(raw.apiFormat ?? "openai_compatible"),
+          quotaEndpoint: (raw.quotaEndpoint as string | undefined) ?? null,
+          usageEndpoint: (raw.usageEndpoint as string | undefined) ?? null,
+          balanceEndpoint: (raw.balanceEndpoint as string | undefined) ?? null,
+          importable: !unknownProvider && !badUrl && label.length > 0,
+          reason: unknownProvider
+            ? "unknown provider id"
+            : badUrl
+              ? "base URL must be an absolute http or https URL"
+              : null,
+          alreadyExists: false,
+        };
+      });
+      return { schemaVersion: 1, exportedAt: file.exportedAt ?? 0, entries };
     },
     async getRefreshSettings() {
       return { ...refreshSettings };

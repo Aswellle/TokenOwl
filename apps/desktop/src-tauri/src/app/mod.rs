@@ -1201,6 +1201,8 @@ pub fn run() {
             commands::account_target_is_lan,
             commands::accounts_delete,
             commands::accounts_update_credential,
+            commands::accounts_export_config,
+            commands::accounts_import_preview,
             commands::accounts_refresh,
             commands::refresh_settings_get,
             commands::refresh_settings_set,

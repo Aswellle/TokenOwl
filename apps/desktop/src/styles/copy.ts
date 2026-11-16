@@ -243,6 +243,42 @@ export const copy = {
     note: "只在本地解析，不上传；请勿粘贴真实密钥或未脱敏的完整响应。",
   },
 
+  backup: {
+    title: "账户配置备份",
+    intro:
+      "备份只包含 Provider、名称、地址、协议与端点；绝不包含 API Key、凭据引用或代理密码。导入后需要为每个账户重新输入 Key，并逐个验证连接。",
+    exportTitle: "导出所选账户",
+    export: "导出配置",
+    exporting: "正在导出…",
+    exported: (path: string, count: number) => `已导出 ${count} 个账户到 ${path}`,
+    exportFailed: "导出失败，没有写入文件。",
+    selectAll: "全选",
+    selectNone: "全不选",
+    noAccounts: "还没有可导出的账户。",
+    importTitle: "导入配置",
+    importHint:
+      "粘贴此前导出的 JSON。导入只做校验，不会直接创建账户；每一行都需要新 Key 才会调用创建流程。",
+    payloadLabel: "备份 JSON",
+    preview: "校验备份",
+    previewing: "正在校验…",
+    previewFailed: "备份无法解析或版本不受支持。",
+    previewEmpty: "备份中没有账户。",
+    previewSummary: (version: number, count: number, exportedAt: string) =>
+      `schema v${version} · ${count} 个账户 · 导出于 ${exportedAt}`,
+    duplicate: "已存在同名账户",
+    unavailable: "无法导入",
+    keyLabel: (label: string) => `${label} 的 API Key`,
+    importEntry: "添加并验证",
+    importing: "正在验证…",
+    imported: "已添加，首次刷新验证成功。",
+    unverified: "已添加，但首次刷新未验证成功；请检查地址与 Key。",
+    importFailed: "添加失败，未保存任何凭据。",
+    missingKey: "请先输入 API Key。",
+    lanTitle: "导入的账户指向本地网络",
+    lanBody: "该地址看起来位于本地网络。确认要继续创建并允许本机向该地址发送请求吗？",
+    lanConfirm: "确认并继续",
+  },
+
   notices: {
     loadFailed: "无法连接本地服务，界面已切换为离线状态；本机数据不会被清除。",
     refreshFailed: "刷新失败，已保留最近一次成功的数据。",

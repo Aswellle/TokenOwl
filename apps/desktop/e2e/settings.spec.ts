@@ -393,3 +393,34 @@ test.describe("manifest playground", () => {
     await expect(page.getByText(/used 42\.5/)).toBeVisible();
   });
 });
+
+test.describe("account configuration backup", () => {
+  test("exports a secret-free file and imports an entry after a new key", async ({ page }) => {
+    await openSettings(page);
+    const exportButton = page.getByRole("button", { name: "导出配置" });
+    await exportButton.scrollIntoViewIfNeeded();
+    await exportButton.click();
+    await expect(page.getByRole("status").filter({ hasText: /已导出 \d+ 个账户/ })).toBeVisible();
+
+    const payload = page.getByLabel("备份 JSON");
+    await payload.scrollIntoViewIfNeeded();
+    await payload.fill(
+      JSON.stringify({
+        schemaVersion: 1,
+        exportedAt: 1_800_000_000,
+        accounts: [
+          {
+            providerId: "deepseek",
+            label: "Imported",
+            baseUrl: "https://api.deepseek.com/v1",
+          },
+        ],
+      }),
+    );
+    await page.getByRole("button", { name: "校验备份" }).click();
+    await expect(page.getByText(/schema v1/)).toBeVisible();
+    await page.getByLabel("Imported 的 API Key").fill("sk-mock-import");
+    await page.getByRole("button", { name: "添加并验证" }).click();
+    await expect(page.getByText("已添加，首次刷新验证成功。")).toBeVisible();
+  });
+});

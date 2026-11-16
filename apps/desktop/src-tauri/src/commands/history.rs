@@ -150,38 +150,6 @@ pub(super) fn render_export(format: &str, rows: &[ExportRow]) -> String {
     out
 }
 
-/// How many export files the exports directory keeps. Each export writes a
-/// timestamped file; without a cap the directory grows forever.
-pub(super) const MAX_EXPORT_FILES: usize = 20;
-
-/// Keeps the exports directory bounded: after a successful write, the oldest
-/// `tokenowl-history-*` files beyond [`MAX_EXPORT_FILES`] are removed. A prune
-/// failure never fails the export itself — the file the user asked for is
-/// already on disk.
-pub(super) fn prune_exports(directory: &std::path::Path) {
-    let Ok(entries) = std::fs::read_dir(directory) else {
-        return;
-    };
-    let mut exports: Vec<std::path::PathBuf> = entries
-        .flatten()
-        .map(|entry| entry.path())
-        .filter(|path| {
-            path.file_name()
-                .and_then(|name| name.to_str())
-                .is_some_and(|name| name.starts_with("tokenowl-history-"))
-        })
-        .collect();
-    if exports.len() <= MAX_EXPORT_FILES {
-        return;
-    }
-    // Names carry the timestamp, so lexical order is chronological.
-    exports.sort();
-    let excess = exports.len() - MAX_EXPORT_FILES;
-    for path in exports.into_iter().take(excess) {
-        let _ = std::fs::remove_file(path);
-    }
-}
-
 /// Exports the aggregated daily usage (same aggregation as the trend view)
 /// as CSV or JSON into `<app data>/exports/`. The export carries account
 /// labels and derived usage only — never credentials, credential refs, or
@@ -208,17 +176,9 @@ pub fn history_export(
     let repository = state.repository()?;
     let rows = collect_export_rows(&repository, from, now, account_id.as_deref())?;
 
-    let export_dir = state.data_dir.join("exports");
-    std::fs::create_dir_all(&export_dir).map_err(|error| {
-        CommandError::InvalidInput(format!("cannot create the export directory: {error}"))
-    })?;
-    let stamp = chrono::Utc::now().format("%Y%m%d-%H%M%S");
-    let path = export_dir.join(format!("tokenowl-history-{stamp}.{format}"));
     let written_rows = rows.len();
     let body = render_export(format, &rows);
-    std::fs::write(&path, body)
-        .map_err(|error| CommandError::InvalidInput(format!("cannot write the export: {error}")))?;
-    prune_exports(&export_dir);
+    let path = super::exports::write_export(&state.data_dir, "history", format, &body)?;
     Ok(HistoryExportResult {
         path: path.to_string_lossy().into_owned(),
         rows: written_rows,
@@ -479,6 +439,7 @@ pub fn history_breakdown(
 
 #[cfg(test)]
 mod tests {
+    use super::super::exports::{MAX_EXPORT_FILES, prune_exports};
     use super::*;
 
     #[test]

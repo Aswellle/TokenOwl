@@ -2,6 +2,8 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import type {
+  AccountConfigExportResult,
+  AccountImportPreview,
   AccountViewModel,
   CredentialUpdateResult,
   LocalUsageSourceView,
@@ -118,6 +120,13 @@ export const tauriBridge: DashboardBridge = {  listAccounts: () => invoke<Accoun
   clearLocalUsage: () => invoke<number>("local_usage_clear"),
   exportHistory: (format: "csv" | "json") =>
     invoke<HistoryExportResult>("history_export", { format }),
+  exportAccountConfig: (accountIds?: string[]) =>
+    invoke<AccountConfigExportResult>(
+      "accounts_export_config",
+      accountIds ? { accountIds } : undefined,
+    ),
+  previewAccountImport: (payload: string) =>
+    invoke<AccountImportPreview>("accounts_import_preview", { payload }),
   getDockCollapsed: () => invoke<boolean>("dock_state_get"),
   setDockCollapsed: (collapsed: boolean) =>
     invoke<void>("dock_state_set", { collapsed }),

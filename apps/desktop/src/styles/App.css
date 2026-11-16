@@ -244,6 +244,17 @@ dl {
   margin: 0;
 }
 
+/* Checkboxes across the settings panels: sized up from the ~13px default
+   (the wrapping label still widens the hit target) and tinted with the
+   accent the rest of the controls use, not the browser default blue. */
+input[type="checkbox"] {
+  inline-size: 16px;
+  block-size: 16px;
+  margin: 0;
+  flex: 0 0 auto;
+  accent-color: var(--accent-button);
+}
+
 ul,
 ol {
   padding: 0;
@@ -1987,7 +1998,6 @@ button:disabled {
 
 .notif-check input {
   margin-top: 3px;
-  accent-color: var(--accent);
 }
 
 .notif-check span {

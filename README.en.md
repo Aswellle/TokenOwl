@@ -76,6 +76,12 @@ It lives in a corner of your screen as a tiny always-on-top bubble, opens into a
   <img src="assets/history.png" alt="History view: 30-day stats, trend chart, and 26-week heatmap" width="820" />
 </p>
 
+**Adjustable cadence** — Each account refreshes on its provider's declared interval. Cap it at 1 / 5 / 10 / 15 / 30 minutes and optionally enable adaptation: an account near exhaustion or an imminent reset refreshes at most twice as often, while an account idle for two hours waits up to twice as long. Failure backoff and `Retry-After` always win.
+
+**Take your configuration with you** — Export account configs as JSON with no keys (provider, label, URL, format, endpoints only). Import previews first, then asks for a fresh key per account and verifies the connection.
+
+**Self-service diagnostics** — Test every declared endpoint per account with a redacted result. Generate a local diagnostic bundle, review it, then export it. The offline manifest playground validates a community pack and runs its field mapping against a redacted sample response.
+
 **Gateway-friendly** — Self-hosting New API, One API, or LiteLLM? They're first-class built-ins with editable base URLs. Custom OpenAI-compatible endpoints work too.
 
 **Auto-updates** — Release artifacts are signed (Minisign); the built-in updater verifies signatures before installing.

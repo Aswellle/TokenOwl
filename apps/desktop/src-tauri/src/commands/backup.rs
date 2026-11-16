@@ -168,6 +168,14 @@ fn validate_import_entry(
     let mut reason: Option<String> = None;
     let mut provider_name = entry.provider_id.clone();
     let mut importable = true;
+    // What the create path will actually persist. For a built-in provider
+    // the manifest is authoritative for the base URL and every endpoint —
+    // client-supplied values are ignored there — so the preview shows the
+    // effective values instead of ones that would be silently dropped.
+    let mut base_url = entry.base_url.clone();
+    let mut quota = entry.quota_endpoint.clone();
+    let mut usage = entry.usage_endpoint.clone();
+    let mut balance = entry.balance_endpoint.clone();
     let label = entry.label.trim();
     if label.is_empty() || label.chars().count() > 64 {
         importable = false;
@@ -195,11 +203,18 @@ fn validate_import_entry(
             .find(|profile| profile.id == entry.provider_id)
         {
             provider_name.clone_from(&profile.name);
-            if profile.custom_base_url
-                && let Err(error) = super::accounts::validate_user_base_url(&entry.base_url)
-            {
-                importable = false;
-                reason = Some(error.to_string());
+            quota.clone_from(&profile.endpoints.quota);
+            usage.clone_from(&profile.endpoints.usage);
+            balance.clone_from(&profile.endpoints.balance);
+            if profile.custom_base_url {
+                // A gateway has no fixed host: the entry's URL is the only
+                // real host and is what create will use.
+                if let Err(error) = super::accounts::validate_user_base_url(&entry.base_url) {
+                    importable = false;
+                    reason = Some(error.to_string());
+                }
+            } else {
+                base_url.clone_from(&profile.base_url);
             }
         } else {
             importable = false;
@@ -220,11 +235,11 @@ fn validate_import_entry(
         provider_id: entry.provider_id.clone(),
         provider_name,
         label: label.to_owned(),
-        base_url: entry.base_url.clone(),
+        base_url,
         api_format: entry.api_format.clone(),
-        quota_endpoint: entry.quota_endpoint.clone(),
-        usage_endpoint: entry.usage_endpoint.clone(),
-        balance_endpoint: entry.balance_endpoint.clone(),
+        quota_endpoint: quota,
+        usage_endpoint: usage,
+        balance_endpoint: balance,
         importable,
         reason,
         already_exists,
@@ -483,6 +498,50 @@ mod tests {
         .to_string();
         let view = preview(&runtime, &payload);
         assert!(view.entries[0].already_exists);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A built-in entry's host and endpoints come from its manifest, so the
+    /// preview shows the values create will persist instead of payload
+    /// values that would be silently ignored. A gateway entry keeps its own
+    /// URL: that host is the only real one.
+    #[test]
+    fn preview_shows_the_effective_builtin_host_and_endpoints() {
+        let (runtime, dir) = runtime("effective");
+        let payload = serde_json::json!({
+            "schemaVersion": 1,
+            "exportedAt": 1,
+            "accounts": [
+                {
+                    "providerId": "mistral",
+                    "label": "Mistral copy",
+                    "baseUrl": "https://attacker.test/v1",
+                    "usageEndpoint": "/usage"
+                },
+                {
+                    "providerId": "one-api",
+                    "label": "Gateway copy",
+                    "baseUrl": "https://my-relay.test/v1"
+                }
+            ]
+        })
+        .to_string();
+        let view = preview(&runtime, &payload);
+        assert!(view.entries[0].importable);
+        assert_eq!(
+            view.entries[0].base_url, "https://api.mistral.ai/v1",
+            "the manifest host is authoritative for a fixed-host provider"
+        );
+        assert_eq!(
+            view.entries[0].usage_endpoint, None,
+            "endpoints a builtin ignores are not shown as if they would apply"
+        );
+        assert_eq!(view.entries[0].quota_endpoint, None);
+        assert!(view.entries[1].importable);
+        assert_eq!(
+            view.entries[1].base_url, "https://my-relay.test/v1",
+            "a gateway keeps the user URL create will use"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

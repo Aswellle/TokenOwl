@@ -180,6 +180,10 @@ fn build_bundle(runtime: &AppRuntime) -> Result<(String, String), CommandError> 
     let stable = serde_json::to_string(&bundle).map_err(|error| {
         CommandError::InvalidInput(format!("cannot encode diagnostics: {error}"))
     })?;
+    // The token is a staleness guard, not an authentication primitive: FNV-1a
+    // is deterministic and forgeable by design, and the document it covers is
+    // shown to the user in full before export. Never reuse it to authorize
+    // anything beyond "export what was just reviewed".
     let token = format!("{:016x}", crate::usage::fnv1a64(stable.as_bytes()));
     bundle["generatedAt"] = serde_json::json!(unix_seconds());
     let json = serde_json::to_string_pretty(&bundle).map_err(|error| {

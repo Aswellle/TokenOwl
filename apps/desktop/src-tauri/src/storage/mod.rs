@@ -187,7 +187,12 @@ impl LocalRepository {
              ON CONFLICT(id) DO UPDATE SET config_json = excluded.config_json,
                  descriptor_json = excluded.descriptor_json,
                  updated_at = excluded.updated_at",
-            params![config.id, config_json, descriptor_json, updated_at],
+            params![
+                config.id,
+                config_json,
+                descriptor_json,
+                i64::try_from(updated_at).unwrap_or(0),
+            ],
         )?;
         Ok(())
     }
@@ -246,7 +251,7 @@ impl LocalRepository {
                 account.credential_ref,
                 metadata_json,
                 i64::from(account.enabled),
-                updated_at,
+                i64::try_from(updated_at).unwrap_or(0),
             ],
         )?;
         Ok(())
@@ -357,7 +362,10 @@ impl LocalRepository {
         let latest_observed_at = self.connection.query_row(
             "SELECT MAX(observed_at) FROM snapshots WHERE account_id = ?1",
             [account_id],
-            |row| row.get::<_, Option<u64>>(0),
+            |row| {
+                let value: Option<i64> = row.get(0)?;
+                Ok(value.and_then(|value| u64::try_from(value).ok()))
+            },
         )?;
         if latest_observed_at.is_some_and(|latest| observed_at < latest) {
             return Ok(());
@@ -370,7 +378,12 @@ impl LocalRepository {
             transaction.execute(
                 "INSERT INTO snapshots (account_id, snapshot_key, snapshot_json, observed_at)
                  VALUES (?1, ?2, ?3, ?4)",
-                params![account_id, key, snapshot_json, observed_at],
+                params![
+                    account_id,
+                    key,
+                    snapshot_json,
+                    i64::try_from(observed_at).unwrap_or(0),
+                ],
             )?;
             if matches!(
                 snapshot.status,
@@ -386,7 +399,7 @@ impl LocalRepository {
                     params![
                         account_id,
                         key,
-                        observed_at,
+                        i64::try_from(observed_at).unwrap_or(0),
                         snapshot.used,
                         snapshot.remaining,
                         snapshot.limit,
@@ -398,7 +411,7 @@ impl LocalRepository {
         }
         transaction.execute(
             "DELETE FROM history_points WHERE observed_at < ?1",
-            [observed_at.saturating_sub(HISTORY_RETENTION_SECS)],
+            [i64::try_from(observed_at.saturating_sub(HISTORY_RETENTION_SECS)).unwrap_or(0)],
         )?;
         transaction.commit()?;
         Ok(())
@@ -413,18 +426,24 @@ impl LocalRepository {
               WHERE observed_at >= ?1 AND observed_at < ?2
               ORDER BY account_id, metric_key, observed_at",
         )?;
-        let rows = statement.query_map(params![from, to], |row| {
-            Ok(HistorySample {
-                account_id: row.get(0)?,
-                metric_key: row.get(1)?,
-                observed_at: row.get(2)?,
-                used: row.get(3)?,
-                remaining: row.get(4)?,
-                limit: row.get(5)?,
-                unit: row.get(6)?,
-                currency: row.get(7)?,
-            })
-        })?;
+        let rows = statement.query_map(
+            params![
+                i64::try_from(from).unwrap_or(0),
+                i64::try_from(to).unwrap_or(0),
+            ],
+            |row| {
+                Ok(HistorySample {
+                    account_id: row.get(0)?,
+                    metric_key: row.get(1)?,
+                    observed_at: u64::try_from(row.get::<_, i64>(2)?).unwrap_or(0),
+                    used: row.get(3)?,
+                    remaining: row.get(4)?,
+                    limit: row.get(5)?,
+                    unit: row.get(6)?,
+                    currency: row.get(7)?,
+                })
+            },
+        )?;
         rows.collect::<Result<Vec<_>, _>>()
             .map_err(StorageError::from)
     }
@@ -440,7 +459,10 @@ impl LocalRepository {
                WHERE account_id = ?1 ORDER BY snapshot_key",
         )?;
         let rows = statement.query_map([account_id], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, u64>(1)?))
+            Ok((
+                row.get::<_, String>(0)?,
+                u64::try_from(row.get::<_, i64>(1)?).unwrap_or(0),
+            ))
         })?;
         let mut views = Vec::new();
         for row in rows {
@@ -486,7 +508,11 @@ impl LocalRepository {
              VALUES (?1, ?2, ?3)
              ON CONFLICT(account_id) DO UPDATE SET state_json = excluded.state_json,
                  updated_at = excluded.updated_at",
-            params![account_id, state_json, updated_at],
+            params![
+                account_id,
+                state_json,
+                i64::try_from(updated_at).unwrap_or(0),
+            ],
         )?;
         Ok(())
     }
@@ -606,7 +632,7 @@ impl LocalRepository {
             .map_or(0, |d| d.as_secs());
         conn.execute(
             "INSERT OR REPLACE INTO settings (key, value_json, updated_at) VALUES (?1, ?2, ?3)",
-            rusqlite::params![key, json, now],
+            rusqlite::params![key, json, i64::try_from(now).unwrap_or(0),],
         )?;
         Ok(())
     }
@@ -626,7 +652,7 @@ impl LocalRepository {
         let transaction = self.connection.unchecked_transaction()?;
         let recent: i64 = transaction.query_row(
             "SELECT COUNT(*) FROM notifications WHERE dedup_key = ?1 AND created_at > ?2",
-            params![record.dedup_key, cooldown_start],
+            params![record.dedup_key, i64::try_from(cooldown_start).unwrap_or(0),],
             |row| row.get(0),
         )?;
         if recent > 0 {
@@ -645,8 +671,8 @@ impl LocalRepository {
                 record.title,
                 record.message,
                 record.dedup_key,
-                record.created_at,
-                record.read_at,
+                i64::try_from(record.created_at).unwrap_or(0),
+                record.read_at.map(|v| i64::try_from(v).unwrap_or(0)),
             ],
         )?;
         transaction.commit()?;
@@ -669,8 +695,10 @@ impl LocalRepository {
                 title: row.get(5)?,
                 message: row.get(6)?,
                 dedup_key: row.get(7)?,
-                created_at: row.get(8)?,
-                read_at: row.get(9)?,
+                created_at: u64::try_from(row.get::<_, i64>(8)?).unwrap_or(0),
+                read_at: row
+                    .get::<_, Option<i64>>(9)?
+                    .and_then(|v| u64::try_from(v).ok()),
             })
         })?;
         rows.collect::<Result<Vec<_>, _>>()
@@ -691,7 +719,8 @@ impl LocalRepository {
         let sql = format!(
             "UPDATE notifications SET read_at = ?1 WHERE read_at IS NULL AND id IN ({placeholders})"
         );
-        let mut parameters: Vec<&dyn rusqlite::ToSql> = vec![&now];
+        let now_param = i64::try_from(now).unwrap_or(0);
+        let mut parameters: Vec<&dyn rusqlite::ToSql> = vec![&now_param];
         parameters.extend(ids.iter().map(|id| id as &dyn rusqlite::ToSql));
         Ok(self.connection.execute(&sql, parameters.as_slice())?)
     }
@@ -700,7 +729,7 @@ impl LocalRepository {
     pub fn mark_all_notifications_read(&self, now: u64) -> Result<usize, StorageError> {
         Ok(self.connection.execute(
             "UPDATE notifications SET read_at = ?1 WHERE read_at IS NULL",
-            [now],
+            [i64::try_from(now).unwrap_or(0)],
         )?)
     }
 
@@ -744,7 +773,7 @@ impl LocalRepository {
                     event.cache_read_tokens.and_then(|v| i64::try_from(v).ok()),
                     event.cache_write_tokens.and_then(|v| i64::try_from(v).ok()),
                     event.cost_estimate,
-                    scanned_at,
+                    i64::try_from(scanned_at).unwrap_or(0),
                 ],
             )?;
             inserted += changed;
@@ -774,17 +803,23 @@ impl LocalRepository {
               GROUP BY day_bucket, model
               ORDER BY day_bucket DESC, model",
         )?;
-        let rows = statement.query_map(params![from, to], |row| {
-            Ok(LocalUsageDayRow {
-                day_start_unix: row.get(0)?,
-                model: row.get(1)?,
-                input_tokens: row.get::<_, Option<i64>>(2)?.unwrap_or(0),
-                output_tokens: row.get::<_, Option<i64>>(3)?.unwrap_or(0),
-                cache_read_tokens: row.get::<_, Option<i64>>(4)?.unwrap_or(0),
-                cache_write_tokens: row.get::<_, Option<i64>>(5)?.unwrap_or(0),
-                event_count: row.get(6)?,
-            })
-        })?;
+        let rows = statement.query_map(
+            params![
+                i64::try_from(from).unwrap_or(0),
+                i64::try_from(to).unwrap_or(0),
+            ],
+            |row| {
+                Ok(LocalUsageDayRow {
+                    day_start_unix: row.get(0)?,
+                    model: row.get(1)?,
+                    input_tokens: row.get::<_, Option<i64>>(2)?.unwrap_or(0),
+                    output_tokens: row.get::<_, Option<i64>>(3)?.unwrap_or(0),
+                    cache_read_tokens: row.get::<_, Option<i64>>(4)?.unwrap_or(0),
+                    cache_write_tokens: row.get::<_, Option<i64>>(5)?.unwrap_or(0),
+                    event_count: row.get(6)?,
+                })
+            },
+        )?;
         rows.collect::<Result<Vec<_>, _>>()
             .map_err(StorageError::from)
     }
@@ -824,8 +859,10 @@ impl LocalRepository {
         max_rows: i64,
     ) -> Result<(), StorageError> {
         let cutoff = now.saturating_sub(retention_secs);
-        self.connection
-            .execute("DELETE FROM notifications WHERE created_at < ?1", [cutoff])?;
+        self.connection.execute(
+            "DELETE FROM notifications WHERE created_at < ?1",
+            [i64::try_from(cutoff).unwrap_or(0)],
+        )?;
         self.connection.execute(
             "DELETE FROM notifications WHERE id NOT IN (
                  SELECT id FROM notifications ORDER BY created_at DESC, rowid DESC LIMIT ?1

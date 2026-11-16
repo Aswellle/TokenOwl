@@ -2865,10 +2865,6 @@ button:disabled {
   background: var(--surface);
 }
 
-.matrix__row--planned {
-  opacity: 0.62;
-}
-
 .matrix__name {
   flex: 0 0 auto;
   min-width: 130px;
@@ -2916,8 +2912,11 @@ button:disabled {
   background: var(--inset);
 }
 
+/* Planned rows keep full contrast: the chip's own "计划中" label carries the
+   state, and dimming the row pushed the 12px chip text below 4.5:1 in both
+   themes (measured 3.79:1 dark, and 2.76:1 with the old row opacity). */
 .cap-chip--planned {
-  color: var(--ink-3);
+  color: var(--ink-2);
   background: var(--inset);
 }
 
@@ -3148,11 +3147,6 @@ button:disabled {
    也就不会弹出密码生成与自动填充提示。 */
 .secret-input {
   -webkit-text-security: disc;
-}
-
-.picker__btn--planned {
-  opacity: 0.55;
-  cursor: not-allowed;
 }
 
 /* ---------- forced-colors (Windows high contrast) ---------- */

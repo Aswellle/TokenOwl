@@ -101,7 +101,9 @@ export function DiagnosticsSection({ bridge }: { bridge: DashboardBridge }) {
           </p>
         )}
         {preview && (
-          <pre className="diagnostics__json" aria-label={copy.diagnostics.summary}>
+          // tabindex="0" makes the scrollable region keyboard-reachable, so
+          // the full reviewed document is reachable without a pointer.
+          <pre className="diagnostics__json" tabIndex={0} aria-label={copy.diagnostics.summary}>
             {preview.json}
           </pre>
         )}

@@ -125,6 +125,33 @@
 
 ### 验证
 
-`cargo audit` / `pnpm audit --prod --audit-level high` 均 0 漏洞退出；
+`cargo audit` 0 漏洞退出（仅余 7 条上游阻断的 allowed warning）/ `pnpm audit --prod --audit-level high` 静默退出；
 clippy `-D warnings`、cargo test、typecheck、vitest、e2e、`pnpm build`
 （bundle 不含 katex 复查）全绿；实机冒烟见 §10。
+
+## 12. 功能闭环修复与能力升级（2026-11-16）
+
+依据《TokenOwl_Agent_Development_Plan.md》执行的一轮完整实现。审计基准为本轮开始时的 main；所有结论以当前代码为准。
+
+### 已实现（按提交）
+
+| 提交 | 内容 |
+|---|---|
+| 1e8c793 | model-only L2 供应商经 models 探测给出健康结论（OpenAI-compatible 适配器 + UI 文案 + 11 个 mock-server 集成测试） |
+| 3f7af51 | reset endpoint 真实请求/解析/合并：rfc3339 / unix_seconds / unix_millis 三种声明格式，窗口绑定或账户级独立卡片，失败不抹除兄弟数据 |
+| 1a4848a / 022fbf7 | 候选 Key 先验证后提交（一次性候选引用 + 三协议 probe + 四态结果 + UI 仅验证成功才关对话框）；Windows 测试二进制补挂 Common-Controls 清单（comctl32 TaskDialogIndirect 入口点问题根因） |
+| 3218193 | 历史保留期 90→365 天，与 26 周热力图对齐；保留边界精确测试 |
+| 92d7888 | RefreshDiagnostics DTO（稳定码/HTTP 状态/端点归属/时间戳）；首刷区分“已保存/已验证”；错误类别逐类文案 |
+| 952cbb1 / 632152d | README 供应商表由清单生成 + 漂移测试；修正 29→31、OpenAI L2 / OpenRouter L3；capability 增加 lastVerifiedAt 字段 |
+| bb7316c | 后台刷新节奏遵循各供应商 default_refresh（60 秒下限、全局节奏上限） |
+| 8a3ceb4 | 本地 Agent 使用量（Claude Code 已实测 schema；Codex 按文档格式实现并标注未核验）：opt-in、只读、限定目录、幂等去重（migration 0005）、与远端额度分域 |
+| 561a411 | 历史导出 CSV/JSON 到应用数据 exports 目录（RFC 4180 转义；不含凭据） |
+| 30bedb8 | rusqlite 0.32→0.43（libsqlite3-sys 0.40）修复 RUSTSEC-2026-0459 捆绑 SQLite CVE；u64 绑定/读取点改为 i64 转换；rustix 1.1.6 清除其 soundness 警告 |
+
+### 已知限制（如实记录）
+
+- Codex 解析器未在真实安装上核验（本机未安装 Codex CLI）；UI 的来源卡片与测试注释均已标注。
+- 端点级并发刷新（计划 3.2）与自适应刷新间隔未实现——当前为串行端点请求 + 有界账户波次；429 Retry-After 与退避不变。
+- 「最近验证」字段为 schema 级支持，全部内置清单尚未回填核验日期（如实显示“未声明”）。
+- 本轮未做真实供应商联调（不引入真实密钥到 CI）；models probe / reset / rotation 均以 loopback mock server 按线协议验证。
+- e2e 只覆盖 webview 层；托盘、浮球、keyring 的原生行为仍按 AGENTS.md 的手动清单验证。

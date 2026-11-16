@@ -905,6 +905,15 @@ const RESET_MAX_UNIX_SECONDS: f64 = 32_504_328_000.0;
 /// Unix-millis ceiling of an accepted reset instant: 3000-01-01T00:00:00Z.
 const RESET_MAX_UNIX_MILLIS: f64 = 32_504_328_000_000.0;
 
+/// Hard ceiling for a reported quota figure. 1e15 is far above any real
+/// token count or currency amount and keeps a hostile or broken response from
+/// producing infinities, NaN, or numbers that break formatting.
+const MAX_PROVIDER_VALUE: f64 = 1e15;
+
+fn bounded_number(value: f64) -> Option<f64> {
+    (value.is_finite() && value.abs() <= MAX_PROVIDER_VALUE).then_some(value)
+}
+
 /// Walks a dot-path into a JSON value; array indices are supported as path
 /// segments (`data.0.reset_at`). Shared by the field mappings and the reset
 /// mapping so the two path grammars can never drift.
@@ -1046,8 +1055,8 @@ impl FieldMapping {
         // author, so numeric strings ("42.5") are accepted here even though
         // the name-based search would reject them.
         match raw {
-            Value::Number(number) => number.as_f64().filter(|number| number.is_finite()),
-            Value::String(text) => text.trim().parse::<f64>().ok().filter(|n| n.is_finite()),
+            Value::Number(number) => number.as_f64().and_then(bounded_number),
+            Value::String(text) => text.trim().parse::<f64>().ok().and_then(bounded_number),
             _ => None,
         }
     }
@@ -1205,8 +1214,8 @@ pub fn parse_balance_response(
 
 fn value_as_f64(value: &Value) -> Option<f64> {
     match value {
-        Value::Number(number) => number.as_f64().filter(|number| number.is_finite()),
-        Value::String(text) => text.trim().parse::<f64>().ok().filter(|n| n.is_finite()),
+        Value::Number(number) => number.as_f64().and_then(bounded_number),
+        Value::String(text) => text.trim().parse::<f64>().ok().and_then(bounded_number),
         _ => None,
     }
 }
@@ -1317,13 +1326,23 @@ fn number(object: &Map<String, Value>, keys: &[&str]) -> ProviderResult<Option<f
                 Value::Null => Ok(None),
                 Value::Number(number) => number
                     .as_f64()
+                    .and_then(bounded_number)
+                    .map(Some)
                     .ok_or_else(|| {
-                        ProviderError::parser_failed(format!("field {key} is not a finite number"))
-                    })
-                    .map(Some),
-                Value::String(value) => value.parse::<f64>().map(Some).map_err(|_| {
-                    ProviderError::parser_failed(format!("field {key} is not a number"))
-                }),
+                        ProviderError::parser_failed(format!(
+                            "field {key} is outside the accepted numeric range"
+                        ))
+                    }),
+                Value::String(value) => value
+                    .parse::<f64>()
+                    .ok()
+                    .and_then(bounded_number)
+                    .map(Some)
+                    .ok_or_else(|| {
+                        ProviderError::parser_failed(format!(
+                            "field {key} is not a number in the accepted range"
+                        ))
+                    }),
                 _ => Err(ProviderError::parser_failed(format!(
                     "field {key} must be a number"
                 ))),
@@ -2058,6 +2077,28 @@ mod tests {
         assert_eq!(set.snapshots[0].remaining, Some(12.5));
         assert_eq!(set.snapshots[1].id.as_deref(), Some("balance-USD"));
         assert_eq!(set.snapshots[1].remaining, Some(3.25));
+    }
+
+    #[test]
+    fn mapped_values_outside_the_numeric_range_are_not_reported() {
+        let mappings = FieldMappings {
+            balance: None,
+            usage: Some(FieldMapping {
+                value: "data.used".to_owned(),
+                unit: Some("token".to_owned()),
+                currency: None,
+                role: Some("used".to_owned()),
+                name: None,
+            }),
+            metrics: Vec::new(),
+            reset: None,
+        };
+        let response = ProviderResponse::new(200, r#"{"data":{"used":1e300}}"#);
+        assert_eq!(
+            parse_openai_compatible_with_mappings(&response, &mappings).expect("parse"),
+            None,
+            "an absurd value must not become a quota figure"
+        );
     }
 
     #[test]

@@ -69,6 +69,14 @@ export function AccountRow({
   const onlyConnectionProbe =
     hasSnapshots && account.snapshots.every((quota) => quota.status === "unavailable");
   const freshness = copy.freshness[account.freshness] ?? copy.freshness.unknown;
+  const nextScheduledAt = account.diagnostics?.nextScheduledAt ?? null;
+  const nextScheduled =
+    nextScheduledAt && nextScheduledAt > 0
+      ? new Date(nextScheduledAt * 1000).toLocaleTimeString("zh-CN", {
+          hour: "2-digit",
+          minute: "2-digit",
+        })
+      : null;
 
   return (
     <motion.li
@@ -188,6 +196,7 @@ export function AccountRow({
         <span>
           {freshness}
           {relative ? ` · ${copy.time.updated(relative)}` : ` · ${copy.freshness.neverSynced}`}
+          {nextScheduled ? ` · ${copy.time.nextRefresh(nextScheduled)}` : ""}
           {source ? ` · ${source}` : ""}
         </span>
         <button className="btn btn--quiet" type="button" onClick={onRefresh} disabled={refreshing || deleting}>

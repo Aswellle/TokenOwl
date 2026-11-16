@@ -3293,3 +3293,54 @@ button:disabled {
   width: auto;
   min-width: 88px;
 }
+
+/* ---------- refresh settings ---------- */
+
+.refresh-settings__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 10px 0;
+  border-top: 1px solid var(--hairline);
+}
+
+.refresh-settings__row .field__input {
+  width: auto;
+  min-width: 148px;
+}
+
+.refresh-settings__toggle {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 0 4px;
+  border-top: 1px solid var(--hairline);
+  cursor: pointer;
+}
+
+.refresh-settings__toggle input {
+  margin-top: 3px;
+}
+
+.refresh-settings__help {
+  display: block;
+  margin-top: 3px;
+  color: var(--ink-3);
+  font-size: var(--step-1);
+  font-style: normal;
+  line-height: 1.55;
+}
+
+.section__intro {
+  margin: 0 0 8px;
+  color: var(--ink-3);
+  font-size: var(--step-1);
+  line-height: 1.6;
+}
+
+.pview__schedule {
+  margin: -4px 0 12px;
+  color: var(--ink-3);
+  font-size: var(--step-1);
+}

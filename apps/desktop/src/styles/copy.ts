@@ -194,6 +194,24 @@ export const copy = {
     resetInHours: (hours: number, minutes: number) => `${hours} 小时 ${minutes} 分后重置`,
     resetInMinutes: (minutes: number) => `${minutes} 分钟后重置`,
     updated: (relative: string) => `更新于 ${relative}`,
+    nextRefresh: (time: string) => `下次计划刷新 ${time}`,
+  },
+
+  refreshSettings: {
+    title: "刷新策略",
+    intro:
+      "每个账户按供应商声明的基础间隔刷新；这里的设置只调整上限与可选的自适应范围，不会绕过失败退避或供应商的 Retry-After。",
+    cadence: "刷新间隔上限",
+    auto: "按供应商默认",
+    minutes: (minutes: number) => `${minutes} 分钟`,
+    adaptive: "按消耗速度自动调整",
+    adaptiveHelp:
+      "开启后，额度接近用尽或窗口即将重置的账户最多提前一倍刷新；最近两小时没有消耗的账户最多延后一倍。仅在本地估算，不会额外请求供应商。",
+    nextHint: (time: string) => `该账户${time}`,
+    loading: "正在读取刷新策略…",
+    loadFailed: "刷新策略读取失败，当前显示的是安全默认值。",
+    saveFailed: "刷新策略保存失败，已恢复到上一次生效的设置。",
+    saved: "刷新策略已保存。",
   },
 
   notices: {

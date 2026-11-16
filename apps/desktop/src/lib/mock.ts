@@ -8,6 +8,7 @@ import type {
   ManifestProfileViewModel,
   NotificationViewModel,
   ProviderMatrixRowViewModel,
+  RefreshSettings,
   UsageWindowsViewModel,
 } from "../types";
 import {
@@ -187,7 +188,22 @@ function demoAccounts(now: number): AccountViewModel[] {
       ],
     },
   ];
-  return scenarioAccounts(accounts, now);
+  // The preview has no background loop; give every account the schedule the
+  // real diagnostics DTO would carry so the row footer stays reviewable.
+  const scheduled = accounts.map((account) => {
+    const status: "failed" | "healthy" =
+      account.status === "error" ? "failed" : "healthy";
+    return {
+      ...account,
+      diagnostics: {
+        status,
+        consecutiveFailures: 0,
+        nextScheduledAt: Math.floor(now / 1000) + 300,
+        ...account.diagnostics,
+      },
+    };
+  });
+  return scenarioAccounts(scheduled, now);
 }
 
 function demoNotifications(now: number): NotificationViewModel[] {
@@ -311,6 +327,7 @@ export function createMockBridge(): DashboardBridge {
   let mockLocalUsageEnabled: string[] = [];
   let notifications = demoNotifications(Date.now());
   let preferences: NotificationPreferencesViewModel = { ...demoPreferences };
+  let refreshSettings: RefreshSettings = { adaptive: false, cadenceMinutes: 0 };
   const latency = () => scenarioLatencyMs() + 180 + Math.random() * 260;
 
   return {
@@ -466,6 +483,12 @@ export function createMockBridge(): DashboardBridge {
     async lanTrustRemove() {
       await new Promise((resolve) => setTimeout(resolve, latency()));
       if (hasScenario("lan-trust-fail")) throw new Error("模拟移除失败");
+    },
+    async getRefreshSettings() {
+      return { ...refreshSettings };
+    },
+    async setRefreshSettings(settings) {
+      refreshSettings = { ...settings };
     },
     async refresh(accountId) {
       await new Promise((resolve) => setTimeout(resolve, latency() + 220));

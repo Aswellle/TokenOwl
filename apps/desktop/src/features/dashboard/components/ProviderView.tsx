@@ -167,6 +167,14 @@ export function ProviderView({
     };
   }, [bridge, account.id, account.providerId, account.lastUpdatedAt]);
 
+  const nextScheduledAt = account.diagnostics?.nextScheduledAt ?? null;
+  const nextScheduled =
+    nextScheduledAt && nextScheduledAt > 0
+      ? new Date(nextScheduledAt * 1000).toLocaleTimeString("zh-CN", {
+          hour: "2-digit",
+          minute: "2-digit",
+        })
+      : null;
   const range: RangeUsageViewModel | null = usage ? usage[windowKey] : null;
   // While the usage query is in flight the cards stay neutral ("—"); showing
   // the empty-window copy here would present loading as "no records".
@@ -210,6 +218,11 @@ export function ProviderView({
           <IconRefresh size={18} className={refreshing ? "is-spinning" : undefined} />
         </button>
       </div>
+      {nextScheduled && (
+        <p className="pview__schedule" role="status">
+          {copy.time.nextRefresh(nextScheduled)}
+        </p>
+      )}
 
       <motion.div
         className="pview__usage"

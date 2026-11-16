@@ -367,3 +367,19 @@ test.describe("updater", () => {
     });
   });
 });
+
+test.describe("refresh strategy", () => {
+  test("saves a cadence and the adaptive opt-in", async ({ page }) => {
+    await openSettings(page);
+    const cadence = page.getByRole("combobox", { name: "刷新间隔上限" });
+    await cadence.scrollIntoViewIfNeeded();
+    await expect(cadence).toHaveValue("0");
+    await cadence.selectOption("5");
+    await expect(page.getByRole("status").filter({ hasText: "刷新策略已保存" })).toBeVisible();
+    await expect(cadence).toHaveValue("5");
+
+    const adaptive = page.getByRole("checkbox", { name: /按消耗速度自动调整/ });
+    await adaptive.check();
+    await expect(adaptive).toBeChecked();
+  });
+});

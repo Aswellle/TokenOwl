@@ -1070,28 +1070,37 @@ fn start_background_tasks(app: &AppHandle) {
                 });
             }
 
-            let result = if let Some(runtime) = handle.try_state::<Arc<commands::AppRuntime>>() {
-                let runtime = Arc::clone(runtime.inner());
-                commands::refresh_accounts(&runtime, Some(&handle), None).await
-            } else {
-                Ok(Vec::new())
-            };
-            // `refresh_accounts` already emitted `quota:updated` on success;
-            // emitting again here made both webviews reload twice per cycle.
-            if let Err(error) = &result {
-                tracing::warn!("background refresh failed: {error}");
-            }
-            // The sleep honors the providers' own refresh intervals
-            // (clamped, see `background_refresh_interval`), so a provider
-            // declaring a faster cadence actually gets one instead of the
-            // global 30-minute cadence. The loop needs no shutdown signal:
-            // it is a child of the async runtime, which the process tears
-            // down whole on exit.
-            let sleep_duration = handle
+            // The plan decides which accounts are actually due: per-provider
+            // defaults, the user's cadence preference, the opt-in adaptive
+            // policy, and failure backoff all feed one due time per account.
+            // A not-yet-due account is not refreshed; the loop wakes at the
+            // earliest due time (or 30 s later when something is due now).
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |duration| duration.as_secs());
+            let planned = handle
                 .try_state::<Arc<commands::AppRuntime>>()
-                .map_or(std::time::Duration::from_secs(600), |runtime| {
-                    runtime.background_refresh_interval()
-                });
+                .map(|runtime| (Arc::clone(runtime.inner()), runtime.background_plan(now)));
+            let mut sleep_duration = std::time::Duration::from_secs(600);
+            match planned {
+                Some((runtime, Ok(plan))) => {
+                    let due = plan.due;
+                    sleep_duration = plan.sleep;
+                    if !due.is_empty()
+                        && let Err(error) =
+                            commands::refresh_accounts_list(&runtime, Some(&handle), due, false)
+                                .await
+                    {
+                        tracing::warn!("background refresh failed: {error}");
+                    }
+                }
+                Some((_, Err(error))) => {
+                    tracing::warn!("background refresh plan failed: {error}");
+                }
+                None => {}
+            }
+            // The loop needs no shutdown signal: it is a child of the async
+            // runtime, which the process tears down whole on exit.
             tokio::time::sleep(sleep_duration).await;
         }
     });
@@ -1193,6 +1202,8 @@ pub fn run() {
             commands::accounts_delete,
             commands::accounts_update_credential,
             commands::accounts_refresh,
+            commands::refresh_settings_get,
+            commands::refresh_settings_set,
             commands::manifest_profiles,
             commands::lan_consent_begin,
             commands::proxy_get,

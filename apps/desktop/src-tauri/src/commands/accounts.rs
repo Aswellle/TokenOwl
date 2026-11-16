@@ -164,22 +164,32 @@ impl AppRuntime {
         run_credential_cleanup_sweep(self);
     }
 
-    /// How long the background loop sleeps between refresh waves: the
-    /// shortest refresh interval any provider declares, clamped to a
-    /// provider-friendly window, falling back to the global freshness
-    /// cadence when nothing declares one (or storage is unreadable). The
-    /// lower bound keeps a misconfigured manifest from hammering an API;
-    /// the upper bound is the global cadence so honoring a slow provider
-    /// never makes the dashboard staler than before. 429 Retry-After and
-    /// the failure backoff stay governed by the refresh path itself.
+    /// The configured cadence ceiling and fallback: an explicit user choice,
+    /// else the freshness policy's own refresh target.
+    pub fn refresh_cadence(&self) -> std::time::Duration {
+        match self.repository() {
+            Ok(repository) => self.refresh_cadence_from(&repository),
+            Err(_) => self.freshness_policy.refresh_cadence(),
+        }
+    }
+
+    fn refresh_cadence_from(&self, repository: &LocalRepository) -> std::time::Duration {
+        super::refresh::cadence(
+            self.freshness_policy.refresh_cadence(),
+            super::refresh::refresh_settings(repository),
+        )
+    }
+
+    /// The shortest refresh interval any provider declares, clamped to the
+    /// configured cadence. This is the background loop's *base* scan horizon;
+    /// per-account due times come from [`Self::background_plan`].
     pub fn background_refresh_interval(&self) -> std::time::Duration {
-        const FLOOR: std::time::Duration = std::time::Duration::from_secs(60);
-        let fallback = self.freshness_policy.refresh_cadence();
+        let ceiling = self.refresh_cadence();
         let Ok(repository) = self.repository() else {
-            return fallback;
+            return ceiling;
         };
         let Ok(providers) = repository.providers() else {
-            return fallback;
+            return ceiling;
         };
         match providers
             .iter()
@@ -187,9 +197,67 @@ impl AppRuntime {
             .filter(|interval| !interval.is_zero())
             .min()
         {
-            Some(interval) => interval.clamp(FLOOR, fallback.max(FLOOR)),
-            None => fallback,
+            Some(interval) => interval.clamp(super::refresh::MIN_REFRESH_INTERVAL, ceiling),
+            None => ceiling,
         }
+    }
+
+    /// One account's current scheduling interval: the provider's declared
+    /// default (or the cadence when it declares none), optionally adjusted by
+    /// the opt-in adaptive policy.
+    pub(crate) fn account_interval(
+        &self,
+        repository: &LocalRepository,
+        account_id: &str,
+        provider_id: &str,
+        now: u64,
+    ) -> std::time::Duration {
+        let ceiling = self.refresh_cadence_from(repository);
+        let base = repository
+            .provider(provider_id)
+            .ok()
+            .flatten()
+            .map(|config| config.default_refresh)
+            .filter(|interval| !interval.is_zero())
+            .map_or(ceiling, |interval| {
+                interval.clamp(super::refresh::MIN_REFRESH_INTERVAL, ceiling)
+            });
+        let settings = super::refresh::refresh_settings(repository);
+        let signals = if settings.adaptive {
+            super::refresh::adaptive_signals(repository, account_id, now, self.freshness_policy)
+        } else {
+            super::refresh::AdaptiveSignals::default()
+        };
+        super::refresh::account_interval(base, ceiling, settings.adaptive, signals)
+    }
+
+    /// When this account is next scheduled to refresh, for the account view.
+    /// Failure backoff wins; an account that never succeeded has no derivable
+    /// time and returns `None` (its next attempt is the immediate next wave).
+    fn next_refresh_at(
+        &self,
+        repository: &LocalRepository,
+        account_id: &str,
+        provider_id: &str,
+        now: u64,
+    ) -> Option<u64> {
+        let state = repository.refresh_state(account_id).ok()?;
+        if state.status == RefreshStatus::Failed {
+            return state.next_attempt_at;
+        }
+        let interval = self.account_interval(repository, account_id, provider_id, now);
+        state
+            .last_success_at
+            .map(|last| last.saturating_add(interval.as_secs()))
+    }
+
+    /// The background loop's next decision: which accounts are due and how
+    /// long to sleep before re-evaluating.
+    pub fn background_plan(
+        &self,
+        now: u64,
+    ) -> Result<super::refresh::BackgroundPlan, CommandError> {
+        super::refresh::background_plan(self, now)
     }
 
     pub(super) fn repository(&self) -> Result<LocalRepository, CommandError> {
@@ -374,6 +442,10 @@ pub struct RefreshDiagnosticsViewModel {
     pub last_attempt_at: Option<u64>,
     pub last_success_at: Option<u64>,
     pub next_retry_at: Option<u64>,
+    /// When the background loop plans to refresh this account next. Failure
+    /// backoff takes precedence; the value is absent only when no schedule
+    /// can be derived.
+    pub next_scheduled_at: Option<u64>,
     pub consecutive_failures: u32,
 }
 
@@ -393,6 +465,7 @@ impl RefreshDiagnosticsViewModel {
             last_attempt_at: state.last_started_at,
             last_success_at: state.last_success_at,
             next_retry_at: state.next_attempt_at,
+            next_scheduled_at: None,
             consecutive_failures: state.consecutive_failures,
         }
     }
@@ -903,6 +976,19 @@ pub(crate) async fn refresh_accounts(
                 .collect(),
         }
     };
+    refresh_accounts_list(runtime, handle, account_ids, refresh_one).await
+}
+
+/// Refreshes an explicit account set. The background loop passes the subset
+/// that is actually due; a manual refresh passes the requested account (or
+/// every account, for refresh-all). `refresh_one` controls whether a single
+/// account's failure propagates to the caller.
+pub(crate) async fn refresh_accounts_list(
+    runtime: &Arc<AppRuntime>,
+    handle: Option<&AppHandle>,
+    account_ids: Vec<String>,
+    refresh_one: bool,
+) -> Result<Vec<AccountViewModel>, CommandError> {
     let mut failed_requested = false;
     let mut single_failure: Option<CommandError> = None;
     for wave in account_ids.chunks(REFRESH_WAVE_SIZE) {
@@ -1088,6 +1174,127 @@ mod cadence_tests {
         drop(runtime);
         let _ = std::fs::remove_file(&path);
     }
+
+    fn runtime_with_account() -> (AppRuntime, PathBuf, String) {
+        let mut path = std::env::temp_dir();
+        path.push(format!(
+            "tokenowl-plan-{}-{}.sqlite3",
+            std::process::id(),
+            nanoid::nanoid!(6)
+        ));
+        let runtime = AppRuntime::new(&path).expect("runtime");
+        let repository = runtime.repository().expect("database");
+        let account_id = "account-cadence".to_owned();
+        let mut config = OpenAiCompatibleConfig::new(
+            format!("cadence-0:{account_id}"),
+            "Cadence",
+            "https://cadence.test/v1",
+        );
+        config.default_refresh = std::time::Duration::from_secs(300);
+        repository.upsert_provider(&config, 1).expect("provider");
+        let account = AccountMetadata::from_auth_input(
+            account_id.clone(),
+            format!("cadence-0:{account_id}"),
+            "Cadence work",
+            "api_key",
+            None,
+            HashMap::new(),
+            true,
+            None,
+        );
+        repository.upsert_account(&account, 1).expect("account");
+        (runtime, path, account_id)
+    }
+
+    #[test]
+    fn background_plan_refreshes_never_refreshed_and_then_waits() {
+        let (runtime, path, account_id) = runtime_with_account();
+        let now = 1_800_000_000u64;
+        let plan = runtime.background_plan(now).expect("plan");
+        assert_eq!(plan.due, vec![account_id.clone()]);
+        assert_eq!(plan.sleep, std::time::Duration::from_secs(30));
+
+        let repository = runtime.repository().expect("database");
+        repository
+            .mark_refresh_succeeded(&account_id, now)
+            .expect("success");
+        let plan = runtime.background_plan(now).expect("plan");
+        assert!(plan.due.is_empty(), "a just-refreshed account waits");
+        assert!(plan.sleep >= std::time::Duration::from_secs(30));
+        assert!(plan.sleep <= runtime.refresh_cadence());
+        drop(runtime);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn background_plan_respects_failure_backoff() {
+        let (runtime, path, account_id) = runtime_with_account();
+        let now = 1_800_000_000u64;
+        let repository = runtime.repository().expect("database");
+        repository
+            .mark_refresh_failed(
+                &account_id,
+                now,
+                "RateLimited",
+                Some(now + 600),
+                Some(429),
+                Some("quota".to_owned()),
+            )
+            .expect("failure");
+        let plan = runtime.background_plan(now).expect("plan");
+        assert!(plan.due.is_empty(), "the backoff window is still open");
+        assert_eq!(plan.sleep, std::time::Duration::from_secs(600));
+        drop(runtime);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn adaptive_mode_extends_idle_accounts_and_shortens_low_quota() {
+        let (runtime, path, account_id) = runtime_with_account();
+        let now = 1_800_000_000u64;
+        let repository = runtime.repository().expect("database");
+        repository
+            .set_setting(
+                super::super::refresh::ADAPTIVE_REFRESH_KEY,
+                &serde_json::Value::Bool(true),
+            )
+            .expect("adaptive setting");
+        let provider_id = "cadence-0:account-cadence";
+        assert_eq!(
+            runtime.account_interval(&repository, &account_id, provider_id, now),
+            std::time::Duration::from_secs(600),
+            "no activity doubles the 300 s provider default, under the 30 min ceiling"
+        );
+
+        // Two token snapshots one minute apart, with 5% remaining: activity
+        // plus a nearly empty quota halves the interval.
+        let snapshot = |used: f64, remaining: f64| {
+            crate::domain::provider::QuotaSnapshotSet::new(vec![
+                crate::domain::provider::QuotaSnapshot {
+                    account_id: Some(account_id.clone()),
+                    metric_id: Some("tokens".to_owned()),
+                    unit: Some(QuotaUnit::Token),
+                    used: Some(used),
+                    limit: Some(1_000.0),
+                    remaining: Some(remaining),
+                    status: SnapshotStatus::Available,
+                    ..crate::domain::provider::QuotaSnapshot::default()
+                },
+            ])
+        };
+        repository
+            .upsert_snapshot_set(&account_id, &snapshot(100.0, 900.0), now - 120)
+            .expect("first snapshot");
+        repository
+            .upsert_snapshot_set(&account_id, &snapshot(160.0, 50.0), now - 60)
+            .expect("second snapshot");
+        assert_eq!(
+            runtime.account_interval(&repository, &account_id, provider_id, now),
+            std::time::Duration::from_secs(150)
+        );
+        drop(runtime);
+        let _ = std::fs::remove_file(&path);
+    }
 }
 
 pub(super) fn list_accounts(state: &AppRuntime) -> Result<Vec<AccountViewModel>, CommandError> {
@@ -1097,7 +1304,10 @@ pub(super) fn list_accounts(state: &AppRuntime) -> Result<Vec<AccountViewModel>,
     let mut views = Vec::with_capacity(accounts.len());
     for account in &accounts {
         if let Some(view) = repository.account_view(&account.id, now, state.freshness_policy)? {
-            views.push(account_view_to_model(view));
+            let mut model = account_view_to_model(view);
+            model.diagnostics.next_scheduled_at =
+                state.next_refresh_at(&repository, &account.id, &account.provider_id, now);
+            views.push(model);
         }
     }
     Ok(views)

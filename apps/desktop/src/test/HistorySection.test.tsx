@@ -101,6 +101,8 @@ function makeBridge(summary: HistorySummaryViewModel): DashboardBridge {
     clearLocalUsage: vi.fn(async () => 0),
     exportHistory: vi.fn(async () => ({ path: "C:\mock\export.csv", rows: 0 })),
     refresh: vi.fn(async () => []),
+    getRefreshSettings: vi.fn(async () => ({ adaptive: false, cadenceMinutes: 0 })),
+    setRefreshSettings: vi.fn(async () => {}),
     checkForUpdate: vi.fn(async () => null),
     installUpdate: vi.fn(async () => {}),
     listNotifications: vi.fn(async () => []),

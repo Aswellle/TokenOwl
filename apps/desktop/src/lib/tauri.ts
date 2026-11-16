@@ -14,6 +14,7 @@ import type {
   NotificationPreferencesViewModel,
   NotificationViewModel,
   ProviderMatrixRowViewModel,
+  RefreshSettings,
   UpdateInfo,
   UsageWindowsViewModel,
   ManifestProfilesViewModel,
@@ -67,6 +68,12 @@ export const tauriBridge: DashboardBridge = {  listAccounts: () => invoke<Accoun
     invoke<CredentialUpdateResult>("accounts_update_credential", { accountId, apiKey }),
   refresh: (accountId?: string) =>
     invoke<AccountViewModel[]>("accounts_refresh", accountId ? { accountId } : undefined),
+  getRefreshSettings: () => invoke<RefreshSettings>("refresh_settings_get"),
+  setRefreshSettings: (settings: RefreshSettings) =>
+    invoke<void>("refresh_settings_set", {
+      adaptive: settings.adaptive,
+      cadenceMinutes: settings.cadenceMinutes,
+    }),
   checkForUpdate: () => invoke<UpdateInfo | null>("updater_check"),
   installUpdate: () => invoke<void>("updater_install"),
   listNotifications: (limit?: number) =>

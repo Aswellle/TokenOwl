@@ -57,7 +57,16 @@ export interface RefreshDiagnostics {
   lastAttemptAt?: number | null;
   lastSuccessAt?: number | null;
   nextRetryAt?: number | null;
+  /** Next planned background refresh; failure backoff wins when present. */
+  nextScheduledAt?: number | null;
   consecutiveFailures?: number;
+}
+
+/** Refresh cadence preferences. `cadenceMinutes: 0` means the provider
+ * manifests' own defaults; adaptive mode stays inside the configured bounds. */
+export interface RefreshSettings {
+  adaptive: boolean;
+  cadenceMinutes: number;
 }
 
 export interface AccountViewModel {
@@ -321,6 +330,9 @@ export interface DashboardBridge {
   clearLocalUsage(): Promise<number>;
   exportHistory(format: "csv" | "json"): Promise<HistoryExportResult>;
   refresh(accountId?: string): Promise<AccountViewModel[]>;
+  /** Cadence preference plus the opt-in adaptive policy. */
+  getRefreshSettings(): Promise<RefreshSettings>;
+  setRefreshSettings(settings: RefreshSettings): Promise<void>;
   checkForUpdate(): Promise<UpdateInfo | null>;
   installUpdate(): Promise<void>;
   listNotifications(limit?: number): Promise<NotificationViewModel[]>;

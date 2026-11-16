@@ -32,6 +32,8 @@ vi.mock("../lib/tauri", () => ({
     createAccount: mockCreateAccount,
     deleteAccount: vi.fn().mockResolvedValue(undefined),
     refresh: vi.fn().mockResolvedValue([]),
+    getRefreshSettings: vi.fn().mockResolvedValue({ adaptive: false, cadenceMinutes: 0 }),
+    setRefreshSettings: vi.fn().mockResolvedValue(undefined),
     checkForUpdate: vi.fn().mockResolvedValue(null),
     installUpdate: vi.fn(),
     listNotifications: vi.fn().mockResolvedValue([]),

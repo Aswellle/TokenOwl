@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 
 const {
   mockListAccounts,
@@ -37,6 +37,8 @@ vi.mock("../lib/tauri", () => ({
     lanConsentBegin: mockLanConsentBegin,
     deleteAccount: vi.fn(),
     refresh: vi.fn(),
+    getRefreshSettings: vi.fn().mockResolvedValue({ adaptive: false, cadenceMinutes: 0 }),
+    setRefreshSettings: vi.fn().mockResolvedValue(undefined),
     checkForUpdate: vi.fn(),
     installUpdate: vi.fn(),
     listNotifications: vi.fn().mockResolvedValue([]),
@@ -228,7 +230,7 @@ describe("LAN consent before account creation", () => {
     submitForm();
     await waitFor(() => screen.getByRole("alertdialog"));
 
-    fireEvent.click(screen.getByRole("checkbox"));
+    fireEvent.click(within(screen.getByRole("alertdialog")).getByRole("checkbox"));
     fireEvent.click(screen.getByRole("button", { name: /我确认，继续|Continue/i }));
 
     await waitFor(() => expect(mockCreateAccount).toHaveBeenCalledTimes(1));

@@ -27,6 +27,7 @@ mod accounts;
 mod history;
 mod lan;
 mod notifications;
+mod refresh;
 mod settings;
 mod usage;
 
@@ -34,6 +35,7 @@ pub use accounts::*;
 pub use history::*;
 pub use lan::*;
 pub use notifications::*;
+pub use refresh::*;
 pub use settings::*;
 pub use usage::*;
 
@@ -105,6 +107,7 @@ mod tests {
                 last_attempt_at: Some(1_799_564_400),
                 last_success_at: Some(1_799_564_400),
                 next_retry_at: None,
+                next_scheduled_at: None,
                 consecutive_failures: 0,
             },
         };
@@ -150,6 +153,7 @@ mod tests {
                     "lastAttemptAt": 1_799_564_400u64,
                     "lastSuccessAt": 1_799_564_400u64,
                     "nextRetryAt": null,
+                    "nextScheduledAt": null,
                     "consecutiveFailures": 0,
                 },
             })

@@ -182,6 +182,63 @@ pub enum ProviderErrorKind {
 /// Backwards-compatible name for consumers that call the structured kind a code.
 pub type ProviderErrorCode = ProviderErrorKind;
 
+/// One endpoint's diagnostic result. Only stable categories, status codes,
+/// timestamps, and latency cross the IPC boundary — never a URL, header, or
+/// response body.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EndpointProbe {
+    /// `models` | `quota` | `usage` | `balance` | `reset`
+    pub kind: String,
+    /// `ok` | `auth` | `rate_limited` | `timeout` | `network` | `tls` |
+    /// `server_error` | `client_error` | `malformed` | `config_error` |
+    /// `unsupported`
+    pub outcome: String,
+    pub http_status: Option<u16>,
+    pub error_code: Option<String>,
+    pub retry_at: Option<String>,
+    pub latency_ms: u64,
+}
+
+impl EndpointProbe {
+    pub fn new(kind: impl Into<String>, outcome: impl Into<String>) -> Self {
+        Self {
+            kind: kind.into(),
+            outcome: outcome.into(),
+            http_status: None,
+            error_code: None,
+            retry_at: None,
+            latency_ms: 0,
+        }
+    }
+
+    /// Classification shared by the OpenAI-compatible and native probes.
+    pub fn from_error(kind: impl Into<String>, error: &ProviderError) -> Self {
+        let outcome = match error.code {
+            ProviderErrorKind::AuthRequired | ProviderErrorKind::AuthExpired => "auth",
+            ProviderErrorKind::RateLimited => "rate_limited",
+            ProviderErrorKind::Timeout => "timeout",
+            ProviderErrorKind::NetworkUnavailable => "network",
+            ProviderErrorKind::TlsError => "tls",
+            ProviderErrorKind::ProviderUnavailable => "server_error",
+            ProviderErrorKind::InvalidResponse | ProviderErrorKind::ParserFailed => "malformed",
+            ProviderErrorKind::UnsupportedCapability => "unsupported",
+            ProviderErrorKind::ConfigInvalid
+            | ProviderErrorKind::CredentialError
+            | ProviderErrorKind::StorageError
+            | ProviderErrorKind::Unknown => "config_error",
+        };
+        Self {
+            kind: kind.into(),
+            outcome: outcome.to_owned(),
+            http_status: error.http_status,
+            error_code: Some(error.code.name().to_owned()),
+            retry_at: error.retry_at.clone(),
+            latency_ms: 0,
+        }
+    }
+}
+
 impl ProviderErrorKind {
     /// Stable variant name for logs and IPC error payloads. Deliberately
     /// independent of `Debug` so renaming a display path can never silently

@@ -25,6 +25,7 @@ use thiserror::Error;
 
 mod accounts;
 mod backup;
+mod diagnostics;
 mod exports;
 mod history;
 mod lan;
@@ -36,6 +37,7 @@ mod usage;
 
 pub use accounts::*;
 pub use backup::*;
+pub use diagnostics::*;
 pub use history::*;
 pub use lan::*;
 pub use manifest::*;

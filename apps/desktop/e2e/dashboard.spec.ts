@@ -354,3 +354,13 @@ test.describe("layout resilience", () => {
     await expect(page.locator(".account__label").first()).toContainText("非常非常长的账户名称");
   });
 });
+
+test.describe("provider endpoint diagnostics", () => {
+  test("shows one classified row per declared endpoint", async ({ page }) => {
+    await page.goto("/");
+    await page.getByRole("button", { name: "OpenAI 官方 OpenAI 兼容" }).click();
+    await page.getByRole("button", { name: "测试端点" }).click();
+    await expect(page.getByText("可访问")).toBeVisible();
+    await expect(page.getByText("认证失败")).toBeVisible();
+  });
+});

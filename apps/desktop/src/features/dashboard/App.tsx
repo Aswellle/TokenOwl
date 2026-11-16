@@ -31,6 +31,7 @@ import { ProviderMatrix } from "./components/ProviderMatrix";
 import { RefreshSection } from "./components/RefreshSection";
 import { ManifestPlayground } from "./components/ManifestPlayground";
 import { BackupSection } from "./components/BackupSection";
+import { DiagnosticsSection } from "./components/DiagnosticsSection";
 import { SetupForm } from "./components/SetupForm";
 import { AccountRow } from "./components/AccountRow";
 import { ProxySection } from "./components/ProxySection";
@@ -668,6 +669,7 @@ export function App({ bridge = tauriBridge }: AppProps = {}) {
                 />
                 <RefreshSection bridge={bridge} />
                 <ManifestPlayground bridge={bridge} />
+                <DiagnosticsSection bridge={bridge} />
                 <ProviderMatrix bridge={bridge} />
                 <LanTrustSection bridge={bridge} />
                 <ProxySection bridge={bridge} />

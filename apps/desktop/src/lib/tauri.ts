@@ -5,6 +5,9 @@ import type {
   AccountConfigExportResult,
   AccountImportPreview,
   AccountViewModel,
+  DiagnosticsExportResult,
+  DiagnosticsPreview,
+  EndpointTestView,
   CredentialUpdateResult,
   LocalUsageSourceView,
   LocalUsageSummary,
@@ -127,6 +130,11 @@ export const tauriBridge: DashboardBridge = {  listAccounts: () => invoke<Accoun
     ),
   previewAccountImport: (payload: string) =>
     invoke<AccountImportPreview>("accounts_import_preview", { payload }),
+  testAccountEndpoints: (accountId: string) =>
+    invoke<EndpointTestView>("account_endpoint_test", { accountId }),
+  diagnosticsPreview: () => invoke<DiagnosticsPreview>("diagnostics_preview"),
+  exportDiagnostics: (expectedToken: string) =>
+    invoke<DiagnosticsExportResult>("diagnostics_export", { expectedToken }),
   getDockCollapsed: () => invoke<boolean>("dock_state_get"),
   setDockCollapsed: (collapsed: boolean) =>
     invoke<void>("dock_state_set", { collapsed }),

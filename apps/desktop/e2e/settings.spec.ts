@@ -424,3 +424,16 @@ test.describe("account configuration backup", () => {
     await expect(page.getByText("已添加，首次刷新验证成功。")).toBeVisible();
   });
 });
+
+test.describe("local diagnostics", () => {
+  test("previews a redacted bundle and exports the reviewed document", async ({ page }) => {
+    await openSettings(page);
+    await page.getByText("本地诊断包", { exact: true }).click();
+    await page.getByRole("button", { name: "生成诊断预览" }).click();
+    const preview = page.getByLabel("预览并导出脱敏诊断信息");
+    await expect(preview).toBeVisible();
+    await expect(preview).toContainText('"schemaVersion": 1');
+    await page.getByRole("button", { name: "导出诊断包" }).click();
+    await expect(page.getByRole("status").filter({ hasText: "已导出诊断包" })).toBeVisible();
+  });
+});

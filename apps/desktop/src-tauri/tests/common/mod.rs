@@ -22,6 +22,7 @@ impl RecordingServer {
 }
 
 /// Spawns a server answering every request with one canned response.
+#[allow(dead_code)]
 pub fn spawn_server(response: String) -> RecordingServer {
     spawn_router(move |path| (response.clone(), path.to_owned()))
 }

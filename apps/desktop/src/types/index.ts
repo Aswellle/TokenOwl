@@ -129,6 +129,48 @@ export interface LocalUsageSummary {
   sourceCounts: Array<[string, number]>;
 }
 
+/** One endpoint's diagnostic result; no URL, header, or body is included. */
+export interface EndpointProbeViewModel {
+  kind: "models" | "quota" | "usage" | "balance" | "reset" | string;
+  outcome:
+    | "ok"
+    | "auth"
+    | "rate_limited"
+    | "timeout"
+    | "network"
+    | "tls"
+    | "server_error"
+    | "client_error"
+    | "malformed"
+    | "config_error"
+    | "unsupported"
+    | string;
+  httpStatus?: number | null;
+  errorCode?: string | null;
+  retryAt?: string | null;
+  latencyMs: number;
+}
+
+export interface EndpointTestView {
+  accountId: string;
+  providerId: string;
+  baseHost?: string | null;
+  customEndpoint: boolean;
+  testedAt: number;
+  probes: EndpointProbeViewModel[];
+}
+
+export interface DiagnosticsPreview {
+  token: string;
+  generatedAt: number;
+  json: string;
+}
+
+export interface DiagnosticsExportResult {
+  path: string;
+  bytes: number;
+}
+
 /** Result of a secret-free account-config export. */
 export interface AccountConfigExportResult {
   path: string;
@@ -412,6 +454,12 @@ export interface DashboardBridge {
   exportAccountConfig(accountIds?: string[]): Promise<AccountConfigExportResult>;
   /** Validates a pasted backup without creating anything. */
   previewAccountImport(payload: string): Promise<AccountImportPreview>;
+  /** Runs the per-endpoint diagnostics for one account. */
+  testAccountEndpoints(accountId: string): Promise<EndpointTestView>;
+  /** Builds the redacted local diagnostic bundle for review. */
+  diagnosticsPreview(): Promise<DiagnosticsPreview>;
+  /** Writes the exact previewed bundle; rejects when its token is stale. */
+  exportDiagnostics(expectedToken: string): Promise<DiagnosticsExportResult>;
   refresh(accountId?: string): Promise<AccountViewModel[]>;
   /** Cadence preference plus the opt-in adaptive policy. */
   getRefreshSettings(): Promise<RefreshSettings>;

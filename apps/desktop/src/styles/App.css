@@ -3553,3 +3553,108 @@ button:disabled {
     flex-direction: column;
   }
 }
+
+/* ---------- local diagnostics ---------- */
+
+.diagnostics-section {
+  padding: 0;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+}
+
+.diagnostics-section > summary {
+  border-radius: var(--radius-card);
+}
+
+.diagnostics__body {
+  padding: 0 14px 14px;
+}
+
+.diagnostics__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 8px 0;
+}
+
+.diagnostics__json {
+  max-height: 320px;
+  margin: 8px 0;
+  padding: 12px;
+  overflow: auto;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-ctl);
+  background: var(--inset);
+  color: var(--ink-2);
+  font-size: var(--step-0);
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* ---------- provider endpoint diagnostics ---------- */
+
+.endpoint-test {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+}
+
+.endpoint-test__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px 12px;
+}
+
+.endpoint-test__meta {
+  color: var(--ink-3);
+  font-size: var(--step-0);
+  overflow-wrap: anywhere;
+}
+
+.endpoint-test__list {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.endpoint-test__row {
+  display: grid;
+  grid-template-columns: minmax(80px, 0.8fr) minmax(90px, 1fr) minmax(110px, auto);
+  gap: 8px;
+  align-items: baseline;
+  font-size: var(--step-1);
+}
+
+.endpoint-test__kind {
+  font-weight: 600;
+}
+
+.endpoint-test__outcome--ok {
+  color: var(--ok, #177245);
+}
+
+.endpoint-test__outcome--auth,
+.endpoint-test__outcome--config_error,
+.endpoint-test__outcome--unsupported {
+  color: var(--danger, #b42318);
+}
+
+.endpoint-test__outcome--rate_limited,
+.endpoint-test__outcome--timeout,
+.endpoint-test__outcome--network,
+.endpoint-test__outcome--tls,
+.endpoint-test__outcome--server_error,
+.endpoint-test__outcome--client_error,
+.endpoint-test__outcome--malformed {
+  color: var(--ink-2);
+}

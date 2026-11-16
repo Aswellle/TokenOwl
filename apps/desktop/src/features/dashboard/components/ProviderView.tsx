@@ -3,7 +3,7 @@ import { motion } from "motion/react";
 import { Area, AreaChart, ResponsiveContainer, Tooltip, YAxis } from "recharts";
 import { copy } from "../../../styles/copy";
 import { ProviderIcon } from "../../../components/ProviderIcon";
-import { IconChevronLeft, IconRefresh } from "../../../components/icons";
+import { IconActivity, IconChevronLeft, IconRefresh } from "../../../components/icons";
 import {
   burnExhaustionHint as burnHint,
   formatBurnRate,
@@ -18,6 +18,7 @@ import type {
   AccountViewModel,
   BurnRateViewModel,
   DashboardBridge,
+  EndpointTestView,
   RangeUsageViewModel,
   UsageWindowsViewModel,
 } from "../../../types";
@@ -119,6 +120,14 @@ export function ProviderView({
   // The capability chip reflects the provider's measured level from the
   // embedded matrix instead of a hardcoded value; unknown ids show nothing.
   const [capabilityLevel, setCapabilityLevel] = useState<string | null>(null);
+  const [endpointTest, setEndpointTest] = useState<EndpointTestView | null>(null);
+  const [testingEndpoints, setTestingEndpoints] = useState(false);
+  const [endpointTestFailed, setEndpointTestFailed] = useState(false);
+
+  useEffect(() => {
+    setEndpointTest(null);
+    setEndpointTestFailed(false);
+  }, [account.id]);
 
   useEffect(() => {
     let active = true;
@@ -167,6 +176,19 @@ export function ProviderView({
     };
   }, [bridge, account.id, account.providerId, account.lastUpdatedAt]);
 
+  const runEndpointTest = async () => {
+    setTestingEndpoints(true);
+    setEndpointTestFailed(false);
+    try {
+      setEndpointTest(await bridge.testAccountEndpoints(account.id));
+    } catch {
+      setEndpointTest(null);
+      setEndpointTestFailed(true);
+    } finally {
+      setTestingEndpoints(false);
+    }
+  };
+
   const nextScheduledAt = account.diagnostics?.nextScheduledAt ?? null;
   const nextScheduled =
     nextScheduledAt && nextScheduledAt > 0
@@ -210,6 +232,16 @@ export function ProviderView({
         <button
           className="btn btn--icon"
           type="button"
+          onClick={() => void runEndpointTest()}
+          disabled={testingEndpoints}
+          aria-label={copy.endpointTest.run}
+          title={copy.endpointTest.run}
+        >
+          <IconActivity size={18} />
+        </button>
+        <button
+          className="btn btn--icon"
+          type="button"
           onClick={onRefresh}
           disabled={refreshing}
           aria-label={copy.a11y.refreshAccount(account.label)}
@@ -222,6 +254,55 @@ export function ProviderView({
         <p className="pview__schedule" role="status">
           {copy.time.nextRefresh(nextScheduled)}
         </p>
+      )}
+      {testingEndpoints && (
+        <p className="history__note" role="status">
+          {copy.endpointTest.running}
+        </p>
+      )}
+      {endpointTestFailed && (
+        <p className="form__error" role="alert">
+          {copy.endpointTest.failed}
+        </p>
+      )}
+      {endpointTest && (
+        <div className="endpoint-test" aria-live="polite">
+          <div className="endpoint-test__head">
+            <strong>{copy.endpointTest.title}</strong>
+            <span className="endpoint-test__meta">
+              {endpointTest.customEndpoint
+                ? copy.endpointTest.customHost
+                : (endpointTest.baseHost ?? "—")}
+              {" · "}
+              {new Date(endpointTest.testedAt * 1000).toLocaleTimeString("zh-CN", {
+                hour: "2-digit",
+                minute: "2-digit",
+              })}
+            </span>
+          </div>
+          {endpointTest.probes.length === 0 ? (
+            <p className="history__note">{copy.endpointTest.noEndpoints}</p>
+          ) : (
+            <ul className="endpoint-test__list">
+              {endpointTest.probes.map((probe, index) => (
+                <li key={`${probe.kind}-${index}`} className="endpoint-test__row">
+                  <span className="endpoint-test__kind">{probe.kind}</span>
+                  <span
+                    className={`endpoint-test__outcome endpoint-test__outcome--${probe.outcome}`}
+                  >
+                    {copy.endpointTest.outcomes[probe.outcome] ?? probe.outcome}
+                  </span>
+                  <span className="endpoint-test__meta num">
+                    {probe.httpStatus
+                      ? `${copy.endpointTest.httpStatus(probe.httpStatus)} · `
+                      : ""}
+                    {copy.endpointTest.latency(probe.latencyMs)}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
       )}
 
       <motion.div

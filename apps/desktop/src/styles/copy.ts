@@ -279,6 +279,46 @@ export const copy = {
     lanConfirm: "确认并继续",
   },
 
+  endpointTest: {
+    title: "端点测试",
+    run: "测试端点",
+    running: "正在测试端点…",
+    failed: "端点测试未能执行，请稍后重试。",
+    customHost: "自定义端点（地址已隐藏）",
+    httpStatus: (status: number) => `HTTP ${status}`,
+    latency: (milliseconds: number) => `${milliseconds} ms`,
+    noEndpoints: "该账户没有声明可测试的端点。",
+    outcomes: {
+      ok: "可访问",
+      auth: "认证失败",
+      rate_limited: "被限流",
+      timeout: "超时",
+      network: "网络不可达",
+      tls: "TLS 失败",
+      server_error: "服务端错误",
+      client_error: "客户端错误",
+      malformed: "响应不是 JSON",
+      config_error: "配置或凭据不可用",
+      unsupported: "不支持",
+    } as Record<string, string>,
+  },
+
+  diagnostics: {
+    title: "本地诊断包",
+    summary: "预览并导出脱敏诊断信息",
+    intro:
+      "诊断包只包含应用与系统版本、存储 schema、刷新状态、Provider ID、协议、端点种类、HTTP 状态和错误码。不包含密钥、凭据引用、请求/响应正文、请求头、代理地址、账户名称、文件路径或自定义端点地址。",
+    preview: "生成诊断预览",
+    previewing: "正在生成…",
+    previewFailed: "诊断预览生成失败。",
+    export: "导出诊断包",
+    exporting: "正在导出…",
+    exported: (path: string, bytes: number) => `已导出诊断包（${bytes} 字节）到 ${path}`,
+    exportFailed: "诊断包导出失败。",
+    stale: "诊断内容已变化，请重新生成预览后再导出。",
+    note: "预览确认后才会写入文件；所有内容仅保存在本机，不会自动上传。",
+  },
+
   notices: {
     loadFailed: "无法连接本地服务，界面已切换为离线状态；本机数据不会被清除。",
     refreshFailed: "刷新失败，已保留最近一次成功的数据。",

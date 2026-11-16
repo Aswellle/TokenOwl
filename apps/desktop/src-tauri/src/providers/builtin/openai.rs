@@ -7,13 +7,14 @@
 
 use crate::credentials::{CredentialError, CredentialStore};
 use crate::domain::provider::{
-    AccountContext, AccountIdentity, AuthMethod, DataSource, FetchContext, HealthStatus,
-    OpenAiCompatibleConfig, ProviderAdapter, ProviderDescriptor, ProviderError, ProviderErrorKind,
-    ProviderResult, QuotaSnapshot, QuotaSnapshotSet, SnapshotStatus, UsagePoint, UsageRange,
+    AccountContext, AccountIdentity, AuthMethod, DataSource, EndpointProbe, FetchContext,
+    HealthStatus, OpenAiCompatibleConfig, ProviderAdapter, ProviderDescriptor, ProviderError,
+    ProviderErrorKind, ProviderResult, QuotaSnapshot, QuotaSnapshotSet, SnapshotStatus, UsagePoint,
+    UsageRange,
 };
 use crate::networking::{HttpClient, HttpClientConfig};
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use url::Url;
 
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(20);
@@ -369,6 +370,126 @@ impl OpenAiCompatibleAdapter {
             }
             Ok(_) => ResetFetch::Unrecognized,
             Err(error) => ResetFetch::Failed(attributed(error)),
+        }
+    }
+
+    /// Requests every declared endpoint once and reports a secret-free
+    /// diagnosis per kind. Paths shared by several kinds are requested once
+    /// and reported for each kind; independent paths run in the same bounded
+    /// waves as a refresh. This never parses or returns a response body — only
+    /// status, classification, and latency.
+    pub async fn probe_endpoints(
+        &self,
+        config: &OpenAiCompatibleConfig,
+        credentials: &CredentialStore,
+    ) -> ProviderResult<Vec<EndpointProbe>> {
+        config.validate()?;
+        let declared = [
+            ("models", config.models_endpoint.as_deref()),
+            ("quota", config.quota_endpoint.as_deref()),
+            ("usage", config.usage_endpoint.as_deref()),
+            ("balance", config.balance_endpoint.as_deref()),
+            ("reset", config.reset_endpoint.as_deref()),
+        ];
+        let mut groups: Vec<(String, Vec<&'static str>)> = Vec::new();
+        for (kind, path) in declared {
+            let Some(path) = path else { continue };
+            if let Some(group) = groups.iter_mut().find(|(existing, _)| existing == path) {
+                group.1.push(kind);
+            } else {
+                groups.push((path.to_owned(), vec![kind]));
+            }
+        }
+        let mut probes = Vec::new();
+        for wave in groups.chunks(MAX_CONCURRENT_ENDPOINTS) {
+            let results = match wave {
+                [(path, _)] => vec![self.probe_path(config, path, credentials).await],
+                [(path_a, _), (path_b, _)] => {
+                    let (a, b) = tokio::join!(
+                        self.probe_path(config, path_a, credentials),
+                        self.probe_path(config, path_b, credentials),
+                    );
+                    vec![a, b]
+                }
+                [(path_a, _), (path_b, _), (path_c, _)] => {
+                    let (a, b, c) = tokio::join!(
+                        self.probe_path(config, path_a, credentials),
+                        self.probe_path(config, path_b, credentials),
+                        self.probe_path(config, path_c, credentials),
+                    );
+                    vec![a, b, c]
+                }
+                _ => Vec::new(),
+            };
+            for (index, probe) in results.into_iter().enumerate() {
+                for kind in &wave[index].1 {
+                    let mut row = probe.clone();
+                    row.kind.clear();
+                    row.kind.push_str(kind);
+                    probes.push(row);
+                }
+            }
+        }
+        Ok(probes)
+    }
+
+    /// One request, classified for the diagnostics panel. Response bodies are
+    /// inspected only for JSON validity and then dropped.
+    async fn probe_path(
+        &self,
+        config: &OpenAiCompatibleConfig,
+        endpoint: &str,
+        credentials: &CredentialStore,
+    ) -> EndpointProbe {
+        let started = Instant::now();
+        let elapsed =
+            |started: Instant| u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
+        let url = match endpoint_url(config, endpoint) {
+            Ok(url) => url,
+            Err(error) => {
+                let mut probe = EndpointProbe::from_error("", &error);
+                probe.latency_ms = elapsed(started);
+                return probe;
+            }
+        };
+        let headers = match request_headers(config, credentials) {
+            Ok(headers) => headers,
+            Err(error) => {
+                let mut probe = EndpointProbe::from_error("", &error);
+                probe.latency_ms = elapsed(started);
+                return probe;
+            }
+        };
+        let request = self
+            .client
+            .get(url)
+            .headers(headers)
+            .header("accept", "application/json");
+        match self.client.send_capped(request).await {
+            Ok(response) => {
+                let outcome = match response.status {
+                    200..=299
+                        if serde_json::from_str::<serde_json::Value>(&response.body).is_ok() =>
+                    {
+                        "ok"
+                    }
+                    200..=299 => "malformed",
+                    401 | 403 => "auth",
+                    408 => "timeout",
+                    429 => "rate_limited",
+                    500..=599 => "server_error",
+                    _ => "client_error",
+                };
+                let mut probe = EndpointProbe::new("", outcome);
+                probe.http_status = Some(response.status);
+                probe.latency_ms = elapsed(started);
+                probe
+            }
+            Err(error) => {
+                let mut probe = EndpointProbe::from_error("", &error);
+                probe.latency_ms = elapsed(started);
+                probe
+            }
         }
     }
 

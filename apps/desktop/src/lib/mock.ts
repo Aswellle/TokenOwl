@@ -1,6 +1,8 @@
 import type {
   AccountImportPreview,
   AccountViewModel,
+  DiagnosticsExportResult,
+  EndpointTestView,
   DashboardBridge,
   GenericOpenAiAccountInput,
   HistoryDayViewModel,
@@ -535,6 +537,52 @@ export function createMockBridge(): DashboardBridge {
         };
       });
       return { schemaVersion: 1, exportedAt: file.exportedAt ?? 0, entries };
+    },
+    async testAccountEndpoints(accountId: string): Promise<EndpointTestView> {
+      await new Promise((resolve) => setTimeout(resolve, latency()));
+      const account = accounts.find((item) => item.id === accountId);
+      const kinds = ["models", "quota"];
+      return {
+        accountId,
+        providerId: account?.providerId.split(":")[0] ?? "unknown",
+        baseHost: "api.example.test",
+        customEndpoint: false,
+        testedAt: Math.floor(Date.now() / 1000),
+        probes: kinds.map((kind, index) => ({
+          kind,
+          outcome: index === 0 ? "ok" : "auth",
+          httpStatus: index === 0 ? 200 : 401,
+          errorCode: index === 0 ? null : "AuthRequired",
+          retryAt: null,
+          latencyMs: 40 + index * 12,
+        })),
+      };
+    },
+    async diagnosticsPreview() {
+      await new Promise((resolve) => setTimeout(resolve, latency()));
+      const json = JSON.stringify(
+        {
+          schemaVersion: 1,
+          app: { version: "1.5.0", os: "preview", arch: "demo" },
+          accounts: accounts.map((account) => ({
+            providerId: account.providerId.split(":")[0],
+            wireFormat: "openai-compatible",
+            endpointKinds: ["models"],
+          })),
+          settings: { proxyConfigured: false },
+        },
+        null,
+        2,
+      );
+      return { token: "0000000000000000", generatedAt: Math.floor(Date.now() / 1000), json };
+    },
+    async exportDiagnostics(expectedToken: string): Promise<DiagnosticsExportResult> {
+      await new Promise((resolve) => setTimeout(resolve, latency()));
+      if (expectedToken !== "0000000000000000") throw new Error("诊断内容已变化");
+      return {
+        path: "/mock/exports/tokenowl-diagnostics-20260101-000000-demo.json",
+        bytes: 512,
+      };
     },
     async getRefreshSettings() {
       return { ...refreshSettings };

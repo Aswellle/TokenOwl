@@ -143,35 +143,44 @@ pub fn fnv1a64(bytes: &[u8]) -> u64 {
     hash
 }
 
-/// Reads one line, keeping at most [`MAX_LINE_BYTES`] bytes in `buffer` while
-/// still consuming the whole line. Returns `(bytes_consumed, complete)`:
-/// `complete` is false when the file ended without a trailing newline, which
-/// is how a scan avoids parsing — and then skipping past — a half-written
-/// record.
+/// Reads one line, keeping at most [`MAX_LINE_BYTES`] payload bytes in
+/// `buffer` while still consuming the whole line. Returns
+/// `(bytes_consumed, complete, truncated)`: `complete` is false when the
+/// file ended without a trailing newline, which is how a scan avoids
+/// parsing — and then skipping past — a half-written record, and `truncated`
+/// is true when payload bytes had to be dropped because the line is longer
+/// than the cap.
 fn read_bounded_line(
     reader: &mut impl BufRead,
     buffer: &mut Vec<u8>,
-) -> std::io::Result<(usize, bool)> {
+) -> std::io::Result<(usize, bool, bool)> {
     buffer.clear();
     let mut total = 0usize;
+    let mut truncated = false;
     loop {
         let (consumed, newline) = {
             let available = reader.fill_buf()?;
             if available.is_empty() {
-                return Ok((total, false));
+                return Ok((total, false, truncated));
             }
             let newline = available.iter().position(|byte| *byte == b'\n');
-            let consumed = newline.map_or(available.len(), |position| position + 1);
-            if buffer.len() < MAX_LINE_BYTES {
-                let keep = (MAX_LINE_BYTES - buffer.len()).min(consumed);
+            // The payload in this chunk is everything before the newline (or
+            // the whole chunk while the line continues). Only payload bytes
+            // count against the cap, and only their loss truncates — a line
+            // whose payload exactly fills the cap is complete, not oversized.
+            let payload = newline.unwrap_or(available.len());
+            let keep = payload.min(MAX_LINE_BYTES.saturating_sub(buffer.len()));
+            if keep > 0 {
                 buffer.extend_from_slice(&available[..keep]);
             }
+            truncated = truncated || payload > keep;
+            let consumed = newline.map_or(available.len(), |position| position + 1);
             (consumed, newline.is_some())
         };
         total += consumed;
         reader.consume(consumed);
         if newline {
-            return Ok((total, true));
+            return Ok((total, true, truncated));
         }
     }
 }
@@ -236,7 +245,7 @@ pub(crate) fn scan_jsonl_file(
     let mut buffer = Vec::new();
     let mut offset = start;
     loop {
-        let Ok((total, complete)) = read_bounded_line(&mut reader, &mut buffer) else {
+        let Ok((total, complete, truncated)) = read_bounded_line(&mut reader, &mut buffer) else {
             outcome
                 .errors
                 .push(format!("{}: read failed", file_label(file)));
@@ -252,7 +261,7 @@ pub(crate) fn scan_jsonl_file(
         }
         let line_start = offset;
         offset += u64::try_from(total).unwrap_or(u64::MAX);
-        if buffer.len() == MAX_LINE_BYTES && total > buffer.len() {
+        if truncated {
             // Oversized line: consume it, never parse a truncated record.
             outcome
                 .skipped
@@ -293,5 +302,57 @@ mod tests {
         assert_eq!(fnv1a64(b""), 0xcbf2_9ce4_8422_2325);
         assert_eq!(fnv1a64(b"a"), 0xaf63_dc4c_8601_ec8c);
         assert_ne!(fnv1a64(b"abc"), fnv1a64(b"abd"));
+    }
+
+    /// A line whose payload exactly fills the cap is a complete record, not
+    /// an oversized one: only lines *longer* than the cap are skipped, and
+    /// the scan keeps reading the lines behind a skipped one.
+    #[test]
+    fn a_line_exactly_the_cap_is_parsed_and_longer_ones_are_skipped() {
+        let dir = std::env::temp_dir().join(format!(
+            "tokenowl-usageline-{}-{}",
+            std::process::id(),
+            nanoid::nanoid!(6)
+        ));
+        std::fs::create_dir_all(&dir).expect("dir");
+
+        let mut outcome = ScanOutcome {
+            source_id: "test".to_owned(),
+            scanned_files: 0,
+            events: Vec::new(),
+            cursors: Vec::new(),
+            skipped: Vec::new(),
+            errors: Vec::new(),
+        };
+        let mut seen: Vec<String> = Vec::new();
+
+        let exact = dir.join("exact.jsonl");
+        let payload = "x".repeat(MAX_LINE_BYTES);
+        std::fs::write(&exact, format!("{payload}\n{{\"tail\":true}}\n")).expect("write");
+        scan_jsonl_file(&exact, &[], &mut outcome, |line, _offset| {
+            seen.push(line.to_owned());
+        });
+        assert_eq!(
+            seen.len(),
+            2,
+            "the cap-filling line and its tail both parse"
+        );
+        assert_eq!(seen[0].len(), MAX_LINE_BYTES);
+        assert!(outcome.skipped.is_empty(), "nothing was oversized");
+        assert!(outcome.errors.is_empty());
+
+        seen.clear();
+        outcome.skipped.clear();
+        let oversized = dir.join("oversized.jsonl");
+        std::fs::write(&oversized, format!("{payload}y\n{{\"tail\":true}}\n")).expect("write");
+        scan_jsonl_file(&oversized, &[], &mut outcome, |line, _offset| {
+            seen.push(line.to_owned());
+        });
+        assert_eq!(seen.len(), 1, "only the tail parses");
+        assert_eq!(seen[0], "{\"tail\":true}");
+        assert_eq!(outcome.skipped.len(), 1);
+        assert!(outcome.skipped[0].contains("line exceeds the size cap"));
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

@@ -6,9 +6,8 @@
 //! `uuid` that serves as the dedup identity. Schema verified against a real
 //! 2026-11 installation; unknown lines are skipped, never guessed at.
 
-use super::{LocalUsageEvent, MAX_FILE_BYTES, MAX_LINE_BYTES, ScanCursor, ScanOutcome, fnv1a64};
+use super::{LocalUsageEvent, ScanCursor, ScanOutcome, fnv1a64, scan_jsonl_file};
 use serde_json::Value;
-use std::io::{BufRead, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 
 pub const SOURCE_ID: &str = "claude-code";
@@ -19,13 +18,15 @@ pub fn source_directory(home: &Path) -> PathBuf {
 }
 
 /// Scans every `*.jsonl` under the source directory, resuming from the
-/// cursor when the file has not changed. `events` are new records only;
-/// re-running the scan without new data yields nothing (idempotent).
-pub fn scan(home: &Path, cursor: Option<&ScanCursor>) -> ScanOutcome {
+/// matching cursor for each file. `events` are new records only; re-running
+/// the scan without new data yields nothing (idempotent), and the returned
+/// cursors let the next scan skip already-read bytes.
+pub fn scan(home: &Path, cursors: &[ScanCursor]) -> ScanOutcome {
     let mut outcome = ScanOutcome {
         source_id: SOURCE_ID.to_owned(),
         scanned_files: 0,
         events: Vec::new(),
+        cursors: Vec::new(),
         skipped: Vec::new(),
         errors: Vec::new(),
     };
@@ -34,7 +35,7 @@ pub fn scan(home: &Path, cursor: Option<&ScanCursor>) -> ScanOutcome {
     // scan, not an error.
     let files = collect_jsonl_files(&directory);
     for file in files {
-        scan_file(&file, cursor, &mut outcome);
+        scan_file(&file, cursors, &mut outcome);
     }
     outcome
 }
@@ -63,63 +64,18 @@ fn collect_jsonl_files(directory: &Path) -> Vec<PathBuf> {
     files
 }
 
-fn scan_file(file: &Path, cursor: Option<&ScanCursor>, outcome: &mut ScanOutcome) {
-    let Ok(metadata) = std::fs::metadata(file) else {
-        return;
-    };
-    if metadata.len() > MAX_FILE_BYTES {
-        outcome
-            .skipped
-            .push(format!("file exceeds the size cap: {}", file.display()));
-        return;
-    }
-    let signature = format!("{}-{}", metadata.len(), metadata_stable_time(&metadata));
-    let mut start = 0u64;
-    if let Some(cursor) = cursor
-        && cursor.file == file.to_string_lossy()
-        && cursor.signature == signature
-    {
-        start = cursor.offset.min(metadata.len());
-    }
-    let Ok(mut handle) = std::fs::File::open(file) else {
-        outcome
-            .errors
-            .push(format!("file is unreadable: {}", file.display()));
-        return;
-    };
-    if handle.seek(SeekFrom::Start(start)).is_err() {
-        outcome
-            .errors
-            .push(format!("file is not seekable: {}", file.display()));
-        return;
-    }
+fn scan_file(file: &Path, cursors: &[ScanCursor], outcome: &mut ScanOutcome) {
     let project_ref = file
         .parent()
         .and_then(|parent| parent.file_name())
         .map(|name| name.to_string_lossy().into_owned());
-    let reader = std::io::BufReader::new(handle);
-    for line in reader.lines() {
-        let Ok(line) = line else {
-            break;
-        };
-        if line.len() > MAX_LINE_BYTES {
-            continue;
+    let mut events = Vec::new();
+    scan_jsonl_file(file, cursors, outcome, |line, _offset| {
+        if let Some(event) = parse_line(line, project_ref.as_deref()) {
+            events.push(event);
         }
-        if let Some(event) = parse_line(&line, project_ref.as_deref()) {
-            outcome.events.push(event);
-        }
-    }
-    outcome.scanned_files += 1;
-}
-
-/// mtime truncated to seconds — enough to detect rewrite-vs-append together
-/// with the size.
-fn metadata_stable_time(metadata: &std::fs::Metadata) -> u64 {
-    metadata
-        .modified()
-        .ok()
-        .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
-        .map_or(0, |duration| duration.as_secs())
+    });
+    outcome.events.extend(events);
 }
 
 /// Parses one JSONL line into an event. Only assistant lines carrying a
@@ -163,17 +119,6 @@ fn parse_line(line: &str, project_ref: Option<&str>) -> Option<LocalUsageEvent> 
     Some(event)
 }
 
-/// Continues reading after `offset` for incremental scans; the file's
-/// size+mtime signature guards against reading a rewritten file from a
-/// stale offset.
-pub fn cursor_for(file: &Path, offset: u64, signature: String) -> ScanCursor {
-    ScanCursor {
-        file: file.to_string_lossy().into_owned(),
-        offset,
-        signature,
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -211,25 +156,17 @@ mod tests {
         let file = project.join("session-1.jsonl");
         std::fs::write(&file, format!("{USER_LINE}\n{REAL_SHAPED_LINE}\n")).expect("write");
 
-        let first = scan(&home, None);
+        let first = scan(&home, &[]);
         assert_eq!(first.events.len(), 1, "only the assistant usage line");
         assert_eq!(first.scanned_files, 1);
+        assert_eq!(first.cursors.len(), 1);
         assert_eq!(first.skipped, Vec::<String>::new());
 
-        // Re-scan from the previous cursor: the same line must not be
-        // emitted again.
-        let signature = format!(
-            "{}-{}",
-            std::fs::metadata(&file).expect("meta").len(),
-            metadata_stable_time(&std::fs::metadata(&file).expect("meta"))
-        );
-        let cursor = cursor_for(
-            &file,
-            u64::try_from(REAL_SHAPED_LINE.len() + USER_LINE.len() + 2).expect("fits"),
-            signature,
-        );
-        let second = scan(&home, Some(&cursor));
+        // Re-scan from the cursor the first scan produced: the same line must
+        // not be emitted again.
+        let second = scan(&home, &first.cursors);
         assert_eq!(second.events, Vec::new(), "no re-emitted events");
+        assert_eq!(second.cursors, first.cursors, "the cursor is unchanged");
         let _ = std::fs::remove_dir_all(&home);
     }
 
@@ -237,7 +174,7 @@ mod tests {
     fn an_absent_installation_scans_to_nothing() {
         let home =
             std::env::temp_dir().join(format!("tokenowl-usage-absent-{}", std::process::id()));
-        let outcome = scan(&home, None);
+        let outcome = scan(&home, &[]);
         assert_eq!(outcome.events, Vec::new());
         assert_eq!(outcome.errors, Vec::<String>::new());
         assert_eq!(outcome.scanned_files, 0);

@@ -3,8 +3,9 @@
 //! idempotent persistence, no upload path.
 
 use super::{AppRuntime, Arc, CommandError, State, unix_seconds};
-use crate::usage::{ScanOutcome, claude_code, codex};
+use crate::usage::{ScanCursor, ScanOutcome, claude_code, codex};
 use serde::Serialize;
+use std::collections::BTreeMap;
 
 /// Settings key carrying the per-source opt-in map. Absent or malformed
 /// means everything is off — the safe default for a privacy-sensitive
@@ -90,6 +91,59 @@ fn enabled_sources(state: &AppRuntime) -> Result<Vec<String>, CommandError> {
     })
 }
 
+/// Settings key holding per-source scan cursors. A cursor contains a hashed
+/// file identity, an offset, and a size+mtime signature — never a path.
+pub(super) const LOCAL_CURSORS_KEY: &str = "local_usage_cursors";
+
+/// Reads the persisted cursor set; malformed storage means "scan from the
+/// start", which is safe because event insertion is idempotent.
+pub(super) fn load_cursors(
+    repository: &crate::storage::LocalRepository,
+) -> Result<BTreeMap<String, Vec<ScanCursor>>, CommandError> {
+    match repository.get_setting(LOCAL_CURSORS_KEY)? {
+        Some(value) => Ok(serde_json::from_value(value).unwrap_or_default()),
+        None => Ok(BTreeMap::new()),
+    }
+}
+
+/// Stores one source's cursors, replacing the previous set. The settings
+/// table is JSON, so this needs no migration.
+pub(super) fn save_cursors(
+    repository: &crate::storage::LocalRepository,
+    source_id: &str,
+    cursors: &[ScanCursor],
+) -> Result<(), CommandError> {
+    let mut all = load_cursors(repository)?;
+    all.insert(source_id.to_owned(), cursors.to_vec());
+    let value = serde_json::to_value(&all)
+        .map_err(|error| CommandError::InvalidInput(error.to_string()))?;
+    repository.set_setting(LOCAL_CURSORS_KEY, &value)?;
+    Ok(())
+}
+
+/// Drops cursors for one source, or all cursors when `source_id` is `None`.
+/// Called whenever stored events are deleted so a later scan re-reads the
+/// files that produced them.
+pub(super) fn clear_cursors(
+    repository: &crate::storage::LocalRepository,
+    source_id: Option<&str>,
+) -> Result<(), CommandError> {
+    match source_id {
+        Some(id) => {
+            let mut all = load_cursors(repository)?;
+            if all.remove(id).is_some() {
+                let value = serde_json::to_value(&all)
+                    .map_err(|error| CommandError::InvalidInput(error.to_string()))?;
+                repository.set_setting(LOCAL_CURSORS_KEY, &value)?;
+            }
+        }
+        None => {
+            repository.set_setting(LOCAL_CURSORS_KEY, &serde_json::Value::Array(Vec::new()))?;
+        }
+    }
+    Ok(())
+}
+
 #[tauri::command]
 pub fn local_usage_sources_get(
     state: State<'_, Arc<AppRuntime>>,
@@ -122,6 +176,9 @@ pub fn local_usage_source_set(
         enabled_ids.push(source_id.clone());
     } else {
         repository.clear_local_usage_events(Some(&source_id))?;
+        // Re-enabling must re-read the files: the deleted events cannot be
+        // reconstructed from a cursor that already points past them.
+        clear_cursors(&repository, Some(&source_id))?;
     }
     let value = serde_json::to_value(&enabled_ids)
         .map_err(|error| CommandError::InvalidInput(error.to_string()))?;
@@ -159,11 +216,16 @@ pub fn local_usage_scan(
         None => enabled_sources(&state)?,
     };
     let repository = state.repository()?;
+    let cursors = load_cursors(&repository)?;
     let mut views = Vec::with_capacity(enabled.len());
     for id in enabled {
-        let outcome = scan_source(&id);
+        let outcome = scan_source(&id, cursors.get(&id).map_or(&[][..], Vec::as_slice));
         let new_events =
             repository.insert_local_usage_events(&id, &outcome.events, unix_seconds())?;
+        // Persist the cursor only after the events it produced are durable;
+        // a failed insert leaves the old cursor so the next scan retries the
+        // same bytes instead of skipping them forever.
+        save_cursors(&repository, &id, &outcome.cursors)?;
         views.push(LocalScanView {
             source_id: id,
             scanned_files: outcome.scanned_files,
@@ -178,15 +240,16 @@ pub fn local_usage_scan(
 /// Dispatch to the one parser a source id names. Unknown ids cannot happen
 /// through the command path (validated above); this is still exhaustive
 /// rather than stringly-typed.
-fn scan_source(source_id: &str) -> ScanOutcome {
+fn scan_source(source_id: &str, cursors: &[ScanCursor]) -> ScanOutcome {
     let home = dirs_home();
     match source_id {
-        claude_code::SOURCE_ID => claude_code::scan(&home, None),
-        codex::SOURCE_ID => codex::scan(&home, None),
+        claude_code::SOURCE_ID => claude_code::scan(&home, cursors),
+        codex::SOURCE_ID => codex::scan(&home, cursors),
         other => ScanOutcome {
             source_id: other.to_owned(),
             scanned_files: 0,
             events: Vec::new(),
+            cursors: Vec::new(),
             skipped: Vec::new(),
             errors: vec!["unknown source".to_owned()],
         },
@@ -277,7 +340,12 @@ pub fn local_usage_clear(
     source_id: Option<String>,
 ) -> Result<usize, CommandError> {
     let repository = state.repository()?;
-    Ok(repository.clear_local_usage_events(source_id.as_deref())?)
+    let removed = repository.clear_local_usage_events(source_id.as_deref())?;
+    // A cleared source must be scannable from scratch again; otherwise its
+    // files stay "already read" and the summary would remain empty until the
+    // files change.
+    clear_cursors(&repository, source_id.as_deref())?;
+    Ok(removed)
 }
 
 #[cfg(test)]
@@ -357,6 +425,51 @@ mod tests {
             .insert_local_usage_events("claude-code", &[event], 2)
             .expect("re-insert");
         assert_eq!((first, second), (1, 0), "the replay inserts nothing");
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn cursors_round_trip_and_can_be_cleared_per_source() {
+        let mut path = std::env::temp_dir();
+        path.push(format!(
+            "tokenowl-usage-cursors-{}-{}.sqlite3",
+            std::process::id(),
+            nanoid::nanoid!(6)
+        ));
+        let runtime = AppRuntime::new(&path).expect("runtime");
+        let repository = runtime.repository().expect("database");
+        let cursor = ScanCursor {
+            file_id: crate::usage::file_identity(std::path::Path::new(
+                "C:/private/place/session.jsonl",
+            )),
+            offset: 128,
+            signature: "head".to_owned(),
+            anchor: "tail".to_owned(),
+        };
+        save_cursors(&repository, "codex", std::slice::from_ref(&cursor)).expect("save");
+        save_cursors(&repository, "claude-code", &[]).expect("save");
+        let loaded = load_cursors(&repository).expect("load");
+        assert_eq!(loaded.get("codex"), Some(&vec![cursor]));
+        assert!(loaded.get("claude-code").is_some_and(Vec::is_empty));
+
+        // The persisted identity is a hash, not the filesystem path.
+        let raw = repository
+            .get_setting(LOCAL_CURSORS_KEY)
+            .expect("setting")
+            .expect("value");
+        assert!(
+            !raw.to_string().contains("private"),
+            "cursor storage must not carry the source path"
+        );
+
+        clear_cursors(&repository, Some("codex")).expect("clear one");
+        assert!(
+            !load_cursors(&repository)
+                .expect("load")
+                .contains_key("codex")
+        );
+        clear_cursors(&repository, None).expect("clear all");
+        assert!(load_cursors(&repository).expect("load").is_empty());
         let _ = std::fs::remove_file(&path);
     }
 

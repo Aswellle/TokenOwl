@@ -150,6 +150,38 @@ pub(super) fn render_export(format: &str, rows: &[ExportRow]) -> String {
     out
 }
 
+/// How many export files the exports directory keeps. Each export writes a
+/// timestamped file; without a cap the directory grows forever.
+pub(super) const MAX_EXPORT_FILES: usize = 20;
+
+/// Keeps the exports directory bounded: after a successful write, the oldest
+/// `tokenowl-history-*` files beyond [`MAX_EXPORT_FILES`] are removed. A prune
+/// failure never fails the export itself — the file the user asked for is
+/// already on disk.
+pub(super) fn prune_exports(directory: &std::path::Path) {
+    let Ok(entries) = std::fs::read_dir(directory) else {
+        return;
+    };
+    let mut exports: Vec<std::path::PathBuf> = entries
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| {
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name.starts_with("tokenowl-history-"))
+        })
+        .collect();
+    if exports.len() <= MAX_EXPORT_FILES {
+        return;
+    }
+    // Names carry the timestamp, so lexical order is chronological.
+    exports.sort();
+    let excess = exports.len() - MAX_EXPORT_FILES;
+    for path in exports.into_iter().take(excess) {
+        let _ = std::fs::remove_file(path);
+    }
+}
+
 /// Exports the aggregated daily usage (same aggregation as the trend view)
 /// as CSV or JSON into `<app data>/exports/`. The export carries account
 /// labels and derived usage only — never credentials, credential refs, or
@@ -186,6 +218,7 @@ pub fn history_export(
     let body = render_export(format, &rows);
     std::fs::write(&path, body)
         .map_err(|error| CommandError::InvalidInput(format!("cannot write the export: {error}")))?;
+    prune_exports(&export_dir);
     Ok(HistoryExportResult {
         path: path.to_string_lossy().into_owned(),
         rows: written_rows,
@@ -447,6 +480,42 @@ pub fn history_breakdown(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn old_export_files_are_pruned_after_a_new_one_lands() {
+        let dir = std::env::temp_dir().join(format!(
+            "tokenowl-exports-{}-{}",
+            std::process::id(),
+            nanoid::nanoid!(6)
+        ));
+        std::fs::create_dir_all(&dir).expect("export dir");
+        for index in 0..(MAX_EXPORT_FILES + 5) {
+            std::fs::write(
+                dir.join(format!("tokenowl-history-2026010{index:02}-000000.csv")),
+                "x",
+            )
+            .expect("seed file");
+        }
+        std::fs::write(dir.join("unrelated.txt"), "keep").expect("unrelated file");
+        prune_exports(&dir);
+        let mut exports: Vec<String> = std::fs::read_dir(&dir)
+            .expect("read")
+            .flatten()
+            .map(|entry| entry.file_name().to_string_lossy().into_owned())
+            .filter(|name| name.starts_with("tokenowl-history-"))
+            .collect();
+        exports.sort();
+        assert_eq!(exports.len(), MAX_EXPORT_FILES, "the cap holds");
+        assert!(
+            exports[0].contains("202601005"),
+            "the oldest files went first"
+        );
+        assert!(
+            dir.join("unrelated.txt").exists(),
+            "non-export files are never touched"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn csv_fields_escape_letting_separators_survive() {

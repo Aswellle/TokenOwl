@@ -126,8 +126,9 @@
 ### 验证
 
 `cargo audit` 0 漏洞退出（仅余 6 条上游阻断的 allowed warning）/ `pnpm audit --prod --audit-level high` 静默退出；
-clippy `-D warnings`、cargo test、typecheck、vitest、e2e、`pnpm build`
-（bundle 不含 katex 复查）全绿；实机冒烟见 §10。
+cargo fmt --check 干净、cargo test 402 passed（14 个套件）、clippy `--all-targets --all-features -D warnings` 0 错误；
+pnpm typecheck 0、vitest 194 passed（23 文件）、`pnpm build` 成功、Playwright 127 个用例按 CI 配置（retries=1）运行 126 passed + 1 flaky（dock 键盘用例，重试即过，属 §11 记录的 Windows 冷启动抖动）。
+真实桌面冒烟仍按 §10 清单执行；本轮新增功能只经 webview e2e 与 loopback 集成测试验证。
 
 ## 12. 功能闭环修复与能力升级（2026-11-16）
 
@@ -146,7 +147,7 @@ clippy `-D warnings`、cargo test、typecheck、vitest、e2e、`pnpm build`
 | bb7316c | 后台刷新节奏遵循各供应商 default_refresh（60 秒下限、全局节奏上限） |
 | （并发提交） | 独立端点每账户最多 3 路并发、按声明顺序合并；400ms×2 延迟夹具证明总耗时 ≈ 单端点而非串行 |
 | 8a3ceb4 | 本地 Agent 使用量（Claude Code 已实测 schema；Codex 按文档格式实现并标注未核验）：opt-in、只读、限定目录、幂等去重（migration 0005）、与远端额度分域 |
-| 561a411 | 历史导出 CSV/JSON 到应用数据 exports 目录（RFC 4180 转义；不含凭据） |
+| 561a411 / da3b906 | 历史导出 CSV/JSON 到应用数据 exports 目录（RFC 4180 转义；不含凭据；目录只保留最近 20 个导出文件，从不删除非导出文件） |
 | 30bedb8 | rusqlite 0.32→0.43（libsqlite3-sys 0.40）修复 RUSTSEC-2026-0459 捆绑 SQLite CVE；u64 绑定/读取点改为 i64 转换；rustix 1.1.6 清除其 soundness 警告 |
 
 ### 已知限制（如实记录）

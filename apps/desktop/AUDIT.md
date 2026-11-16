@@ -125,7 +125,7 @@
 
 ### 验证
 
-`cargo audit` 0 漏洞退出（仅余 7 条上游阻断的 allowed warning）/ `pnpm audit --prod --audit-level high` 静默退出；
+`cargo audit` 0 漏洞退出（仅余 6 条上游阻断的 allowed warning）/ `pnpm audit --prod --audit-level high` 静默退出；
 clippy `-D warnings`、cargo test、typecheck、vitest、e2e、`pnpm build`
 （bundle 不含 katex 复查）全绿；实机冒烟见 §10。
 

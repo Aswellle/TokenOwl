@@ -168,7 +168,7 @@ pnpm typecheck 0、vitest 194 passed（23 文件）、`pnpm build` 成功、Play
 
 | 门禁 | 命令 | 结果 |
 |---|---|---|
-| Rust 测试 | `cargo test`（来自 `apps/desktop/src-tauri`） | **440 passed**（381 lib + 59 integration），0 failed |
+| Rust 测试 | `cargo test`（来自 `apps/desktop/src-tauri`） | **441 passed**（382 lib + 59 integration），0 failed |
 | Rust lint | `cargo +1.100.0 clippy --all-targets --all-features -- -D warnings` | 0 错误、0 警告 |
 | Rust 格式 | `cargo +1.100.0 fmt --all -- --check` | 干净 |
 | MSRV | `cargo +1.90 check --all-targets` | 通过 |

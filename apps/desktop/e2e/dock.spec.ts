@@ -112,7 +112,12 @@ test.describe("bottom dock", () => {
 
   test("the control is keyboard operable", async ({ page }) => {
     await page.goto("/");
+    // The dock preference arrives over IPC after the first paint; pressing
+    // Enter before that effect lands was the observed cold-start flake. The
+    // `--ready` class is set once the preference has been applied.
+    await expect(page.locator(".dock-wrap--ready")).toHaveCount(1);
     const collapse = page.getByRole("button", { name: "收起控制台" });
+    await expect(collapse).toBeVisible();
     await collapse.focus();
     await page.keyboard.press("Enter");
     await expect(page.locator(".dock-wrap--collapsed")).toHaveCount(1);

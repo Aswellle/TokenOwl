@@ -52,7 +52,9 @@
   --accent-button-hover: #0052bd;
   --accent-soft: rgba(10, 122, 255, 0.12);
   --brand: #0eb5a3;
-  --brand-ink: #0a8d80;
+  /* Text-safe brand teal: 4.81:1 on its own soft fill over a raised card
+     (#0a8d80 measured 3.53:1 there). */
+  --brand-ink: #0a756b;
   --brand-soft: rgba(14, 181, 163, 0.14);
 
   /* Status colors: text-safe variants for light backgrounds. */
@@ -113,7 +115,9 @@
     --hairline-strong: rgba(255, 255, 255, 0.18);
 
     --accent: #0a84ff;
-    --accent-ink: #4da3ff;
+    /* Text-safe accent on dark: 4.65:1 on its own soft fill over a raised
+       card (#4da3ff measured 4.12:1 there). */
+    --accent-ink: #63aeff;
     --accent-button: #0a63c9;
     --accent-button-hover: #084f9f;
     --accent-soft: rgba(10, 132, 255, 0.18);

@@ -28,7 +28,7 @@ The implementation is in place: embedded provider manifests, a unified HTTP tran
 - `scripts/` — icon/regeneration helpers. There is no `packages/` tree.
 - `providers/builtin/*.yaml` — declarative manifests for the built-in providers (OpenAI, Anthropic, Gemini, OpenRouter, DeepSeek, Qwen, Kimi, MiniMax, and more), embedded into the binary via `include_str!` as `BUILTIN_MANIFESTS` in `src/providers/builtin/mod.rs` and parsed by `ProviderManifest::from_yaml`. Community packs load at runtime from the app-data `community-providers/` directory.
 - `docs/` — **local-only** (`.gitignore`d): numbered product/architecture/security/roadmap documents (Chinese) plus status tracking. Do not assume these files exist on a fresh clone.
-- `.github/workflows/` — `ci-frontend`, `ci-rust` (incl. a pinned-1.90 MSRV `cargo check` job — keep it in sync with `rust-version`), `ci-version` (version-consistency check), `audit` (weekly RustSec + pnpm advisory sweep, also workflow_dispatch), and `release` (signed updater artifacts plus a native smoke that launches the freshly built binary on each target).
+- `.github/workflows/` — `ci-frontend`, `ci-rust` (incl. a pinned-1.90 MSRV `cargo check` job — keep it in sync with `rust-version` — and clippy/fmt pinned to `LINT_TOOLCHAIN` in that file), `ci-version` (version-consistency check), `audit` (weekly RustSec + pnpm advisory sweep, also workflow_dispatch), and `release` (signed updater artifacts plus a native smoke that launches the freshly built binary on each target).
 - `apps/desktop/src-tauri/.cargo/audit.toml` — cargo-audit ignore list; each entry documents why an advisory is unreachable or upstream-blocked. Re-evaluate whenever `tauri`, `plist`, or `tauri-plugin-updater` release.
 - `pnpm-workspace.yaml` — workspace packages **and** the only pnpm override (katex). Overrides must live here: a `pnpm` block in `apps/desktop/package.json` is silently ignored in a workspace.
 - Build artifacts (`dist/`, `src-tauri/target/`, `src-tauri/gen/`, generated icons) are generated; never edit them by hand.
@@ -61,6 +61,7 @@ cargo clippy -- -D warnings
 - **After `pnpm install`, warm the dev server once before suspecting code:** fresh installs invalidate vite's optimizeDeps cache, and a cold first load can hang e2e's `global-setup` on `networkidle` or slow the first specs into false failures on Windows. One real page load (curl + a short wait) fixes it.
 - `tauri.conf.json` reads the app version from `../package.json` (single version source; `ci-version.yml` enforces consistency) and runs `pnpm dev`/`pnpm build` as precommands.
 - CI runs cargo from the repo root with `--manifest-path apps/desktop/src-tauri/Cargo.toml`, and clippy with `-D warnings --all-targets --all-features`.
+- **Run clippy/fmt with CI's pinned toolchain, not whatever `stable` is locally:** `ci-rust.yml` pins both gates to `LINT_TOOLCHAIN` (currently `1.100.0`) because stable adds pedantic lints and reformats between releases — code green on an older local stable can be red in CI with no change (this is how `assert_is_empty` first surfaced). Before pushing Rust changes run `cargo +1.100.0 clippy --all-targets --all-features -- -D warnings` and `cargo +1.100.0 fmt --all -- --check`; bumping the pin is a deliberate change that reformats and re-lints in the same commit.
 
 ## Code Conventions & Common Patterns
 

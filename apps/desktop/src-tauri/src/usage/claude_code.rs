@@ -214,7 +214,7 @@ mod tests {
         let first = scan(&home, None);
         assert_eq!(first.events.len(), 1, "only the assistant usage line");
         assert_eq!(first.scanned_files, 1);
-        assert!(first.skipped.is_empty());
+        assert_eq!(first.skipped, Vec::<String>::new());
 
         // Re-scan from the previous cursor: the same line must not be
         // emitted again.
@@ -229,7 +229,7 @@ mod tests {
             signature,
         );
         let second = scan(&home, Some(&cursor));
-        assert!(second.events.is_empty(), "no re-emitted events");
+        assert_eq!(second.events, Vec::new(), "no re-emitted events");
         let _ = std::fs::remove_dir_all(&home);
     }
 
@@ -238,8 +238,8 @@ mod tests {
         let home =
             std::env::temp_dir().join(format!("tokenowl-usage-absent-{}", std::process::id()));
         let outcome = scan(&home, None);
-        assert!(outcome.events.is_empty());
-        assert!(outcome.errors.is_empty());
-        assert!(outcome.scanned_files == 0);
+        assert_eq!(outcome.events, Vec::new());
+        assert_eq!(outcome.errors, Vec::<String>::new());
+        assert_eq!(outcome.scanned_files, 0);
     }
 }

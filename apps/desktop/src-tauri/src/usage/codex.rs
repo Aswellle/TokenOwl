@@ -233,7 +233,7 @@ mod tests {
         let first = scan(&home, None);
         assert_eq!(first.events.len(), 1);
         assert_eq!(first.events[0].session_id.as_deref(), Some("rollout-abc"));
-        assert!(first.skipped.is_empty());
+        assert_eq!(first.skipped, Vec::<String>::new());
         let _ = std::fs::remove_dir_all(&home);
     }
 }

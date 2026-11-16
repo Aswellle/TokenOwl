@@ -40,7 +40,7 @@ TokenOwl 是一个小小的桌面伴侣，它回答一个问题 —— 而且**�
 它以一枚置顶悬浮球的形式常驻屏幕一角，点击展开完整仪表盘，而这一切**完全运行在你的机器上** —— API 密钥进入系统凭据库，数据写入本地 SQLite 文件，没有任何数据外发。
 
 <p align="center">
-  <img src="assets/dashboard.png" alt="TokenOwl 仪表盘：额度压力汇总、各账户额度卡片与重置倒计时、供应商导轨" width="820" />
+  <img src="assets/dashboard.png" alt="TokenOwl 仪表盘：最低剩余额度汇总、各账户额度卡片与重置倒计时、供应商导轨" width="820" />
 </p>
 
 ## 为什么不直接看各家网页控制台？

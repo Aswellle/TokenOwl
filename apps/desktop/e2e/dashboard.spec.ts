@@ -19,7 +19,7 @@ test.describe("overview summary", () => {
     await expect(page.locator(".account")).toHaveCount(4);
 
     // The tightest remaining ratio is the relay's 680k/2.5M = 27.2%.
-    const pressure = page.locator(".stat", { hasText: "额度压力" });
+    const pressure = page.locator(".stat", { hasText: "最低剩余" });
     await expect(pressure.locator(".stat__value")).toHaveText("27%", { timeout: 15_000 });
     await expect(pressure.locator(".stat__hint")).toHaveText("已知窗口");
 
@@ -109,7 +109,7 @@ test.describe("overview summary", () => {
     // than claiming it is still waiting for the first data.
     await expect(row.getByRole("img")).toHaveCount(0);
     await expect(
-      page.locator(".stat", { hasText: "额度压力" }).locator(".stat__hint"),
+      page.locator(".stat", { hasText: "最低剩余" }).locator(".stat__hint"),
     ).toHaveText("未上报窗口额度");
   });
 

@@ -40,7 +40,7 @@ TokenOwl is a small desktop companion that answers one question **before** it be
 It lives in a corner of your screen as a tiny always-on-top bubble, opens into a full dashboard on click, and does all of this **entirely on your machine** — your API keys go into the OS keychain, your data into a local SQLite file, and nothing ever phones home.
 
 <p align="center">
-  <img src="assets/dashboard.png" alt="TokenOwl dashboard: pressure summary, per-account quota cards with reset countdowns, and a provider rail" width="820" />
+  <img src="assets/dashboard.png" alt="TokenOwl dashboard: lowest-remaining-quota summary, per-account quota cards with reset countdowns, and a provider rail" width="820" />
 </p>
 
 ## Why not just check the web dashboards?

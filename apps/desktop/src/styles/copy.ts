@@ -66,7 +66,7 @@ export const copy = {
     accounts: "账户",
     healthy: "正常",
     nextReset: "下次重置",
-    pressure: "额度压力",
+    pressure: "最低剩余",
     lastSync: "最近同步",
     notConnected: "尚未连接",
     configuredLocally: "仅存本机",

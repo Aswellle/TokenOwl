@@ -39,7 +39,7 @@ serde_json = "1"
 reqwest = { version = "0.13", default-features = true }
 rusqlite = { version = "0.43", features = ["bundled"] }
 thiserror = "2"
-tokio = { version = "1", features = ["time"] }
+tokio = { version = "1", features = ["time", "macros"] }
 tracing = "0.1"
 url = "2"
 nanoid = "0.4"

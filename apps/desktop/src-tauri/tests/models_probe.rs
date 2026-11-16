@@ -247,3 +247,52 @@ fn probe_models_exposes_the_verdict_directly() {
         .expect("probe request built");
     assert!(matches!(outcome, ProbeOutcome::Rejected(_)));
 }
+
+/// Independent quota endpoints overlap: two equally slow endpoints must
+/// finish in about one delay, not two, and the merged snapshot order must
+/// still follow the declared priority order.
+#[test]
+fn independent_endpoints_run_concurrently_and_keep_their_order() {
+    use common::spawn_delayed_router;
+    use std::time::{Duration, Instant};
+
+    // Each endpoint answers after 400 ms; serial would take 800 ms.
+    let server = spawn_delayed_router(|path| {
+        if path.ends_with("/usage") {
+            (
+                json_response("200 OK", r#"{"data":{"used":40,"limit":100}}"#),
+                Duration::from_millis(400),
+            )
+        } else {
+            (
+                json_response("200 OK", r#"{"data":{"remaining":7.5}}"#),
+                Duration::from_millis(400),
+            )
+        }
+    });
+    let mut config = model_only_config(&server.base_url);
+    config.quota_endpoint = Some("/balance".to_owned());
+    config.usage_endpoint = Some("/usage".to_owned());
+    let adapter = OpenAiCompatibleAdapter::with_default_limits(config.clone()).expect("adapter");
+    let store = store_with_key("sk-fixture-valid");
+
+    let started = Instant::now();
+    let result = tauri::async_runtime::block_on(adapter.fetch(&config, "account-1", &store))
+        .expect("both endpoints answer");
+    let elapsed = started.elapsed();
+
+    assert_eq!(result.snapshots.len(), 2, "both endpoints merged");
+    assert_eq!(
+        result.snapshots.snapshots[0].metric_id.as_deref(),
+        Some("quota"),
+        "declared priority order survives concurrent completion"
+    );
+    assert_eq!(
+        result.snapshots.snapshots[1].metric_id.as_deref(),
+        Some("usage")
+    );
+    assert!(
+        elapsed < Duration::from_millis(750),
+        "two 400 ms endpoints must overlap (took {elapsed:?})"
+    );
+}

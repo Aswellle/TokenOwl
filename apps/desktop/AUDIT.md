@@ -144,6 +144,7 @@ clippy `-D warnings`、cargo test、typecheck、vitest、e2e、`pnpm build`
 | 92d7888 | RefreshDiagnostics DTO（稳定码/HTTP 状态/端点归属/时间戳）；首刷区分“已保存/已验证”；错误类别逐类文案 |
 | 952cbb1 / 632152d | README 供应商表由清单生成 + 漂移测试；修正 29→31、OpenAI L2 / OpenRouter L3；capability 增加 lastVerifiedAt 字段 |
 | bb7316c | 后台刷新节奏遵循各供应商 default_refresh（60 秒下限、全局节奏上限） |
+| （并发提交） | 独立端点每账户最多 3 路并发、按声明顺序合并；400ms×2 延迟夹具证明总耗时 ≈ 单端点而非串行 |
 | 8a3ceb4 | 本地 Agent 使用量（Claude Code 已实测 schema；Codex 按文档格式实现并标注未核验）：opt-in、只读、限定目录、幂等去重（migration 0005）、与远端额度分域 |
 | 561a411 | 历史导出 CSV/JSON 到应用数据 exports 目录（RFC 4180 转义；不含凭据） |
 | 30bedb8 | rusqlite 0.32→0.43（libsqlite3-sys 0.40）修复 RUSTSEC-2026-0459 捆绑 SQLite CVE；u64 绑定/读取点改为 i64 转换；rustix 1.1.6 清除其 soundness 警告 |
@@ -151,7 +152,7 @@ clippy `-D warnings`、cargo test、typecheck、vitest、e2e、`pnpm build`
 ### 已知限制（如实记录）
 
 - Codex 解析器未在真实安装上核验（本机未安装 Codex CLI）；UI 的来源卡片与测试注释均已标注。
-- 端点级并发刷新（计划 3.2）与自适应刷新间隔未实现——当前为串行端点请求 + 有界账户波次；429 Retry-After 与退避不变。
+- 自适应刷新间隔（按消耗速度自动缩短/拉长）未实现：当前为固定 per-provider 节奏（60 秒下限）+ 每账户最多 3 路端点并发；429 Retry-After 与退避策略不变。
 - 「最近验证」字段为 schema 级支持，全部内置清单尚未回填核验日期（如实显示“未声明”）。
 - 本轮未做真实供应商联调（不引入真实密钥到 CI）；models probe / reset / rotation 均以 loopback mock server 按线协议验证。
 - e2e 只覆盖 webview 层；托盘、浮球、keyring 的原生行为仍按 AGENTS.md 的手动清单验证。

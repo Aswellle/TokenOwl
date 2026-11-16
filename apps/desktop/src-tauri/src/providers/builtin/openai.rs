@@ -17,6 +17,10 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use url::Url;
 
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(20);
+/// Independent quota endpoints fetched concurrently per account. Deliberately
+/// small: three covers quota + usage + balance, and pacing keeps a single API
+/// key from seeing a burst.
+const MAX_CONCURRENT_ENDPOINTS: usize = 3;
 const DEFAULT_MAX_RESPONSE_BYTES: usize = 1024 * 1024;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -124,74 +128,24 @@ impl OpenAiCompatibleAdapter {
                 .fetch_models_health(config, account_id, credentials)
                 .await;
         }
-        let mut outcomes = Vec::with_capacity(endpoints.len() + 1);
-        for (kind, endpoint) in &endpoints {
-            outcomes.push((
-                *kind,
-                self.fetch_endpoint(config, endpoint, credentials, kind)
-                    .await,
-            ));
-        }
+        let mut outcomes = self
+            .fetch_quota_endpoints_bounded(config, &endpoints, credentials)
+            .await;
         // A declared reset endpoint is a real request with its own mapping,
         // not decoration: fetch it, parse it, and bind the observation to the
         // window the provider names — or keep it as an account-level reset
         // card when no window is declared. A failed reset endpoint never
         // erases its siblings' quota data.
-        let mut reset_observation = None;
-        if let Some(reset_path) = config.reset_endpoint.as_deref() {
-            match self
-                .fetch_reset_endpoint(config, reset_path, credentials)
-                .await
-            {
-                ResetFetch::Observation(observation) => {
-                    outcomes.push((
-                        "reset",
-                        EndpointOutcome::Snapshots(QuotaSnapshotSet::new(vec![QuotaSnapshot {
-                            id: Some(RESET_SNAPSHOT_ID.to_owned()),
-                            metric_id: Some("reset".to_owned()),
-                            metric_name: Some("reset".to_owned()),
-                            reset_at: Some(observation.reset_at.clone()),
-                            status: SnapshotStatus::Partial,
-                            ..QuotaSnapshot::unknown()
-                        }])),
-                    ));
-                    reset_observation = Some(observation);
-                }
-                ResetFetch::Snapshots(set) => {
-                    outcomes.push(("reset", EndpointOutcome::Snapshots(set)));
-                }
-                ResetFetch::Unrecognized => {
-                    outcomes.push(("reset", EndpointOutcome::Unrecognized));
-                }
-                ResetFetch::Failed(error) => {
-                    outcomes.push(("reset", EndpointOutcome::Failed(error)));
-                }
-            }
-        }
+        let reset_observation = self
+            .append_reset_outcome(config, credentials, &mut outcomes)
+            .await;
         let mut snapshots = merge_endpoint_outcomes(outcomes)?;
         // When the provider named a window, the reset belongs there: the
         // standalone reset card folds into the target snapshot. A reset that
         // names no window — or names an unknown one — stays its own card
         // instead of being copied onto every window with invented precision.
-        if let Some(observation) = reset_observation
-            && let Some(window_id) = observation.window_id.as_deref()
-        {
-            let target = snapshots.iter_mut().find(|snapshot| {
-                snapshot.metric_id.as_deref() == Some(window_id)
-                    || snapshot.id.as_deref() == Some(window_id)
-            });
-            if let Some(target) = target {
-                target.reset_at = Some(observation.reset_at.clone());
-                if let Some(window) = target.window.as_mut() {
-                    window.reset_at = Some(observation.reset_at.clone());
-                } else {
-                    target.window = Some(crate::domain::provider::QuotaWindow {
-                        reset_at: Some(observation.reset_at.clone()),
-                        ..crate::domain::provider::QuotaWindow::default()
-                    });
-                }
-                snapshots.retain(|snapshot| snapshot.id.as_deref() != Some(RESET_SNAPSHOT_ID));
-            }
+        if let Some(observation) = reset_observation {
+            fold_named_reset(&mut snapshots, &observation);
         }
         // The parsers are shared by custom and built-in accounts and default
         // to `CustomEndpoint`. A built-in manifest's traffic is the provider's
@@ -214,6 +168,100 @@ impl OpenAiCompatibleAdapter {
         })
     }
 
+    /// Fetches the independent quota endpoints concurrently, bounded at
+    /// [`MAX_CONCURRENT_ENDPOINTS`]: a quota monitor has nothing to gain from
+    /// unbounded fan-out, and one slow endpoint must not add its whole
+    /// timeout to every sibling's latency. The returned order follows the
+    /// declared priority order regardless of completion order, so a slower
+    /// endpoint cannot reorder the UI.
+    async fn fetch_quota_endpoints_bounded(
+        &self,
+        config: &OpenAiCompatibleConfig,
+        endpoints: &[(EndpointKind, &str)],
+        credentials: &CredentialStore,
+    ) -> Vec<(EndpointKind, EndpointOutcome)> {
+        let mut outcomes = Vec::with_capacity(endpoints.len());
+        for wave in endpoints.chunks(MAX_CONCURRENT_ENDPOINTS) {
+            match wave {
+                [(kind_a, path_a)] => {
+                    outcomes.push((
+                        *kind_a,
+                        self.fetch_endpoint(config, path_a, credentials, kind_a)
+                            .await,
+                    ));
+                }
+                [(kind_a, path_a), (kind_b, path_b)] => {
+                    let (a, b) = tokio::join!(
+                        self.fetch_endpoint(config, path_a, credentials, kind_a),
+                        self.fetch_endpoint(config, path_b, credentials, kind_b),
+                    );
+                    outcomes.push((*kind_a, a));
+                    outcomes.push((*kind_b, b));
+                }
+                [(kind_a, path_a), (kind_b, path_b), (kind_c, path_c)] => {
+                    let (a, b, c) = tokio::join!(
+                        self.fetch_endpoint(config, path_a, credentials, kind_a),
+                        self.fetch_endpoint(config, path_b, credentials, kind_b),
+                        self.fetch_endpoint(config, path_c, credentials, kind_c),
+                    );
+                    outcomes.push((*kind_a, a));
+                    outcomes.push((*kind_b, b));
+                    outcomes.push((*kind_c, c));
+                }
+                // `chunks(MAX_CONCURRENT_ENDPOINTS)` cannot exceed three
+                // entries and never yields an empty chunk; this arm only keeps
+                // the match exhaustive.
+                _ => {}
+            }
+        }
+        outcomes
+    }
+
+    /// Requests the declared reset endpoint, appends its outcome to `outcomes`,
+    /// and returns the parsed observation for window binding. Absent when the
+    /// provider declares no reset endpoint.
+    async fn append_reset_outcome(
+        &self,
+        config: &OpenAiCompatibleConfig,
+        credentials: &CredentialStore,
+        outcomes: &mut Vec<(EndpointKind, EndpointOutcome)>,
+    ) -> Option<crate::domain::provider::ResetObservation> {
+        let reset_path = config.reset_endpoint.as_deref()?;
+        match self
+            .fetch_reset_endpoint(config, reset_path, credentials)
+            .await
+        {
+            ResetFetch::Observation(observation) => {
+                outcomes.push((
+                    "reset",
+                    EndpointOutcome::Snapshots(QuotaSnapshotSet::new(vec![QuotaSnapshot {
+                        id: Some(RESET_SNAPSHOT_ID.to_owned()),
+                        metric_id: Some("reset".to_owned()),
+                        metric_name: Some("reset".to_owned()),
+                        reset_at: Some(observation.reset_at.clone()),
+                        status: SnapshotStatus::Partial,
+                        ..QuotaSnapshot::unknown()
+                    }])),
+                ));
+                Some(observation)
+            }
+            ResetFetch::Snapshots(set) => {
+                outcomes.push(("reset", EndpointOutcome::Snapshots(set)));
+                None
+            }
+            ResetFetch::Unrecognized => {
+                outcomes.push(("reset", EndpointOutcome::Unrecognized));
+                None
+            }
+            ResetFetch::Failed(error) => {
+                outcomes.push(("reset", EndpointOutcome::Failed(error)));
+                None
+            }
+        }
+    }
+
+    /// Requests one endpoint with the shared transport and classifies its
+    /// outcome, attributing any failure to the endpoint kind for diagnostics.
     async fn fetch_endpoint(
         &self,
         config: &OpenAiCompatibleConfig,
@@ -572,6 +620,36 @@ fn configured_quota_endpoints(config: &OpenAiCompatibleConfig) -> Vec<(EndpointK
         }
     }
     endpoints
+}
+
+/// Binds a window-named reset observation onto the snapshot the provider
+/// identified, folding the standalone reset card away. A reset that names no
+/// window (or an unknown one) is left untouched: the caller keeps it as an
+/// account-level card rather than copying precision onto every window.
+fn fold_named_reset(
+    snapshots: &mut Vec<QuotaSnapshot>,
+    observation: &crate::domain::provider::ResetObservation,
+) {
+    let Some(window_id) = observation.window_id.as_deref() else {
+        return;
+    };
+    let target = snapshots.iter_mut().find(|snapshot| {
+        snapshot.metric_id.as_deref() == Some(window_id)
+            || snapshot.id.as_deref() == Some(window_id)
+    });
+    let Some(target) = target else {
+        return;
+    };
+    target.reset_at = Some(observation.reset_at.clone());
+    if let Some(window) = target.window.as_mut() {
+        window.reset_at = Some(observation.reset_at.clone());
+    } else {
+        target.window = Some(crate::domain::provider::QuotaWindow {
+            reset_at: Some(observation.reset_at.clone()),
+            ..crate::domain::provider::QuotaWindow::default()
+        });
+    }
+    snapshots.retain(|snapshot| snapshot.id.as_deref() != Some(RESET_SNAPSHOT_ID));
 }
 
 /// Pure merge over per-endpoint outcomes. Failed endpoints become error

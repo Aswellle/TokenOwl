@@ -62,6 +62,52 @@ pub fn spawn_router(route: impl Fn(&str) -> (String, String) + Send + 'static) -
     }
 }
 
+/// Spawns a server that delays each response by a per-path amount before
+/// answering — the fixture that proves independent endpoints overlap instead
+/// of serializing their timeouts. Only the concurrency test uses it, and this
+/// module is compiled into every test crate, so the lint is allowed here.
+#[allow(dead_code)]
+pub fn spawn_delayed_router(
+    route: impl Fn(&str) -> (String, std::time::Duration) + Send + 'static,
+) -> RecordingServer {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind loopback");
+    let addr = listener.local_addr().expect("local address");
+    let hits = Arc::new(AtomicUsize::new(0));
+    let paths: Arc<std::sync::Mutex<Vec<String>>> = Arc::default();
+    let counter = Arc::clone(&hits);
+    let seen = Arc::clone(&paths);
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(mut stream) = stream else {
+                break;
+            };
+            counter.fetch_add(1, Ordering::SeqCst);
+            let mut buffer = [0u8; 8192];
+            let request = stream.read(&mut buffer).unwrap_or(0);
+            let head = String::from_utf8_lossy(&buffer[..request]).to_string();
+            let path = head
+                .split_whitespace()
+                .nth(1)
+                .unwrap_or_default()
+                .to_owned();
+            seen.lock().expect("paths lock").push(path.clone());
+            let (response, delay) = route(&path);
+            // One thread per connection: a delayed response must not block the
+            // server's next accept, or the test would measure the fixture's
+            // serialization instead of the adapter's concurrency.
+            std::thread::spawn(move || {
+                std::thread::sleep(delay);
+                let _ = stream.write_all(response.as_bytes());
+                let _ = stream.flush();
+            });
+        }
+    });
+    RecordingServer {
+        base_url: format!("http://{addr}"),
+        paths,
+    }
+}
+
 /// A canned JSON response with the given status code.
 pub fn json_response(status: &str, body: &str) -> String {
     format!(

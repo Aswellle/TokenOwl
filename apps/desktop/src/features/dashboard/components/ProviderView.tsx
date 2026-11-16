@@ -189,14 +189,17 @@ export function ProviderView({
     }
   };
 
+  const clock = (value: number) =>
+    new Date(value * 1000).toLocaleTimeString("zh-CN", {
+      hour: "2-digit",
+      minute: "2-digit",
+    });
   const nextScheduledAt = account.diagnostics?.nextScheduledAt ?? null;
   const nextScheduled =
-    nextScheduledAt && nextScheduledAt > 0
-      ? new Date(nextScheduledAt * 1000).toLocaleTimeString("zh-CN", {
-          hour: "2-digit",
-          minute: "2-digit",
-        })
-      : null;
+    nextScheduledAt && nextScheduledAt > 0 ? clock(nextScheduledAt) : null;
+  const lastSuccessAt = account.diagnostics?.lastSuccessAt ?? null;
+  const lastSuccess =
+    lastSuccessAt && lastSuccessAt > 0 ? clock(lastSuccessAt) : null;
   const range: RangeUsageViewModel | null = usage ? usage[windowKey] : null;
   // While the usage query is in flight the cards stay neutral ("—"); showing
   // the empty-window copy here would present loading as "no records".
@@ -250,9 +253,11 @@ export function ProviderView({
           <IconRefresh size={18} className={refreshing ? "is-spinning" : undefined} />
         </button>
       </div>
-      {nextScheduled && (
+      {(lastSuccess || nextScheduled) && (
         <p className="pview__schedule" role="status">
-          {copy.time.nextRefresh(nextScheduled)}
+          {lastSuccess ? copy.time.lastSuccess(lastSuccess) : ""}
+          {lastSuccess && nextScheduled ? " · " : ""}
+          {nextScheduled ? copy.time.nextRefresh(nextScheduled) : ""}
         </p>
       )}
       {testingEndpoints && (

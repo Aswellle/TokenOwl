@@ -76,6 +76,12 @@ TokenOwl 是一个小小的桌面伴侣，它回答一个问题 —— 而且**�
   <img src="assets/history.png" alt="历史视图：30 天统计、趋势图与 26 周热力图" width="820" />
 </p>
 
+**可调的刷新节奏** —— 每个账户按供应商声明的间隔刷新；可设 1 / 5 / 10 / 15 / 30 分钟的刷新上限，并可选开启自适应：额度接近用尽或窗口即将重置的账户最多提前一倍刷新，最近两小时没有消耗的账户最多延后一倍，失败退避与 `Retry-After` 始终优先。
+
+**带走你的配置** —— 账户配置可导出为不含密钥的 JSON（仅 Provider、名称、地址、协议与端点）；导入时先预览，再为每个账户重新输入 Key 并验证连接。
+
+**自助诊断** —— 每个账户可以逐端点测试并看到脱敏结果；设置页可生成诊断包，先预览再导出。Manifest 本地实验台可离线校验社区清单并用脱敏示例响应测试字段映射。
+
 **网关友好** —— 自托管 New API、One API 或 LiteLLM？它们都是一等内置项，网关地址可自由编辑。自定义 OpenAI 兼容端点同样支持。
 
 **自动更新** —— 发布产物经 Minisign 签名；内置更新器安装前先验证签名。
@@ -83,41 +89,41 @@ TokenOwl 是一个小小的桌面伴侣，它回答一个问题 —— 而且**�
 ## 支持的供应商
 
 <!-- providers:begin -->
-31 个内置清单横跨三种请求协议，按各家 API 实际暴露的能力分级 （本表由 `providers/builtin/*.yaml` 生成；表格与清单漂移会让 `cargo test` 失败。等级分布：L1×5，L2×22，L3×4。能力等级：L1 已接入无已验证额度；L2 连接/模型目录探测；L3 用量或余额；L4 额度 + 用量 + 重置全量且经测试验证。「最近验证」未声明的供应商表示尚未记录一次端到端核验，不代表不可用）：
+31 个内置清单横跨三种请求协议，按各家 API 实际暴露的能力分级 （本表由 `providers/builtin/*.yaml` 生成；表格与清单漂移会让 `cargo test` 失败。等级分布：L1×5，L2×22，L3×4。能力等级：L1 已接入无已验证额度；L2 连接/模型目录探测；L3 用量或余额；L4 额度 + 用量 + 重置全量且经测试验证。「API 核验」记录一次真实端点核验的日期，未声明表示尚未完成真实 API 核验，不代表不可用；「契约覆盖」表示该清单由 conformance suite 在每次 CI 中校验结构、端点与能力等级）：
 
-| 供应商 | 请求协议 | 等级 | 端点 | 最近验证 |
-|---|---|---|---|---|
-| OpenAI (openai) | `openai-compatible` | L2 | 模型 | 未声明 |
-| Anthropic (anthropic) | `anthropic` | L2 | 模型 | 未声明 |
-| Google Gemini (gemini) | `google-ai` | L2 | 模型 | 未声明 |
-| OpenRouter (openrouter) | `openai-compatible` | L3 | 模型、用量 | 未声明 |
-| DeepSeek (deepseek) | `openai-compatible` | L3 | 模型、余额 | 未声明 |
-| Qwen / Alibaba (qwen) | `openai-compatible` | L1 | 模型 | 未声明 |
-| Kimi / Moonshot (kimi) | `openai-compatible` | L3 | 模型、余额 | 未声明 |
-| Kimi 国际版 (kimi-international) | `openai-compatible` | L2 | 模型 | 未声明 |
-| Zhipu / GLM 国际版 (zhipu-international) | `openai-compatible` | L2 | 模型 | 未声明 |
-| MiniMax (minimax) | `openai-compatible` | L2 | 模型 | 未声明 |
-| Zhipu / GLM (zhipu) | `openai-compatible` | L2 | 模型 | 未声明 |
-| Doubao / Volcengine (doubao) | `openai-compatible` | L1 | — | 未声明 |
-| Mistral (mistral) | `openai-compatible` | L2 | 模型 | 未声明 |
-| Groq (groq) | `openai-compatible` | L2 | 模型 | 未声明 |
-| xAI (xai) | `openai-compatible` | L2 | 模型 | 未声明 |
-| SiliconFlow (siliconflow) | `openai-compatible` | L3 | 模型、余额 | 未声明 |
-| StepFun (stepfun) | `openai-compatible` | L2 | 模型 | 未声明 |
-| Baichuan (baichuan) | `openai-compatible` | L1 | — | 未声明 |
-| 01.AI (01ai) | `openai-compatible` | L2 | 模型 | 未声明 |
-| 360 (360) | `openai-compatible` | L1 | — | 未声明 |
-| Cohere (cohere) | `openai-compatible` | L2 | 模型 | 未声明 |
-| Baidu Qianfan (baidu-qianfan) | `openai-compatible` | L2 | 模型 | 未声明 |
-| iFlytek Spark (iflytek) | `openai-compatible` | L2 | 模型 | 未声明 |
-| Tencent Hunyuan (tencent-hunyuan) | `openai-compatible` | L2 | 模型 | 未声明 |
-| Xiaomi MiMo (xiaomi-mimo) | `openai-compatible` | L2 | 模型 | 未声明 |
-| Coze (coze) | `openai-compatible` | L1 | 模型 | 未声明 |
-| Google Gemini (OpenAI 兼容) (gemini-openai) | `openai-compatible` | L2 | 模型 | 未声明 |
-| Anthropic (OpenAI 兼容) (anthropic-openai) | `openai-compatible` | L2 | 模型 | 未声明 |
-| New API (new-api) | `openai-compatible` | L2 | 模型 | 未声明 |
-| One API (one-api) | `openai-compatible` | L2 | 模型 | 未声明 |
-| LiteLLM (litellm) | `openai-compatible` | L2 | 模型 | 未声明 |
+| 供应商 | 请求协议 | 等级 | 端点 | API 核验 | 契约覆盖 |
+|---|---|---|---|---|---|
+| OpenAI (openai) | `openai-compatible` | L2 | 模型 | 未声明 | 已覆盖 |
+| Anthropic (anthropic) | `anthropic` | L2 | 模型 | 未声明 | 已覆盖 |
+| Google Gemini (gemini) | `google-ai` | L2 | 模型 | 未声明 | 已覆盖 |
+| OpenRouter (openrouter) | `openai-compatible` | L3 | 模型、用量 | 未声明 | 已覆盖 |
+| DeepSeek (deepseek) | `openai-compatible` | L3 | 模型、余额 | 未声明 | 已覆盖 |
+| Qwen / Alibaba (qwen) | `openai-compatible` | L1 | 模型 | 未声明 | 已覆盖 |
+| Kimi / Moonshot (kimi) | `openai-compatible` | L3 | 模型、余额 | 未声明 | 已覆盖 |
+| Kimi 国际版 (kimi-international) | `openai-compatible` | L2 | 模型 | 未声明 | 已覆盖 |
+| Zhipu / GLM 国际版 (zhipu-international) | `openai-compatible` | L2 | 模型 | 未声明 | 已覆盖 |
+| MiniMax (minimax) | `openai-compatible` | L2 | 模型 | 未声明 | 已覆盖 |
+| Zhipu / GLM (zhipu) | `openai-compatible` | L2 | 模型 | 未声明 | 已覆盖 |
+| Doubao / Volcengine (doubao) | `openai-compatible` | L1 | — | 未声明 | 已覆盖 |
+| Mistral (mistral) | `openai-compatible` | L2 | 模型 | 未声明 | 已覆盖 |
+| Groq (groq) | `openai-compatible` | L2 | 模型 | 未声明 | 已覆盖 |
+| xAI (xai) | `openai-compatible` | L2 | 模型 | 未声明 | 已覆盖 |
+| SiliconFlow (siliconflow) | `openai-compatible` | L3 | 模型、余额 | 未声明 | 已覆盖 |
+| StepFun (stepfun) | `openai-compatible` | L2 | 模型 | 未声明 | 已覆盖 |
+| Baichuan (baichuan) | `openai-compatible` | L1 | — | 未声明 | 已覆盖 |
+| 01.AI (01ai) | `openai-compatible` | L2 | 模型 | 未声明 | 已覆盖 |
+| 360 (360) | `openai-compatible` | L1 | — | 未声明 | 已覆盖 |
+| Cohere (cohere) | `openai-compatible` | L2 | 模型 | 未声明 | 已覆盖 |
+| Baidu Qianfan (baidu-qianfan) | `openai-compatible` | L2 | 模型 | 未声明 | 已覆盖 |
+| iFlytek Spark (iflytek) | `openai-compatible` | L2 | 模型 | 未声明 | 已覆盖 |
+| Tencent Hunyuan (tencent-hunyuan) | `openai-compatible` | L2 | 模型 | 未声明 | 已覆盖 |
+| Xiaomi MiMo (xiaomi-mimo) | `openai-compatible` | L2 | 模型 | 未声明 | 已覆盖 |
+| Coze (coze) | `openai-compatible` | L1 | 模型 | 未声明 | 已覆盖 |
+| Google Gemini (OpenAI 兼容) (gemini-openai) | `openai-compatible` | L2 | 模型 | 未声明 | 已覆盖 |
+| Anthropic (OpenAI 兼容) (anthropic-openai) | `openai-compatible` | L2 | 模型 | 未声明 | 已覆盖 |
+| New API (new-api) | `openai-compatible` | L2 | 模型 | 未声明 | 已覆盖 |
+| One API (one-api) | `openai-compatible` | L2 | 模型 | 未声明 | 已覆盖 |
+| LiteLLM (litellm) | `openai-compatible` | L2 | 模型 | 未声明 | 已覆盖 |
 <!-- providers:end -->
 
 

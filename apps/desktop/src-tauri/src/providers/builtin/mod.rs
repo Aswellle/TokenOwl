@@ -148,6 +148,11 @@ pub struct ProviderMatrixRow {
     /// a row naming anything else would be a capability the app cannot honor.
     pub auth_methods: Vec<String>,
     pub schema_version: u32,
+    /// Date a real API surface was last verified; `None` means never recorded.
+    pub last_verified_at: Option<String>,
+    /// Whether the shared conformance suite exercises this manifest. Built-ins
+    /// are covered on every CI run; planned rows are not.
+    pub contract_verified: bool,
     /// Capability level of an implemented provider; `None` means planned.
     pub level: Option<String>,
     pub account_types: Vec<String>,
@@ -205,6 +210,8 @@ pub fn provider_matrix() -> Vec<ProviderMatrixRow> {
                     .unwrap_or_else(|| "openai-compatible".to_owned()),
                 auth_methods: manifest.auth.clone(),
                 schema_version: manifest.schema_version,
+                last_verified_at: capability.last_verified_at.clone(),
+                contract_verified: true,
                 level: manifest.effective_capability_level(),
                 account_types: split_list(&capability.account_types),
                 quota_units: split_list(&capability.quota_units),
@@ -234,6 +241,8 @@ pub fn provider_matrix() -> Vec<ProviderMatrixRow> {
             api_format: "openai-compatible".to_owned(),
             auth_methods: vec!["api_key".to_owned()],
             schema_version: crate::providers::manifest::MANIFEST_SCHEMA_VERSION,
+            last_verified_at: None,
+            contract_verified: false,
             level: None,
             account_types: types.iter().map(|value| (*value).to_owned()).collect(),
             quota_units: units.iter().map(|value| (*value).to_owned()).collect(),

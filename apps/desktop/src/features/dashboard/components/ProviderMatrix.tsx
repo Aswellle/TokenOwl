@@ -85,7 +85,16 @@ export function ProviderMatrix({ bridge }: { bridge: DashboardBridge }) {
                 </span>
               )}
               <span className="matrix__meta num">
-                {[...row.quotaUnits, ...row.targetWindows].join(" · ")}
+                {[
+                  ...row.quotaUnits,
+                  ...row.targetWindows,
+                  row.contractVerified ? copy.matrix.contractCovered : "",
+                  row.lastVerifiedAt
+                    ? copy.matrix.apiVerified(row.lastVerifiedAt)
+                    : "",
+                ]
+                  .filter(Boolean)
+                  .join(" · ")}
               </span>
             </li>
           ))}

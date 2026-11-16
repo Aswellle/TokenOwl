@@ -149,11 +149,34 @@ pnpm typecheck 0、vitest 194 passed（23 文件）、`pnpm build` 成功、Play
 | 8a3ceb4 | 本地 Agent 使用量（Claude Code 已实测 schema；Codex 按文档格式实现并标注未核验）：opt-in、只读、限定目录、幂等去重（migration 0005）、与远端额度分域 |
 | 561a411 / da3b906 | 历史导出 CSV/JSON 到应用数据 exports 目录（RFC 4180 转义；不含凭据；目录只保留最近 20 个导出文件，从不删除非导出文件） |
 | 30bedb8 | rusqlite 0.32→0.43（libsqlite3-sys 0.40）修复 RUSTSEC-2026-0459 捆绑 SQLite CVE；u64 绑定/读取点改为 i64 转换；rustix 1.1.6 清除其 soundness 警告 |
+| 97d23f3 | Codex 解析改为 `last_token_usage` 逐轮增量（累计 total 会重复计数），支持 cumulative-only 差分与 `turn_context` 模型；两来源增加文件级增量 cursor（路径哈希 + head/anchor 指纹，路径不入库），半行等待换行后再读 |
+| 328f306 | 每账户刷新计划：provider 默认间隔、用户 1/5/10/15/30 分钟上限、失败退避与可选自适应（低额度/临近重置最多减半，2 小时空闲最多加倍）；账户行/详情显示下次计划刷新 |
+| a48e886 | 社区清单 `schemaVersion`（缺省=1，未来版本拒绝）、仅 `api_key`、未知字段与映射边界硬校验；选择器显示来源文件/schema/最近请求状态；内置与社区共享 conformance；新增离线 Manifest 实验台 |
+| 310ba74 | 账户配置备份（仅 Provider/名称/地址/协议/端点，不含 Key 或 credential ref）；导入预览不创建，逐条重输 Key 走正常创建/验证；导出目录改为跨类型统一按时间裁剪 |
+| 43ff3ad | 每账户端点测试（按路径去重、有界并发、稳定 outcome/HTTP/延迟、无响应正文）；本地脱敏诊断包先预览后导出，token 只覆盖时间戳之外的稳定内容，自定义端点 host/路径/查询一律不出现 |
+| （本轮收尾） | `lastVerifiedAt` 格式/未来日期校验；README 增加“API 核验 / 契约覆盖”两列；Provider 详情显示本地最近成功时间；dock 键盘 e2e 等待偏好加载以消除冷启动抖动 |
 
 ### 已知限制（如实记录）
 
-- Codex 解析器未在真实安装上核验（本机未安装 Codex CLI）；UI 的来源卡片与测试注释均已标注。
-- 自适应刷新间隔（按消耗速度自动缩短/拉长）未实现：当前为固定 per-provider 节奏（60 秒下限）+ 每账户最多 3 路端点并发；429 Retry-After 与退避策略不变。
-- 「最近验证」字段为 schema 级支持，全部内置清单尚未回填核验日期（如实显示“未声明”）。
-- 本轮未做真实供应商联调（不引入真实密钥到 CI）；models probe / reset / rotation 均以 loopback mock server 按线协议验证。
-- e2e 只覆盖 webview 层；托盘、浮球、keyring 的原生行为仍按 AGENTS.md 的手动清单验证。
+- Codex 解析器仍未在真实安装上核验（本机未安装 Codex CLI）。本轮按公开 rollout 格式修正了逐轮增量、模型归属与断点续扫，并以 fixture 覆盖；UI 来源卡片继续标注“尚未核验”。
+- `lastVerifiedAt` 只表示一次真实 API 核验，本轮没有可用密钥对 31 家供应商逐一核验，因此没有回填日期。README 用“API 核验 = 未声明”与“契约覆盖 = 已覆盖”两列如实区分；Provider 详情的“最近成功更新”来自本机刷新，不冒充供应商核验。
+- OAuth / device flow 与浏览器会话来源仍未实现。为避免能力冒充，社区/内置清单的 `auth` 现在只接受 `api_key`，未知认证方式在加载时拒绝；UI 没有不可执行的登录入口。
+- 本轮未做真实供应商联调（不引入真实密钥到 CI）；models probe / reset / key rotation / endpoint diagnostics 均以 loopback mock server 按线协议验证。
+- e2e 只覆盖 webview 层；托盘、浮球、keyring、通知权限的原生行为仍按 AGENTS.md 的手动清单验证。macOS 仍未在真实硬件验证。
+
+### 本轮验证（2026-11-16，Windows）
+
+| 门禁 | 命令 | 结果 |
+|---|---|---|
+| Rust 测试 | `cargo test`（来自 `apps/desktop/src-tauri`） | **440 passed**（381 lib + 59 integration），0 failed |
+| Rust lint | `cargo +1.100.0 clippy --all-targets --all-features -- -D warnings` | 0 错误、0 警告 |
+| Rust 格式 | `cargo +1.100.0 fmt --all -- --check` | 干净 |
+| MSRV | `cargo +1.90 check --all-targets` | 通过 |
+| 前端类型 | `pnpm typecheck` | 0 错误 |
+| 前端单测 | `pnpm test` | **211 passed / 28 files** |
+| 前端构建 | `pnpm build` | 成功（仅有既存的 >500 kB chunk 提示） |
+| E2E | `pnpm e2e`（本地 retries=0） | **132 passed**，无 flaky（10.4 min） |
+| Rust 依赖审计 | `cargo audit` | 0 vulnerability，6 条 allowed warning（均已在 §11 记录） |
+| 前端依赖审计 | `pnpm audit --prod --audit-level high` | No known vulnerabilities |
+
+说明：E2E 为 webview/mock 层，不等同于原生壳验证；本轮未新增 macOS 实机结论。`lastVerifiedAt` 没有填造日期；真实供应商联调仍需可用密钥，不在本轮自动化范围内。

@@ -334,6 +334,17 @@ impl ProviderManifest {
         if self.base_url.chars().count() > 512 {
             return Err("baseUrl must be at most 512 characters".to_owned());
         }
+        if let Some(verified) = self
+            .capability
+            .as_ref()
+            .and_then(|capability| capability.last_verified_at.as_deref())
+        {
+            let parsed = chrono::NaiveDate::parse_from_str(verified, "%Y-%m-%d")
+                .map_err(|_| "capability.lastVerifiedAt must be YYYY-MM-DD".to_owned())?;
+            if parsed > chrono::Utc::now().date_naive() {
+                return Err("capability.lastVerifiedAt must not be in the future".to_owned());
+            }
+        }
         if let Some(timeout_ms) = self.network.as_ref().and_then(|n| n.timeout_ms)
             && !(1_000..=120_000).contains(&timeout_ms)
         {
@@ -910,6 +921,32 @@ id: openai",
             assert!(
                 error.contains("auth") || error.contains("unsupported auth method"),
                 "unexpected reason for `{auth}`: `{error}`"
+            );
+        }
+    }
+
+    #[test]
+    fn last_verified_at_accepts_iso_dates_only_and_never_the_future() {
+        let with_date = OPENAI_MANIFEST.replace(
+            "  priority: P0",
+            "  priority: P0
+  lastVerifiedAt: 2026-11-16",
+        );
+        let manifest = ProviderManifest::from_yaml(&with_date).expect("valid YAML");
+        assert_eq!(manifest.validate_schema_bounds(), Ok(()));
+
+        for bad in ["2026/11/16", "16-11-2026", "2099-01-01"] {
+            let yaml = OPENAI_MANIFEST.replace(
+                "  priority: P0",
+                &format!(
+                    "  priority: P0
+  lastVerifiedAt: {bad}"
+                ),
+            );
+            let manifest = ProviderManifest::from_yaml(&yaml).expect("valid YAML");
+            assert!(
+                manifest.validate_schema_bounds().is_err(),
+                "`{bad}` must be rejected"
             );
         }
     }

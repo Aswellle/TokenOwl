@@ -385,6 +385,8 @@ export interface ProviderMatrixRowViewModel {
   apiFormat: string;
   authMethods: string[];
   schemaVersion: number;
+  lastVerifiedAt?: string | null;
+  contractVerified: boolean;
   level?: string | null;
   accountTypes: string[];
   quotaUnits: string[];

@@ -195,6 +195,7 @@ export const copy = {
     resetInMinutes: (minutes: number) => `${minutes} 分钟后重置`,
     updated: (relative: string) => `更新于 ${relative}`,
     nextRefresh: (time: string) => `下次计划刷新 ${time}`,
+    lastSuccess: (time: string) => `最近成功更新 ${time}`,
   },
 
   refreshSettings: {
@@ -483,6 +484,8 @@ export const copy = {
     communityUnknownFile: "文件名未知",
     communitySource: (file: string, schema: number) =>
       `来源：community-providers/${file} · schema v${schema} · 已通过结构校验`,
+    communityVerified: (date: string) => `真实 API 核验 ${date}`,
+    communityUnverified: "尚未声明真实 API 核验",
     communityPacks: (count: number) => `社区清单（${count}）`,
     communityAccounts: (count: number) => `${count} 个账户`,
     communityStatus: {
@@ -538,6 +541,8 @@ export const copy = {
     intro:
       "能力等级按 docs/09 首发规划：L4 完整额度（含重置）· L3 用量/余额 · L2 健康/模型 · L1 自定义接入。规划中的行以实测 fixture 为准，不预先标注等级。",
     planned: "规划中",
+    contractCovered: "契约测试覆盖",
+    apiVerified: (date: string) => `API 核验 ${date}`,
     units: "额度单位",
     windows: "目标窗口",
     level: {

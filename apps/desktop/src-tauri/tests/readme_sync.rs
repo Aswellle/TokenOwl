@@ -51,7 +51,7 @@ fn generated_section() -> String {
             .unwrap_or_else(|| "未声明".to_owned());
         let _ = writeln!(
             rows,
-            "| {} ({}) | `{}` | {} | {} | {} |",
+            "| {} ({}) | `{}` | {} | {} | {} | 已覆盖 |",
             manifest.name,
             manifest.id,
             format,
@@ -78,10 +78,11 @@ fn generated_section() -> String {
         "{BEGIN}\n{} 个内置清单横跨三种请求协议，按各家 API 实际暴露的能力分级 \
         （本表由 `providers/builtin/*.yaml` 生成；表格与清单漂移会让 `cargo test` \
          失败。等级分布：{summary}。能力等级：L1 已接入无已验证额度；L2 连接/模型目录探测；L3 用量或余额；\
-         L4 额度 + 用量 + 重置全量且经测试验证。「最近验证」未声明的供应商表示尚未记录\
-         一次端到端核验，不代表不可用）：\n\n\
-         | 供应商 | 请求协议 | 等级 | 端点 | 最近验证 |\n\
-         |---|---|---|---|---|\n\
+         L4 额度 + 用量 + 重置全量且经测试验证。「API 核验」记录一次真实端点核验的日期，\
+         未声明表示尚未完成真实 API 核验，不代表不可用；「契约覆盖」表示该清单由 conformance \
+         suite 在每次 CI 中校验结构、端点与能力等级）：\n\n\
+         | 供应商 | 请求协议 | 等级 | 端点 | API 核验 | 契约覆盖 |\n\
+         |---|---|---|---|---|---|\n\
          {rows}{END}",
         tokenowl_lib::providers::builtin::BUILTIN_MANIFESTS.len(),
         summary = summary,

@@ -245,3 +245,24 @@ F16 压力提示 `未上报窗口额度`。新增 e2e `?scenario=balance-only`�
 **前端类型自适应**：`QuotaMetric` 窗口芯片 = 类型+跨度（`滚动窗口 · 5h`、`固定窗口 · 7d`、`订阅周期`）；Token 数值 ≥1万 走 万/亿 缩写；百分比读作份额（`82.4%`）；无窗口指标**不显示**重置倒计时与比率条。详情页新增 `QuotaSections` 分组：窗口额度 / 余额与用量（仅两类并存时显示标题）。
 
 **e2e `?scenario=kinds`**：单账户同时携带 6 种额度形态（5h 滚动 Token、7d 固定 Token、订阅积分、无窗口 CNY 余额、命名余额拆分、累计 Token 用量），断言分组标题、窗口芯片、缩写格式（50 万 / 1,823.46 万）、余额无 bar。
+
+## 9. 2026-11 扩展测试批次
+
+### 9.1 新增交互覆盖
+
+| 域 | 场景 | 层 | 用例位置 |
+|---|---|---|---|
+| 刷新策略 | 选择 1/5/10/15/30 分钟上限并持久化；自适应开关独立保存；保存失败回滚并说明 | B | e2e/settings.spec.ts；src/test/RefreshSection.test.tsx |
+| 账户备份 | 勾选账户导出不含密钥的 JSON；粘贴备份校验预览；逐条输入新 Key 后创建并验证；缺 Key 不调用创建 | B/A | e2e/settings.spec.ts；src/test/BackupSection.test.tsx |
+| Manifest 实验台 | 展开、离线校验粘贴清单、显示映射出的指标；未知字段/未来 schema 在 Rust 侧拒绝 | B/A | e2e/settings.spec.ts；src-tauri/src/commands/manifest.rs tests |
+| 诊断包 | 生成预览、导出所审阅内容；token 过期时丢弃预览而不是写入另一份文档 | B/A | e2e/settings.spec.ts；src/test/DiagnosticsSection.test.tsx |
+| 端点测试 | 供应商详情逐端点结果（可访问/认证失败/HTTP 状态/延迟）；命令失败不冒充成功 | B/A | e2e/dashboard.spec.ts；src/test/ProviderEndpointTest.test.tsx |
+| 能力矩阵 | 每行显示“契约测试覆盖”；规划行仍不冒充已实现 | B | e2e/settings.spec.ts |
+| 刷新计划 | 每账户 due 时间、失败退避、空闲加倍/低额度减半、上下限 | A（Rust） | commands/accounts.rs cadence_tests；commands/refresh.rs tests |
+
+### 9.2 新的诚实边界
+
+- Codex rollout 解析器仍未经真实安装核验；fixture 覆盖 per-turn delta、cumulative-only 差分、`turn_context` 模型与断点续扫。
+- `lastVerifiedAt` 只接受真实核验日期，内置清单不填造日期；README 用“API 核验：未声明”与“契约覆盖：已覆盖”两列区分。
+- OAuth/device flow 与浏览器会话来源没有实现；清单加载只接受 `api_key`，因此没有入口可以声明不可执行的能力。
+- 原生壳（托盘、浮球、keyring、通知）仍不在 e2e 层；沿用 AGENTS.md 的手动清单。

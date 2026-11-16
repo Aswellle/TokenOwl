@@ -296,6 +296,7 @@ test.describe("capability matrix", () => {
     await expect(page.locator(".matrix__row--planned").first()).toContainText("规划中 · P0");
     // First row is OpenAI at its corrected honest level.
     await expect(page.locator(".matrix__row").first()).toContainText("L2 · 健康/模型");
+    await expect(page.locator(".matrix__row").first()).toContainText("契约测试覆盖");
   });
   test("a failed matrix read is reported instead of claiming zero providers", async ({
     page,

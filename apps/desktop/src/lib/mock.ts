@@ -840,6 +840,8 @@ export function createMockBridge(): DashboardBridge {
         apiFormat: "openai-compatible",
         authMethods: ["api_key"],
         schemaVersion: 1,
+        lastVerifiedAt: null,
+        contractVerified: implemented,
         level,
         accountTypes,
         quotaUnits,

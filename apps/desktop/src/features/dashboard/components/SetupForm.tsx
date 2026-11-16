@@ -653,6 +653,10 @@ export function SetupForm({
                   profile.sourceFile ?? copy.form.communityUnknownFile,
                   profile.schemaVersion,
                 )}
+                {" · "}
+                {profile.lastVerifiedAt
+                  ? copy.form.communityVerified(profile.lastVerifiedAt)
+                  : copy.form.communityUnverified}
               </span>
             )}
             {profile && (profile.level === "L1" || profile.level === "L2") && (

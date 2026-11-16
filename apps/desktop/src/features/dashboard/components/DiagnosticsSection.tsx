@@ -54,9 +54,11 @@ export function DiagnosticsSection({ bridge }: { bridge: DashboardBridge }) {
   };
 
   return (
-    <details className="section diagnostics-section">
+    <details className="section diagnostics-section" aria-labelledby="diagnostics-title">
       <summary className="matrix__summary">
-        <span className="section__title">{copy.diagnostics.title}</span>
+        <h2 className="section__title" id="diagnostics-title">
+          {copy.diagnostics.title}
+        </h2>
         <span className="matrix__summary-count">{copy.diagnostics.summary}</span>
       </summary>
       <div className="diagnostics__body">

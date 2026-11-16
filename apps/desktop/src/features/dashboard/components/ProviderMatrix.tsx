@@ -36,12 +36,16 @@ export function ProviderMatrix({ bridge }: { bridge: DashboardBridge }) {
   }, [load]);
 
   return (
-    <section className="section matrix" aria-label={copy.a11y.matrixRegion}>
+    <section className="section matrix" aria-labelledby="matrix-title">
       {/* Collapsed by default: the 30-row catalog is reference material, not
-          the page's job. <details> keeps keyboard and AT behavior native. */}
+          the page's job. <details> keeps keyboard and AT behavior native, and
+          the summary carries a real heading so the section appears in the
+          document outline like every other settings block. */}
       <details className="matrix__disclosure">
         <summary className="matrix__summary">
-          <span className="matrix__summary-title">{copy.matrix.title}</span>
+          <h2 className="section__title" id="matrix-title">
+            {copy.matrix.title}
+          </h2>
           <span className="matrix__summary-count">
             {failed
               ? copy.matrix.loadFailedShort

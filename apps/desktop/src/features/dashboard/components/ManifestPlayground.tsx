@@ -76,9 +76,11 @@ export function ManifestPlayground({ bridge }: { bridge: DashboardBridge }) {
   };
 
   return (
-    <details className="section manifest-playground">
+    <details className="section manifest-playground" aria-labelledby="playground-title">
       <summary className="matrix__summary">
-        <span className="section__title">{copy.playground.title}</span>
+        <h2 className="section__title" id="playground-title">
+          {copy.playground.title}
+        </h2>
         <span className="matrix__summary-count">{copy.playground.summary}</span>
       </summary>
       <div className="manifest-playground__body">

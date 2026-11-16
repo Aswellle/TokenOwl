@@ -638,7 +638,6 @@ export const copy = {
     selectProvider: (label: string) => `查看供应商 ${label}`,
     profilePicker: "选择要接入的供应商",
     openGithub: "在浏览器打开 GitHub 项目主页",
-    matrixRegion: "供应商能力矩阵",
     capabilityChip: (level: string) => `能力等级 ${level}`,
   },
 };

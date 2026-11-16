@@ -3209,12 +3209,6 @@ button:disabled {
   outline-offset: 2px;
 }
 
-.matrix__summary-title {
-  font-size: var(--step-2);
-  font-weight: 600;
-  color: var(--ink);
-}
-
 .matrix__summary-count {
   margin-inline-start: auto;
   font-size: var(--step-0);

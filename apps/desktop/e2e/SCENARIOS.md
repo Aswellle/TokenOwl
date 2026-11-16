@@ -266,3 +266,54 @@ F16 压力提示 `未上报窗口额度`。新增 e2e `?scenario=balance-only`�
 - `lastVerifiedAt` 只接受真实核验日期，内置清单不填造日期；README 用“API 核验：未声明”与“契约覆盖：已覆盖”两列区分。
 - OAuth/device flow 与浏览器会话来源没有实现；清单加载只接受 `api_key`，因此没有入口可以声明不可执行的能力。
 - 原生壳（托盘、浮球、keyring、通知）仍不在 e2e 层；沿用 AGENTS.md 的手动清单。
+
+## 10. 2026-11 原生实机自动化联调（Windows）
+
+### 10.1 层与规模
+
+| 层 | 工具 | 规模 | 结果 |
+|----|------|------|------|
+| C 实机 | Playwright → WebView2 CDP，真实 debug 构建 + loopback 供应商 | 11 文件 / 12 用例 | ✅ 12 passed（3.0 min） |
+| B webview | Playwright + Vite preview（mock bridge） | 142 用例 | ✅ 142 passed（16.0 min，retries=0） |
+| A 单元/组件 | Vitest + jsdom | 28 文件 / 211 用例 | ✅ 全绿 |
+| Rust | cargo test | 443（383 lib + 60 integration） | ✅ 全绿 |
+
+实机层每个用例独立启动 `tokenowl.exe`，使用一次性 app-data 目录、`com.tokenowl.test.native.*` 钥匙串命名空间和临时 home；结束后杀进程、删目录并用 `cmdkey` 清理该命名空间。运行后实测 0 个遗留测试凭据、0 个残留进程；仅保留人工审查用截图。入口命令与隔离说明见 `e2e-native/README.md`。
+
+### 10.2 C 层新增场景
+
+| 域 | 场景 | 用例位置 |
+|----|------|----------|
+| 真实 IPC | 首跑无 mock 数据、31 清单收敛为 27 个品牌组、能力矩阵 32 行且标“契约测试覆盖” | e2e-native/native.spec.ts |
+| 账户闭环 | 自定义账户创建、LAN 同意、首刷额度、端点测试、密钥不进入 DOM/SQLite | 同上 |
+| 密钥轮换 | 401 拒绝候选 → 旧 Key 继续可用；供应商吊销旧 Key 后轮换到已验证新 Key；之后仅新 Key 可刷新 | e2e-native/rotation.spec.ts |
+| 降级路径 | 500 / 429(Retry-After) / 非 JSON 200 均保留最后快照并显示错误类；401 端点测试归为“认证失败” | e2e-native/degraded.spec.ts |
+| 备份/诊断 | 导出不含密钥、删除后导入预览、逐条重输 Key 创建；诊断预览/导出、token 过期拒绝写第二份文档；删除账户清理 keyring | e2e-native/backup-diagnostics.spec.ts |
+| 通知 | 低额度真实触发、单条/全部已读、总开关与依赖字段锁定、阈值 blur 保存 | e2e-native/notifications.spec.ts |
+| 本地用量 | Claude Code + Codex fixture、opt-in 门禁、cursor 续扫、重复扫描零新增、清除/禁用、提示词不落库 | e2e-native/local-usage.spec.ts |
+| 社区清单 | 有效包加载/创建、映射 usage、reset 端点真实请求、无效包列入 skipped、离线 playground 正反例 | e2e-native/community.spec.ts |
+| 重启持久化 | 刷新节奏/自适应、dock 折叠、通知静音、代理 URL 跨进程保留；代理密码读回掩码且不落盘 | e2e-native/persistence.spec.ts |
+| 原生窗口 | 56×56 逻辑 tool window、DPI 感知 Win32 矩形/exStyle、双环读数、面板↔Bubble 双向交接 | e2e-native/window-bubble.spec.ts |
+| 可访问性 | 四个已填充视图的 landmark/标题层级/按钮名/控件标签/重复 id/24px 目标/不透底背景对比度；焦点环、LAN 对话框 Tab 陷阱、560×480 与宽窗 reflow | e2e-native/accessibility.spec.ts |
+| 视觉取证 | 概览/供应商详情/设置/诊断/历史/通知/Bubble 截图 | e2e-native/visual.spec.ts |
+
+### 10.3 本轮发现与修复
+
+| # | 严重度 | 发现 | 修复 | 验证 |
+|---|--------|------|------|------|
+| F20 | 高 | 单账户手动刷新失败后，前端只把行标为 error，丢掉后端已持久化的 `errorCode`/诊断，导致认证失败时“更新密钥”入口与原因说明不出现 | 失败后重新读取账户列表，以持久化诊断驱动恢复入口；列表读取失败才回退到本地 error | Native rotation 用例 + Dashboard 单测 |
+| F21 | 高 | 内置/社区清单声明的 `reset` 端点在 `resolve_new_account` → `persist_new_account` 链路被丢弃，后续刷新/端点测试永远不请求 | `AccountEndpoints` 增加 reset 并贯通持久化；新增清单解析单测 | Native community 用例断言 reset 端点被请求且端点测试有 3 行 |
+| F22 | 中 | 主按钮白字在 `#0a7aff` 上仅 4.01:1，低于 WCAG AA 4.5:1 | 新增 `--accent-button`/hover 色（浅色 5.4:1，深色单独取值） | 实机对比度审计四视图 0 违规 |
+| F23 | 中 | Dock 收起/展开控制 62×18，低于 WCAG 2.2 24px 目标 | 高度 24px、圆角同步；标题栏红绿灯已有 26px 伪元素命中区，不改视觉 | 实机 target-size 审计 0 违规 |
+| F24 | 低 | 首跑空态从 h1 直接跳到 h3，标题层级不连续 | 改为 h2 | 实机标题审计 H1→H2 |
+| F25 | 中 | 视图切换保留内容区 `scrollTop`，从长设置页回概览时汇总卡被截在视口上方 | 视图/选中账户变化时内容区回到顶部 | 截图复验 + 浏览器 e2e |
+| F26 | 中 | 历史热力图默认停在最早一周，用户要先横滚六个月才能看到今天 | 数据加载后滚到最右（最新）端 | 浏览器 e2e 断言滚动至末端 |
+| F27 | 中 | 深色表盘上的供应商标记（回退钥匙/深色品牌）对比度不足 | 标记加浅色圆形底片；三环时收紧到 1px 避免盖住内环 | 截图复验 + 三环 padding e2e |
+| F28 | 测试基建 | Vitest 误收集 `e2e-native/*.spec.ts`；覆盖 `USERPROFILE` 会让 WebView2 关闭 CDP；两个既有单测在高负载下竞态 | Vitest 排除 e2e-native；改为 debug-only `TOKENOWL_TEST_HOME`；保存前等待受控值提交、初始 stabilize 完成后再计数 | 全量 Vitest 211 / native 12 通过 |
+
+### 10.4 新的诚实边界
+
+- 原生套件只跑 Windows 11（10.0.22631，150% DPI）的 **debug 构建**；release 未跑，macOS 未验证。
+- 托盘菜单点击、物理全局热键、OS 通知横幅渲染、更新器真实下载/安装、多显示器仍未自动化；沿用 AGENTS.md 手动清单。
+- Codex 解析器仍未经真实安装核验（本轮用两份 rollout fixture 覆盖增量/差分路径，UI 保持“尚未核验”标注）。
+- 实机套件依赖 GUI 会话，不进入 CI；CI 仍以 B 层 142 用例 + Rust/单测为门禁。

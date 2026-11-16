@@ -180,3 +180,56 @@ pnpm typecheck 0、vitest 194 passed（23 文件）、`pnpm build` 成功、Play
 | 前端依赖审计 | `pnpm audit --prod --audit-level high` | No known vulnerabilities |
 
 说明：E2E 为 webview/mock 层，不等同于原生壳验证；本轮未新增 macOS 实机结论。`lastVerifiedAt` 没有填造日期；真实供应商联调仍需可用密钥，不在本轮自动化范围内。
+
+## 13. 实机端到端联调与可用性修复（2026-11-16）
+
+在 §12 的能力闭环基础上，补齐“真实进程 + 真实 IPC/存储/凭据/网络 + 真实窗口”的自动化实机层，并按实机截图与可访问性审计修复产品问题。实机层不进入 CI（需要 GUI 与 WebView2），作为发版前 Windows 验证使用。
+
+### 新增测试资产
+
+| 文件 | 内容 |
+|---|---|
+| `playwright.native.config.ts` + `e2e-native/native-app.ts` | 启动真实 debug 二进制，经 WebView2 CDP 连接主窗口与 Bubble 窗口；独立 app-data/keyring/home，Win32 窗口枚举与缩放 |
+| `e2e-native/fixture-provider.ts` | 可切换 windowed/low/balance/auth/5xx/429/非 JSON 的 loopback 供应商，记录实际请求路径与 Key |
+| `e2e-native/*.spec.ts`（11 文件 / 12 用例） | 创建/刷新/端点测试、密钥轮换、降级、备份/导入、诊断、通知、本地用量、社区清单、重启持久化、窗口交接、可访问性、视觉取证 |
+| `e2e/flows.spec.ts`（10 用例） | CI 内覆盖密钥轮换三态、LAN 信任移除、本地用量 opt-in、代理保存/清除、诊断 token 过期、部分账户导出、视图滚动复位 |
+| `src-tauri/tests/proxy_transport.rs` | 显式代理确实收到绝对 URI，源站未被直连 |
+| `src-tauri/src/commands/mod.rs` reset 解析测试 | 清单声明的 reset 端点通过账户解析，不再中途丢弃 |
+| `e2e-native/README.md` | 运行方式、隔离变量、覆盖边界与清理策略 |
+
+### 修复
+
+| # | 修复 |
+|---|---|
+| F20 | 单账户刷新失败后重新读取账户列表，保留后端持久化的错误码/诊断，恢复“更新密钥”入口 |
+| F21 | `AccountEndpoints`/创建持久化贯通清单 `reset` 端点 |
+| F22 | 主按钮改用满足 4.5:1 的专用底色（含深色主题值） |
+| F23 | Dock 收起/展开控制高度 18→24px |
+| F24 | 首跑空态标题 h3→h2 |
+| F25 | 视图切换时内容滚动区回到顶部 |
+| F26 | 历史热力图加载后滚到最新（最右）端 |
+| F27 | Bubble 供应商标记加浅色底片，三环时收紧内边距 |
+| F28 | Vitest 排除 e2e-native；新增 debug-only `TOKENOWL_TEST_HOME`；修复两个高负载竞态单测 |
+
+### 验证（2026-11-16，Windows 11 22631，150% DPI）
+
+| 门禁 | 命令 | 结果 |
+|---|---|---|
+| Rust 测试 | `cargo test` | **443 passed**（383 lib + 60 integration），0 failed |
+| Rust lint | `cargo +1.100.0 clippy --all-targets --all-features -- -D warnings` | 0 错误、0 警告 |
+| Rust 格式 | `cargo +1.100.0 fmt --all -- --check` | 干净 |
+| MSRV | `cargo +1.90 check --all-targets` | 通过 |
+| 前端类型 | `pnpm typecheck` | 0 错误 |
+| 前端单测 | `pnpm test` | **211 passed / 28 files** |
+| 前端构建 | `pnpm build` | 成功 |
+| 浏览器 E2E | `pnpm e2e`（retries=0） | **142 passed**（16.0 min），0 flaky |
+| 实机 E2E | `pnpm e2e:native` | **12 passed**（3.0 min） |
+| 依赖审计 | `cargo audit` / `pnpm audit --prod --audit-level high` | 0 vulnerability；6 条既有 allowed warning |
+
+实机断言覆盖四个已填充视图的 landmark、标题层级、按钮/控件名称、重复 id、24px 目标、可对比背景的对比度、焦点环、对话框 Tab 陷阱与 560×480 reflow；截图位于 `verify-shots/native-e2e-2026-11/`（未跟踪，供人工复核）。
+
+### 边界
+
+- 托盘点击、物理全局热键、OS 通知横幅、更新器下载/安装、多显示器、macOS 仍未自动化或未验证。
+- Codex 解析器仍未在真实安装上核验。
+- 实机套件使用 debug 构建；release 安装包仍按发版冒烟清单单独验证。

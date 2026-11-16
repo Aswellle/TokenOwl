@@ -51,6 +51,7 @@ pnpm lint                        # aliases typecheck
 pnpm build                       # tsc && vite build
 pnpm test                        # vitest run (jsdom)
 pnpm e2e                         # playwright against the vite preview (mock bridge)
+pnpm e2e:native                  # real Tauri build over WebView2 CDP (Windows, manual)
 pnpm tauri dev                   # desktop development
 pnpm tauri build                 # package build
 
@@ -103,7 +104,8 @@ cargo clippy -- -D warnings
 ## Testing & QA
 
 - Frontend: `pnpm test` runs Vitest (jsdom, globals, setup file `src/test/setup.ts`). Tests live in `src/test/`; `BubbleView.test.tsx`, `Dashboard.test.tsx`, and `e2e/**` are excluded in `vite.config.ts`. Tests that `vi.mock` the `../lib/tauri` module must re-export every new helper the components use (e.g. `listenWithRetry`), or the mocked module leaves it undefined.
-- E2E: `pnpm e2e` runs Playwright over layered suites (dashboard, settings, dock, bubble rings/morph, viewport, accessibility) against the plain Vite preview with the mocked bridge — it proves the webview app, not the native shell. The port is allocated dynamically (`E2E_PORT`), never hardcoded. Native-only regressions (window stack, morph, tray) have slipped past this suite before; UI/shell changes still need the native pass below.
+- E2E: `pnpm e2e` runs Playwright over layered suites (dashboard, settings, dock, bubble rings/morph, viewport, accessibility, flows) against the plain Vite preview with the mocked bridge — it proves the webview app, not the native shell. The port is allocated dynamically (`E2E_PORT`), never hardcoded. Native-only regressions (window stack, morph, tray) have slipped past this suite before; UI/shell changes still need the native pass below.
+- Native E2E: `pnpm e2e:native` (config `playwright.native.config.ts`) attaches Playwright to WebView2 CDP in the real debug Tauri build, with a loopback provider, real IPC/SQLite/Windows Credential Manager, real windows via Win32 probes, and per-test isolated data + keyring namespaces. Build the binary first with `pnpm tauri build --debug --no-bundle`; see `apps/desktop/e2e-native/README.md`. It requires a GUI Windows session, so CI does not run it. The suite covers creation/refresh, rotation, degraded paths, backup/import, diagnostics, notifications, local usage, community packs, restart persistence, the bubble handoff, accessibility targets/contrast, and visual review captures. It does not cover tray clicks, physical hotkeys, OS toast rendering, updater execution, multi-monitor, or macOS.
 - Rust: run `cargo test` from `apps/desktop/src-tauri/`. Unit tests are embedded in `domain/`, `commands/*`, and `providers/*` modules (tests in `commands/mod.rs` reach submodule items through `pub(super)`); integration tests live in `tests/` (`provider_fixtures.rs` with `tests/fixtures/*.json`, `endpoint_diagnostics.rs`, `provider_conformance.rs` with the community fixture, plus `command_registration.rs` guarding the invoke-handler contract).
 - Provider changes should add offline deterministic coverage for success, partial/missing fields, malformed JSON, unauthorized, rate-limited/`retry-after`, server error, empty responses, and status/unit/reset mapping as applicable. Never use real accounts as the only test basis.
 - State changes should test freshness transitions, stale fallback/hard expiry, backoff caps, position normalization, secret-metadata removal, and reset/timezone boundaries.

@@ -54,7 +54,9 @@ export default defineConfig(() => ({
     // timeout guards hangs, not machine speed.
     testTimeout: 20_000,
     hookTimeout: 20_000,
-    exclude: ["**/node_modules/**", "**/e2e/**"],
+    // Playwright suites run under their own runners (browser preview and the
+    // native CDP project); Vitest must not try to import them.
+    exclude: ["**/node_modules/**", "**/e2e/**", "**/e2e-native/**"],
   },
   resolve: {
     alias: {

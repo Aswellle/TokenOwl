@@ -195,6 +195,9 @@ describe("NotificationSection", () => {
     await screen.findByText("额度紧张", { selector: ".notif__title" });
     const threshold = screen.getByLabelText(/低额度阈值/);
     fireEvent.change(threshold, { target: { value: "15" } });
+    // Let React commit the controlled value before blur reads it; under a
+    // loaded worker the blur handler could otherwise observe the old "20".
+    await waitFor(() => expect(threshold).toHaveValue(15));
     fireEvent.blur(threshold);
     await waitFor(() =>
       expect(bridge.setNotificationPreferences).toHaveBeenCalledWith(

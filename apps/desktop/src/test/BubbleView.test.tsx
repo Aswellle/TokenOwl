@@ -388,7 +388,10 @@ describe("bubble morph handoff", () => {
     mockListAccounts.mockResolvedValue(accountWith(windowedQuota("q-5h", 5, 60)));
     render(<BubbleView />);
     await screen.findByRole("button");
-    // The initial ready pin already ran; count only the collapse handoffs.
+    // The initial ready pin runs in an effect after the first paint; under
+    // load it can land after this clear. Wait for it, then count only the
+    // collapse handoffs.
+    await waitFor(() => expect(mockStabilize).toHaveBeenCalled());
     mockStabilize.mockClear();
 
     await emitMorph("window:morph-to-bubble", ANCHOR);

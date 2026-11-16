@@ -51,14 +51,22 @@ pub struct HistoryExportResult {
 }
 
 /// Escapes one CSV field per RFC 4180: quotes double up, fields carrying
-/// separators, quotes, or newlines are wrapped in quotes.
+/// separators, quotes, or newlines are wrapped in quotes. A leading `=`,
+/// `+`, `-`, or `@` is additionally prefixed with `'` so a spreadsheet
+/// application cannot execute the cell as a formula when the export is
+/// opened — the exported text fields are user or provider authored, and the
+/// guard costs nothing for ordinary values.
 pub(super) fn csv_field(value: &str) -> String {
     let needs_quoting =
         value.contains(',') || value.contains('"') || value.contains('\n') || value.contains('\r');
+    let neutralized = match value.as_bytes().first() {
+        Some(b'=' | b'+' | b'-' | b'@') => format!("'{value}"),
+        _ => value.to_owned(),
+    };
     if needs_quoting {
-        format!("\"{}\"", value.replace('"', "\"\""))
+        format!("\"{}\"", neutralized.replace('"', "\"\""))
     } else {
-        value.to_owned()
+        neutralized
     }
 }
 
@@ -503,6 +511,23 @@ break"
             "\"line
 break\""
         );
+    }
+
+    /// A text cell that could be executed as a spreadsheet formula is
+    /// neutralized with a `'` prefix; ordinary values are untouched.
+    #[test]
+    fn csv_fields_neutralize_formula_prefixes() {
+        assert_eq!(csv_field("=SUM(A1)"), "'=SUM(A1)");
+        assert_eq!(csv_field("+1"), "'+1");
+        assert_eq!(csv_field("-cmd"), "'-cmd");
+        assert_eq!(csv_field("@x"), "'@x");
+        assert_eq!(csv_field("-5.0"), "'-5.0");
+        // Quoting and neutralization compose.
+        assert_eq!(csv_field("=a,\"b\""), "\"'=a,\"\"b\"\"\"");
+        // Ordinary text and numbers keep their spelling.
+        assert_eq!(csv_field("USD"), "USD");
+        assert_eq!(csv_field("all-accounts"), "all-accounts");
+        assert_eq!(csv_field("2026-03-02"), "2026-03-02");
     }
 
     /// The day column is the row's local calendar date. `day_start` is a

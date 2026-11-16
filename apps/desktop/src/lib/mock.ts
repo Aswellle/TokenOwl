@@ -338,16 +338,26 @@ export function createMockBridge(): DashboardBridge {
     async createAccount(input: GenericOpenAiAccountInput) {
       await new Promise((resolve) => setTimeout(resolve, latency()));
       if (hasScenario("create-fail")) throw new Error("模拟创建失败");
+      // A successful save whose first refresh could not reach the provider:
+      // the account persists with an error state so the UI can show the
+      // saved-but-unverified banner instead of claiming a connection.
+      const unverified = hasScenario("create-unverified");
       const account: AccountViewModel = {
         id: `demo-${Date.now()}`,
         providerId: input.providerId,
         providerName: "OpenAI 兼容",
         label: input.label,
-        status: "healthy",
+        status: unverified ? "error" : "healthy",
         freshness: "unknown",
         source: "OFFICIAL_API",
         lastUpdatedAt: Date.now(),
         snapshots: [],
+        errorCode: unverified ? "ProviderUnavailable" : null,
+        diagnostics: {
+          status: unverified ? "failed" : "healthy",
+          errorCode: unverified ? "ProviderUnavailable" : null,
+          consecutiveFailures: unverified ? 1 : 0,
+        },
       };
       accounts = [...accounts, account];
       return structuredClone(account);

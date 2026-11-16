@@ -186,6 +186,31 @@ test.describe("account creation", () => {
     await expect(page.locator(".account__label")).toContainText(["本地网关"]);
   });
 
+  test("a saved account whose first refresh fails reads as unverified, not connected", async ({
+    page,
+  }) => {
+    await openSettings(page, "?scenario=create-unverified");
+    await fillAccount(page, {
+      name: "离线网关",
+      baseUrl: "https://api.example.com/v1",
+      apiKey: "sk-test",
+    });
+    await page.getByRole("button", { name: "连接账户" }).click();
+
+    // The configuration was saved (the key is in the OS store) but the
+    // provider could not be verified: the banner must say so instead of
+    // claiming a connection.
+    await expect(page.getByRole("status")).toContainText("账户已保存，但暂时无法验证连接", {
+      timeout: 15_000,
+    });
+    await expect(page.getByLabel("账户名称")).toHaveValue("");
+    await expect(page.getByLabel("API 密钥")).toHaveValue("");
+
+    // The account is still listed — a failed first refresh never deletes it.
+    await page.getByRole("button", { name: "概览", exact: true }).click();
+    await expect(page.locator(".account__label")).toContainText(["离线网关"]);
+  });
+
   test("a rejected creation keeps every field for a corrected retry", async ({ page }) => {
     await openSettings(page, "?scenario=create-fail");
     await fillAccount(page, {

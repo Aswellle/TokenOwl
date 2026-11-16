@@ -110,7 +110,7 @@ fn an_l4_claim_requires_the_full_executable_endpoint_set() {
         let declared = manifest
             .capability
             .as_ref()
-            .map(|capability| capability.level_id());
+            .map(tokenowl_lib::providers::manifest::ManifestCapability::level_id);
         if declared != Some("L4") {
             continue;
         }

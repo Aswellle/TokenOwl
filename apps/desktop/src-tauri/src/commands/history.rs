@@ -109,16 +109,29 @@ pub(super) fn collect_export_rows(
     Ok(rows)
 }
 
-/// Renders the rows as CSV (RFC 4180 escaping) or pretty JSON.
-pub(super) fn render_export(format: &str, rows: &[ExportRow]) -> String {
+/// Renders the rows as CSV (RFC 4180 escaping) or pretty JSON. `local_offset`
+/// is the same offset the daily aggregation bucketed with: each row's
+/// `day_start` is a local-midnight instant, so rendering it in UTC would
+/// label every exported day one calendar day early for timezones ahead of
+/// UTC. The offset is sampled at the day's own instant.
+pub(super) fn render_export(
+    format: &str,
+    rows: &[ExportRow],
+    local_offset: impl Fn(i64) -> i32,
+) -> String {
+    let day_text = |day: u64| {
+        let seconds = i64::try_from(day).unwrap_or(0);
+        let offset = i64::from(local_offset(seconds));
+        chrono::DateTime::from_timestamp(seconds.saturating_add(offset), 0)
+            .map(|instant| instant.format("%Y-%m-%d").to_string())
+    };
     if format == "json" {
         return serde_json::to_string_pretty(
             &rows
                 .iter()
                 .map(|(day, account, tokens, cost, currency)| {
                     serde_json::json!({
-                        "day": chrono::DateTime::from_timestamp(i64::try_from(*day).unwrap_or(0), 0)
-                            .map(|t| t.format("%Y-%m-%d").to_string()),
+                        "day": day_text(*day),
                         "account": account,
                         "tokens": tokens,
                         "cost": cost,
@@ -134,8 +147,7 @@ pub(super) fn render_export(format: &str, rows: &[ExportRow]) -> String {
 ",
     );
     for (day, account, tokens, cost, currency) in rows {
-        let day_text = chrono::DateTime::from_timestamp(i64::try_from(*day).unwrap_or(0), 0)
-            .map_or_else(String::new, |t| t.format("%Y-%m-%d").to_string());
+        let day_text = day_text(*day).unwrap_or_default();
         let cost_text = cost.map_or_else(String::new, |cost| format!("{cost}"));
         let _ = writeln!(
             out,
@@ -177,7 +189,7 @@ pub fn history_export(
     let rows = collect_export_rows(&repository, from, now, account_id.as_deref())?;
 
     let written_rows = rows.len();
-    let body = render_export(format, &rows);
+    let body = render_export(format, &rows, local_offset_at);
     let path = super::exports::write_export(&state.data_dir, "history", format, &body)?;
     Ok(HistoryExportResult {
         path: path.to_string_lossy().into_owned(),
@@ -491,5 +503,50 @@ break"
             "\"line
 break\""
         );
+    }
+
+    /// The day column is the row's local calendar date. `day_start` is a
+    /// local-midnight instant; formatting that instant in UTC shifts every
+    /// positive-offset timezone (UTC+8 here) one calendar day early.
+    #[test]
+    fn exported_days_carry_the_local_calendar_date() {
+        // 2026-03-02 00:00 +08:00 == 2026-03-01 16:00 UTC.
+        let day_start: u64 = 1_772_380_800;
+        let rows: Vec<ExportRow> = vec![(day_start, "all-accounts".to_owned(), 1200.0, None, None)];
+        let offset = |_: i64| 8 * 3600;
+
+        let csv = render_export("csv", &rows, offset);
+        assert!(
+            csv.contains("2026-03-02"),
+            "csv day is the local date: {csv}"
+        );
+        assert!(
+            !csv.contains("2026-03-01"),
+            "the UTC instant must not leak: {csv}"
+        );
+
+        let json = render_export("json", &rows, offset);
+        assert!(
+            json.contains("2026-03-02"),
+            "json day is the local date: {json}"
+        );
+        assert!(
+            !json.contains("2026-03-01"),
+            "the UTC instant must not leak: {json}"
+        );
+    }
+
+    /// A negative-offset timezone is the mirror case: the local date is one
+    /// calendar day *later* than the UTC rendering of the midnight instant.
+    #[test]
+    fn exported_days_follow_the_offset_in_both_directions() {
+        // 2026-03-01 00:00 -05:00 == 2026-03-01 05:00 UTC.
+        let day_start: u64 = 1_772_341_200;
+        let rows: Vec<ExportRow> = vec![(day_start, "all-accounts".to_owned(), 1200.0, None, None)];
+        let offset = |_: i64| -5 * 3600;
+
+        let csv = render_export("csv", &rows, offset);
+        assert!(csv.contains("2026-03-01"), "the local date holds: {csv}");
+        assert!(!csv.contains("2026-03-02"), "no UTC drift forward: {csv}");
     }
 }

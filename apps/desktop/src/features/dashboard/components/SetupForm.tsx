@@ -59,9 +59,9 @@ export function SetupForm({
       .manifestProfiles()
       .then((view) => {
         if (!active) return;
-        setProfiles(view.profiles);
-        setPackSkipped(view.skipped);
-        setCommunityPacks(view.community);
+        setProfiles(view.profiles ?? []);
+        setPackSkipped(view.skipped ?? []);
+        setCommunityPacks(view.community ?? []);
       })
       .catch(() => null);
     return () => {

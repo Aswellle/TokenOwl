@@ -3378,10 +3378,14 @@ button:disabled {
 }
 
 .section__intro {
+  /* Same measure cap as the form intro: long CJK explanations must not run
+     the full pane width. */
+  max-width: 62ch;
   margin: 0 0 8px;
   color: var(--ink-3);
   font-size: var(--step-1);
   line-height: 1.6;
+  text-wrap: pretty;
 }
 
 .pview__schedule {
@@ -3401,10 +3405,48 @@ button:disabled {
 }
 
 .community-packs summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 32px;
   cursor: pointer;
+  list-style: none;
+  user-select: none;
   font-size: var(--step-1);
   font-weight: 600;
   color: var(--ink-2);
+}
+
+.community-packs summary::-webkit-details-marker {
+  display: none;
+}
+
+/* Same chevron language as the matrix, diagnostics, and playground
+   disclosures, so every collapsed block on the settings page opens the same
+   way. */
+.community-packs summary::after {
+  content: "";
+  flex: 0 0 auto;
+  width: 7px;
+  height: 7px;
+  border-inline-end: 1.6px solid var(--ink-3);
+  border-block-end: 1.6px solid var(--ink-3);
+  transform: rotate(45deg);
+  transition: transform 160ms var(--ease-out);
+}
+
+.community-packs[open] summary::after {
+  transform: rotate(-135deg);
+}
+
+.community-packs summary:hover {
+  color: var(--ink);
+}
+
+.community-packs summary:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
 }
 
 .community-packs__list {

@@ -156,7 +156,9 @@ export function ManifestPlayground({ bridge }: { bridge: DashboardBridge }) {
           </p>
         )}
         {result && (
-          <div className="manifest-playground__result" aria-live="polite">
+          // The verdict <p> below already carries role="status"; a live
+          // container on top would announce the same text twice.
+          <div className="manifest-playground__result">
             <p className={result.valid ? "history__note" : "form__error"} role="status">
               {result.valid ? copy.playground.valid : copy.playground.invalid}
               {result.id ? ` · ${result.id}` : ""}

@@ -524,8 +524,9 @@ pub async fn accounts_create(
 /// the stable reference is overwritten only on a verified verdict. Auth
 /// rejections, network timeouts, rate limits, server outages, and keyring
 /// failures are distinct outcomes, and every one of them leaves the previous
-/// key in place. Candidate cleanup failures land in the persistent cleanup
-/// queue the startup sweep retries.
+/// key in place. The candidate's deletion is queued before the probe and
+/// cleared once it succeeds, so even a crash mid-rotation leaves the startup
+/// sweep able to finish the cleanup.
 #[tauri::command]
 pub async fn accounts_update_credential(
     app: AppHandle,
@@ -564,6 +565,33 @@ pub struct CredentialUpdateResult {
 /// for the probe request and is deleted afterwards, whatever the verdict.
 pub(super) fn candidate_credential_ref(reference: &str) -> String {
     format!("{reference}/candidate/{}", nanoid::nanoid!(12))
+}
+
+/// Deletes the candidate credential reference and reconciles the cleanup
+/// queue: a successful delete clears the entry queued before the probe, and
+/// a failed delete re-records with the real store code so the startup sweep
+/// finishes the job.
+fn settle_candidate_deletion(runtime: &AppRuntime, candidate_ref: &str) {
+    match runtime.credentials.delete(candidate_ref) {
+        Ok(()) => {
+            if let Ok(cleanup_repository) = runtime.repository()
+                && let Err(remove_error) =
+                    remove_pending_cleanup(&cleanup_repository, candidate_ref)
+            {
+                tracing::warn!("could not clear the queued candidate cleanup: {remove_error}");
+            }
+        }
+        Err(error) => {
+            if let Ok(cleanup_repository) = runtime.repository() {
+                let _ = record_pending_cleanup(
+                    &cleanup_repository,
+                    candidate_ref,
+                    cleanup_error_code(&error),
+                    unix_seconds(),
+                );
+            }
+        }
+    }
 }
 
 /// The full rotation flow, split from the command so tests can drive it
@@ -632,7 +660,20 @@ pub async fn rotate_account_credential_with(
             None,
         ));
     }
-    // 2. Probe through the account's own adapter with the candidate
+    // 2. The candidate's deletion is queued before it is probed: a crash or
+    //    shutdown mid-rotation must leave a trace the startup sweep can
+    //    finish instead of an orphaned keyring entry nothing points at. A
+    //    completed deletion clears the entry below; `repository` is not used
+    //    past this point, so it does not ride the await.
+    if let Err(record_error) = record_pending_cleanup(
+        &repository,
+        &candidate_ref,
+        CANDIDATE_CLEANUP_CODE,
+        unix_seconds(),
+    ) {
+        tracing::warn!("could not queue the candidate cleanup: {record_error}");
+    }
+    // 3. Probe through the account's own adapter with the candidate
     //    reference; the stable reference is not read or written yet.
     let mut probe_config = config.clone();
     probe_config.credential_ref = Some(candidate_ref.clone());
@@ -644,18 +685,10 @@ pub async fn rotate_account_credential_with(
         &runtime.credentials,
     )
     .await;
-    // 3. The candidate reference dies whatever the verdict was; a failed
-    //    delete is queued for the startup sweep instead of leaking a secret.
-    if let Err(error) = runtime.credentials.delete(&candidate_ref)
-        && let Ok(cleanup_repository) = runtime.repository()
-    {
-        let _ = record_pending_cleanup(
-            &cleanup_repository,
-            &candidate_ref,
-            cleanup_error_code(&error),
-            unix_seconds(),
-        );
-    }
+    // 4. The candidate reference dies whatever the verdict was. A successful
+    //    delete clears the queued entry; a failed delete stays queued with
+    //    the real store code for the startup sweep.
+    settle_candidate_deletion(runtime, &candidate_ref);
 
     match verdict {
         Ok(crate::scheduler::CredentialVerdict::Verified) => {
@@ -795,6 +828,12 @@ pub fn accounts_delete(
 /// Settings key holding credential deletions that failed and must be retried.
 pub const CLEANUP_SETTING_KEY: &str = "credential_cleanup_pending";
 
+/// Stable cleanup-queue code for a candidate credential whose deletion is
+/// pending while its probe runs. The entry is written before the probe so an
+/// interrupted rotation still reaches the startup sweep; a completed
+/// deletion clears it, and a failed one re-records with the real store code.
+pub(super) const CANDIDATE_CLEANUP_CODE: &str = "CandidateProbe";
+
 /// One orphaned credential reference waiting for a retry. Only the stable
 /// error code is kept — never the secret, and never the store's raw error
 /// text.
@@ -817,7 +856,8 @@ pub(super) fn cleanup_error_code(error: &crate::credentials::CredentialError) ->
 }
 
 /// Appends a failed deletion to the persistent queue (deduplicated by
-/// reference). The queue lives in the settings table, so it survives
+/// reference; a re-record refreshes the stable code and keeps the first
+/// timestamp). The queue lives in the settings table, so it survives
 /// restarts without a schema change.
 pub(crate) fn record_pending_cleanup(
     repository: &LocalRepository,
@@ -826,19 +866,39 @@ pub(crate) fn record_pending_cleanup(
     now: u64,
 ) -> Result<(), StorageError> {
     let mut queue = load_pending_cleanups(repository)?;
-    if queue
-        .iter()
-        .any(|entry| entry.credential_ref == credential_ref)
+    if let Some(existing) = queue
+        .iter_mut()
+        .find(|entry| entry.credential_ref == credential_ref)
     {
-        return Ok(());
+        error_code.clone_into(&mut existing.error_code);
+    } else {
+        queue.push(PendingCredentialCleanup {
+            credential_ref: credential_ref.to_owned(),
+            error_code: error_code.to_owned(),
+            recorded_at: now,
+        });
     }
-    queue.push(PendingCredentialCleanup {
-        credential_ref: credential_ref.to_owned(),
-        error_code: error_code.to_owned(),
-        recorded_at: now,
-    });
     let value = serde_json::to_value(&queue)?;
     repository.set_setting(CLEANUP_SETTING_KEY, &value)
+}
+
+/// Removes one queued deletion after its reference was actually deleted.
+/// Returns whether an entry was present. A failed persist leaves the entry
+/// queued; the sweep treats an already-absent reference as done, so a lost
+/// removal cannot wedge the queue shut.
+pub(crate) fn remove_pending_cleanup(
+    repository: &LocalRepository,
+    credential_ref: &str,
+) -> Result<bool, StorageError> {
+    let mut queue = load_pending_cleanups(repository)?;
+    let before = queue.len();
+    queue.retain(|entry| entry.credential_ref != credential_ref);
+    if queue.len() == before {
+        return Ok(false);
+    }
+    let value = serde_json::to_value(&queue)?;
+    repository.set_setting(CLEANUP_SETTING_KEY, &value)?;
+    Ok(true)
 }
 
 /// Rolls a just-written credential back after its account could not be
@@ -897,9 +957,12 @@ pub(super) fn load_pending_cleanups(
 }
 
 /// Retries every queued deletion; entries whose retry succeeds are dropped,
-/// the rest stay queued for the next startup. The delete operation is
-/// injected so tests can exercise both outcomes without a real keyring.
-/// Returns the number of orphans still pending.
+/// the rest stay queued for the next startup. Absence is the goal: a
+/// reference that is already gone counts as deleted, whether the deletion
+/// happened in a previous pass or the process died after the keyring write
+/// completed. The delete operation is injected so tests can exercise every
+/// outcome without a real keyring. Returns the number of orphans still
+/// pending.
 pub(crate) fn retry_pending_cleanups(
     repository: &LocalRepository,
     delete: impl Fn(&str) -> Result<(), crate::credentials::CredentialError>,
@@ -908,7 +971,7 @@ pub(crate) fn retry_pending_cleanups(
     let mut remaining = Vec::new();
     for entry in queue {
         match delete(&entry.credential_ref) {
-            Ok(()) => {}
+            Ok(()) | Err(crate::credentials::CredentialError::Missing) => {}
             Err(_) => remaining.push(entry),
         }
     }

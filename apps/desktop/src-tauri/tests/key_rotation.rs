@@ -137,14 +137,19 @@ fn a_verified_candidate_replaces_the_stable_reference() {
         "sk-new-valid",
         "the stable reference must carry the candidate after verification"
     );
-    // The cleanup queue stays empty: candidate deletion succeeded.
+    // The cleanup queue holds no entries: the candidate's pending record was
+    // cleared when its deletion succeeded.
     let repository = LocalRepository::open(&fixture.db).expect("database");
-    assert_eq!(
-        repository
-            .get_setting(tokenowl_lib::commands::CLEANUP_SETTING_KEY)
-            .expect("queue setting"),
-        None,
-        "a successful rotation must not queue cleanup entries"
+    let drained = match repository
+        .get_setting(tokenowl_lib::commands::CLEANUP_SETTING_KEY)
+        .expect("queue setting")
+    {
+        None => true,
+        Some(value) => value.as_array().is_some_and(std::vec::Vec::is_empty),
+    };
+    assert!(
+        drained,
+        "a successful rotation must leave no cleanup entries"
     );
 }
 
@@ -181,6 +186,58 @@ fn a_rejected_candidate_leaves_the_old_key_in_place() {
         "sk-old-good",
         "a rejected candidate must not overwrite the working key"
     );
+    // The candidate was deleted after the probe, so its pending cleanup
+    // record is gone with it.
+    let repository = LocalRepository::open(&fixture.db).expect("database");
+    let drained = match repository
+        .get_setting(tokenowl_lib::commands::CLEANUP_SETTING_KEY)
+        .expect("queue setting")
+    {
+        None => true,
+        Some(value) => value.as_array().is_some_and(std::vec::Vec::is_empty),
+    };
+    assert!(drained, "a rejected rotation must leave no cleanup entries");
+}
+
+/// A rotation interrupted after the candidate was written leaves an orphaned
+/// keyring entry behind. The startup sweep deletes it and drains the queued
+/// cleanup: this simulates the crash window between the candidate write and
+/// its deletion, where no in-process code ever runs again.
+#[test]
+fn an_interrupted_rotation_cleans_up_at_the_next_startup() {
+    let fixture = Fixture::build("crashed");
+    let candidate_ref = format!("{}/candidate/{}", fixture.reference, "crashnonce");
+    // The crash left the candidate in the keyring and its deletion queued.
+    fixture
+        .store
+        .set(&candidate_ref, "sk-crashed-candidate")
+        .expect("candidate entry");
+    let repository = LocalRepository::open(&fixture.db).expect("database");
+    repository
+        .set_setting(
+            tokenowl_lib::commands::CLEANUP_SETTING_KEY,
+            &serde_json::json!([{
+                "credentialRef": candidate_ref,
+                "errorCode": "CandidateProbe",
+                "recordedAt": 1_800_000_000u64,
+            }]),
+        )
+        .expect("queue entry");
+
+    fixture.runtime.run_startup_cleanup();
+
+    assert!(
+        resolved(&fixture.store, &candidate_ref).is_err(),
+        "the orphaned candidate entry must be deleted by the sweep"
+    );
+    let drained = match repository
+        .get_setting(tokenowl_lib::commands::CLEANUP_SETTING_KEY)
+        .expect("queue setting")
+    {
+        None => true,
+        Some(value) => value.as_array().is_some_and(std::vec::Vec::is_empty),
+    };
+    assert!(drained, "the queue must drain once the reference is gone");
 }
 
 /// A rate-limited probe is indeterminate, not a rejection: the old key

@@ -1513,4 +1513,56 @@ capability:
         let queue = load_pending_cleanups(&repository).expect("load");
         assert_eq!(queue.len(), 0, "the queue must be fully drained");
     }
+
+    /// The queue's goal is absence of the reference, not a specific call: a
+    /// deletion that reports the entry as already gone drains the queue
+    /// instead of warning on every startup forever.
+    #[test]
+    fn a_cleanup_entry_whose_reference_is_already_absent_clears_on_the_next_sweep() {
+        use crate::credentials::CredentialError;
+        let repository = LocalRepository::open_in_memory().expect("in-memory repository");
+        record_pending_cleanup(&repository, "account/gone", "CandidateProbe", 1_000)
+            .expect("record");
+
+        let still_pending =
+            retry_pending_cleanups(&repository, |_| Err(CredentialError::Missing)).expect("retry");
+        assert_eq!(still_pending, 0);
+        let queue = load_pending_cleanups(&repository).expect("load");
+        assert!(queue.is_empty(), "an absent reference must drain the queue");
+    }
+
+    /// A pre-queued candidate whose delete then fails re-records with the
+    /// real store code, keeping its original timestamp.
+    #[test]
+    fn re_recording_a_failure_refreshes_the_stable_code_only() {
+        let repository = LocalRepository::open_in_memory().expect("in-memory repository");
+        record_pending_cleanup(&repository, "account/one", "CandidateProbe", 1_000)
+            .expect("record");
+        record_pending_cleanup(&repository, "account/one", "StoreUnavailable", 2_000)
+            .expect("record again");
+
+        let queue = load_pending_cleanups(&repository).expect("load");
+        assert_eq!(queue.len(), 1, "still deduplicated by reference");
+        assert_eq!(queue[0].error_code, "StoreUnavailable");
+        assert_eq!(queue[0].recorded_at, 1_000, "the first timestamp stays");
+    }
+
+    #[test]
+    fn removing_a_cleared_entry_leaves_the_rest_of_the_queue() {
+        let repository = LocalRepository::open_in_memory().expect("in-memory repository");
+        record_pending_cleanup(&repository, "account/one", "Store", 1_000).expect("one");
+        record_pending_cleanup(&repository, "account/two", "Store", 1_000).expect("two");
+
+        assert!(
+            remove_pending_cleanup(&repository, "account/one").expect("remove"),
+            "a present entry reports removal"
+        );
+        assert!(
+            !remove_pending_cleanup(&repository, "account/one").expect("remove again"),
+            "an absent entry reports no removal"
+        );
+        let queue = load_pending_cleanups(&repository).expect("load");
+        assert_eq!(queue.len(), 1);
+        assert_eq!(queue[0].credential_ref, "account/two");
+    }
 }

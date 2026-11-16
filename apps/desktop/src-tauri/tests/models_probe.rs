@@ -26,10 +26,42 @@ fn model_only_config(base_url: &str) -> OpenAiCompatibleConfig {
     config
 }
 
-fn store_with_key(key: &str) -> CredentialStore {
-    let store = CredentialStore::default();
-    store.set("account/probe-fixture", key).expect("keyring");
-    store
+/// One isolated keyring entry for a single test call: a unique service per
+/// call, deleted on drop. See `reset_endpoint.rs` for the full rationale —
+/// the shipped namespace is never touched and same-ref races are impossible.
+struct FixtureStore {
+    store: CredentialStore,
+    reference: &'static str,
+}
+
+impl FixtureStore {
+    fn new(tag: &str, reference: &'static str, key: &str) -> Self {
+        let store = CredentialStore::new(format!(
+            "com.tokenowl.test.{tag}.{}.{}",
+            std::process::id(),
+            nanoid::nanoid!(8)
+        ));
+        store.set(reference, key).expect("keyring");
+        Self { store, reference }
+    }
+}
+
+impl std::ops::Deref for FixtureStore {
+    type Target = CredentialStore;
+
+    fn deref(&self) -> &CredentialStore {
+        &self.store
+    }
+}
+
+impl Drop for FixtureStore {
+    fn drop(&mut self) {
+        let _ = self.store.delete(self.reference);
+    }
+}
+
+fn store_with_key(key: &str) -> FixtureStore {
+    FixtureStore::new("models-probe", "account/probe-fixture", key)
 }
 
 /// The builtin registry's own model-only accounts ride the official-API

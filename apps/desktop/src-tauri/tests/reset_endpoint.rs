@@ -31,12 +31,50 @@ fn config_with_reset(
     config
 }
 
-fn store() -> CredentialStore {
-    let store = CredentialStore::default();
-    store
-        .set("account/reset-fixture", "sk-fixture-valid")
-        .expect("keyring");
-    store
+/// One isolated keyring entry for a single test call: a unique service per
+/// call, deleted on drop.
+///
+/// These fixtures used to write into the shipped `com.tokenowl.desktop`
+/// namespace, where parallel test threads calling `CredWrite` on the same
+/// target transiently reported fresh entries as missing (the documented
+/// Windows race) and every run left junk entries behind in a real user's
+/// credential manager. A unique `com.tokenowl.test.*` service per call
+/// removes the race entirely, and the drop keeps runs self-cleaning.
+struct FixtureStore {
+    store: CredentialStore,
+    reference: &'static str,
+}
+
+impl FixtureStore {
+    fn new(tag: &str, reference: &'static str, key: &str) -> Self {
+        let store = CredentialStore::new(format!(
+            "com.tokenowl.test.{tag}.{}.{}",
+            std::process::id(),
+            nanoid::nanoid!(8)
+        ));
+        store.set(reference, key).expect("keyring");
+        Self { store, reference }
+    }
+}
+
+impl std::ops::Deref for FixtureStore {
+    type Target = CredentialStore;
+
+    fn deref(&self) -> &CredentialStore {
+        &self.store
+    }
+}
+
+impl Drop for FixtureStore {
+    fn drop(&mut self) {
+        // A failed delete leaves one throwaway entry under the test
+        // namespace; it never reaches the real app namespace.
+        let _ = self.store.delete(self.reference);
+    }
+}
+
+fn store() -> FixtureStore {
+    FixtureStore::new("reset", "account/reset-fixture", "sk-fixture-valid")
 }
 
 /// The declared reset endpoint is really requested, and a window-named reset

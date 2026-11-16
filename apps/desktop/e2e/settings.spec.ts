@@ -106,10 +106,9 @@ test.describe("custom wire format", () => {
     await expect(page.getByLabel("接口地址")).toHaveValue(
       "https://generativelanguage.googleapis.com/v1beta",
     );
-    await expect(page.getByRole("radio", { name: "Gemini" })).toHaveAttribute(
-      "aria-checked",
-      "true",
-    );
+    // Native radios expose their state through the checked API, not an
+    // aria-checked attribute.
+    await expect(page.getByRole("radio", { name: "Gemini" })).toBeChecked();
   });
 });
 

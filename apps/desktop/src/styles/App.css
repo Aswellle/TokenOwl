@@ -3101,6 +3101,7 @@ button:disabled {
 }
 
 .picker__btn {
+  position: relative;
   display: inline-flex;
   align-items: center;
   gap: 7px;
@@ -3123,6 +3124,24 @@ button:disabled {
 }
 
 .picker__btn:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+/* The wire-format picker rides a native radio inside the capsule: the input
+   is stretched over the whole label (its hit target is the capsule) and
+   hidden, while the visible state and the focus ring stay on the label. */
+.picker__radio {
+  position: absolute;
+  inset: 0;
+  inline-size: 100%;
+  block-size: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.picker__btn:has(input:focus-visible) {
   outline: 2px solid var(--focus);
   outline-offset: 2px;
 }

@@ -547,10 +547,13 @@ export function SetupForm({
         </div>
         {isCustom && (
           <>
-            <div className="field field--wide" role="radiogroup" aria-label={copy.form.customFormatLabel}>
+            <div className="field field--wide" role="radiogroup" aria-labelledby="custom-format-label">
               <span className="field__label" id="custom-format-label">
                 {copy.form.customFormatLabel}
               </span>
+              {/* Native radios: arrow keys move between the three options the
+                  way the APG radio pattern promises, and the stretched input
+                  makes the whole capsule the radio's hit target. */}
               <div className="picker__row">
                 {(
                   [
@@ -559,16 +562,20 @@ export function SetupForm({
                     ["gemini", copy.form.formatGemini],
                   ] as const
                 ).map(([value, label]) => (
-                  <button
+                  <label
                     key={value}
-                    type="button"
-                    role="radio"
-                    aria-checked={customFormat === value}
                     className={`picker__btn${customFormat === value ? " is-active" : ""}`}
-                    onClick={() => selectCustomFormat(value)}
                   >
+                    <input
+                      className="picker__radio"
+                      type="radio"
+                      name="custom-format"
+                      value={value}
+                      checked={customFormat === value}
+                      onChange={() => selectCustomFormat(value)}
+                    />
                     <span>{label}</span>
-                  </button>
+                  </label>
                 ))}
               </div>
             </div>

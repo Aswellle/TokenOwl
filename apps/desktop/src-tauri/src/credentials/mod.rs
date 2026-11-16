@@ -47,6 +47,23 @@ impl std::fmt::Debug for CredentialValue {
     }
 }
 
+/// Test-only namespace override for the native end-to-end harness.
+///
+/// The shipped app must always use [`DEFAULT_SERVICE`]; a disposable
+/// namespace lets a real-build test create and delete its own entries
+/// without ever looking at a user's stored accounts. It is honored only by
+/// debug builds, and only for the explicit `com.tokenowl.test.` prefix, so a
+/// stray or hostile environment value cannot address the real service.
+fn test_service_override() -> Option<String> {
+    if !cfg!(debug_assertions) {
+        return None;
+    }
+    std::env::var("TOKENOWL_TEST_CREDENTIAL_SERVICE")
+        .ok()
+        .map(|value| value.trim().to_owned())
+        .filter(|value| value.starts_with("com.tokenowl.test."))
+}
+
 /// Small service wrapper over the platform-native keyring/keychain implementation.
 #[derive(Clone, Debug)]
 pub struct CredentialStore {
@@ -55,7 +72,7 @@ pub struct CredentialStore {
 
 impl Default for CredentialStore {
     fn default() -> Self {
-        Self::new(DEFAULT_SERVICE)
+        Self::new(test_service_override().unwrap_or_else(|| DEFAULT_SERVICE.to_owned()))
     }
 }
 

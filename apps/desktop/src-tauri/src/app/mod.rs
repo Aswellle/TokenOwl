@@ -1126,6 +1126,41 @@ fn emit_update_if_available(app: &AppHandle) {
     });
 }
 
+/// Resolves the directory that holds the database, exports, and community
+/// packs.
+///
+/// Debug builds accept `TOKENOWL_TEST_DATA_DIR` so the native end-to-end
+/// harness can own a disposable application directory; release builds ignore
+/// the variable entirely and always use the platform app-data location. A
+/// relative override is rejected rather than silently resolved against the
+/// process working directory.
+fn data_directory(app: &tauri::App) -> Result<std::path::PathBuf, std::io::Error> {
+    let directory = if cfg!(debug_assertions) {
+        match std::env::var_os("TOKENOWL_TEST_DATA_DIR") {
+            Some(value) if !value.is_empty() => {
+                let path = std::path::PathBuf::from(value);
+                if !path.is_absolute() {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::InvalidInput,
+                        "TOKENOWL_TEST_DATA_DIR must be an absolute path",
+                    ));
+                }
+                path
+            }
+            _ => app
+                .path()
+                .app_data_dir()
+                .map_err(|error| std::io::Error::other(error.to_string()))?,
+        }
+    } else {
+        app.path()
+            .app_data_dir()
+            .map_err(|error| std::io::Error::other(error.to_string()))?
+    };
+    std::fs::create_dir_all(&directory)?;
+    Ok(directory)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 /// Starts the `TokenOwl` desktop application.
 ///
@@ -1140,11 +1175,7 @@ pub fn run() {
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
-            let database_path = app
-                .path()
-                .app_data_dir()
-                .map_err(|error| std::io::Error::other(error.to_string()))?
-                .join("tokenowl.sqlite3");
+            let database_path = data_directory(app)?.join("tokenowl.sqlite3");
             let runtime =
                 commands::AppRuntime::new(database_path).map_err(std::io::Error::other)?;
             // Retry credential deletions a previous run left queued before

@@ -257,7 +257,18 @@ fn scan_source(source_id: &str, cursors: &[ScanCursor]) -> ScanOutcome {
 }
 
 /// The home directory the known directories expand against.
+///
+/// Debug builds accept `TOKENOWL_TEST_HOME` so the native end-to-end harness
+/// can point the read-only scanners at a disposable tree. Release builds
+/// ignore it. (Changing `USERPROFILE` instead would also move `WebView2`'s
+/// environment and was observed to disable its CDP endpoint.)
 fn dirs_home() -> std::path::PathBuf {
+    if cfg!(debug_assertions)
+        && let Some(value) = std::env::var_os("TOKENOWL_TEST_HOME")
+        && !value.is_empty()
+    {
+        return std::path::PathBuf::from(value);
+    }
     match std::env::var_os("USERPROFILE").or_else(|| std::env::var_os("HOME")) {
         Some(home) => std::path::PathBuf::from(home),
         None => std::path::PathBuf::from("."),

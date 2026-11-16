@@ -76,7 +76,12 @@ export function LocalUsageSection({
   };
 
   return (
-    <section className="section local-usage-section" aria-label={copy.localUsage.title}>
+    <section className="section local-usage-section" aria-labelledby="local-usage-title">
+      <div className="section__titlewrap">
+        <h2 className="section__title" id="local-usage-title">
+          {copy.localUsage.title}
+        </h2>
+      </div>
       <p className="section__empty">{copy.localUsage.intro}</p>
       {error && (
         <p className="form__error" role="alert">

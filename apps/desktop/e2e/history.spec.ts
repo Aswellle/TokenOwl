@@ -95,4 +95,45 @@ test.describe("history", () => {
     // No infinite skeleton: the failure is a terminal, explained state.
     await expect(page.locator(".history-section .skeleton")).toHaveCount(0);
   });
+
+  test("exports the visible history as CSV and JSON from the history view", async ({ page }) => {
+    await openHistory(page);
+    await page.getByRole("button", { name: "导出 CSV" }).click();
+    // The mock bridge answers with a path; the section reports it as a
+    // status line so the user knows where the file went.
+    await expect(page.getByRole("status").filter({ hasText: "已导出到" })).toBeVisible();
+    await page.getByRole("button", { name: "导出 JSON" }).click();
+    await expect(page.getByRole("status").filter({ hasText: "已导出到" })).toBeVisible();
+  });
+
+  test("the local usage section is separate, opt-in, and explains its privacy contract", async ({
+    page,
+  }) => {
+    await openHistory(page);
+    const section = page.locator(".local-usage-section");
+    await expect(section).toContainText("本地 Agent 使用量");
+    // Domain separation is stated, never implied.
+    await expect(section).toContainText("与远端 API 额度是完全独立的数据域");
+
+    // A source card spells out its directory, what it collects, and what it
+    // never collects before the toggle can be used.
+    const claude = section.locator(".local-usage__source").first();
+    await expect(claude).toContainText("~/.claude/projects");
+    await expect(claude).toContainText("绝不采集");
+    await expect(claude).toContainText("提示词正文");
+
+    // Off by default: the toggle is unchecked and scanning is unavailable.
+    const toggle = section.getByRole("checkbox", { name: /启用 Claude Code/ });
+    await expect(toggle).not.toBeChecked();
+    await expect(section.getByRole("button", { name: "立即扫描" })).toBeDisabled();
+
+    // Enabling the source makes the scan action available and persists the
+    // choice through the bridge (no hidden local state).
+    await toggle.check();
+    await expect(section.getByRole("button", { name: "立即扫描" })).toBeEnabled();
+    await section.getByRole("button", { name: "立即扫描" }).click();
+
+    // With no stored events the section says so instead of showing zeroes.
+    await expect(section).toContainText("暂无本地使用量数据");
+  });
 });

@@ -306,6 +306,9 @@ function demoHistory(now: number): HistorySummaryViewModel {
 
 export function createMockBridge(): DashboardBridge {
   let accounts = demoAccounts(Date.now());
+  // Local usage sources the preview has opted into; starts off, like the
+  // real setting's safe default.
+  let mockLocalUsageEnabled: string[] = [];
   let notifications = demoNotifications(Date.now());
   let preferences: NotificationPreferencesViewModel = { ...demoPreferences };
   const latency = () => scenarioLatencyMs() + 180 + Math.random() * 260;
@@ -399,10 +402,18 @@ export function createMockBridge(): DashboardBridge {
             verified: false,
           },
         ],
-        enabled: [],
+        enabled: [...mockLocalUsageEnabled],
       };
     },
-    async setLocalUsageSource() {},
+    async setLocalUsageSource(sourceId: string, enabled: boolean) {
+      if (enabled) {
+        if (!mockLocalUsageEnabled.includes(sourceId)) {
+          mockLocalUsageEnabled.push(sourceId);
+        }
+      } else {
+        mockLocalUsageEnabled = mockLocalUsageEnabled.filter((id) => id !== sourceId);
+      }
+    },
     async scanLocalUsage() {
       return [];
     },

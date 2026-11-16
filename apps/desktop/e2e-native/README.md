@@ -32,6 +32,10 @@ The fixture also sets `WEBVIEW2_USER_DATA_FOLDER` and a per-run
 `--remote-debugging-port`. `USERPROFILE` is deliberately left alone: WebView2
 derives part of its environment from it and stops exposing CDP when it moves.
 
+The release updater is compiled out of debug builds, so a native run never
+fetches `latest.json` from the production release — one full suite used to
+add roughly sixty phantom downloads to the release counter.
+
 Credential cleanup is scoped to the run's namespace and executed through
 `cmdkey`; the shipped service `com.tokenowl.desktop` is never passed to the
 cleanup helper. No real provider key is read, written, logged, or placed in a

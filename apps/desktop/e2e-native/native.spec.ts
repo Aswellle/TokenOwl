@@ -54,6 +54,22 @@ test.describe("native shell", () => {
     await expect(page.locator(".matrix__row").first()).toContainText("契约测试覆盖");
   });
 
+  test("a debug build reports the updater as unavailable instead of heartbeating releases", async () => {
+    app = await launchNativeApp();
+    const page = app.page;
+
+    await page.getByRole("button", { name: "设置", exact: true }).click();
+    await expect(page.getByRole("heading", { name: "连接 AI 供应商账户" })).toBeVisible();
+    await page.getByRole("button", { name: "检查更新" }).click();
+    // The updater plugin is compiled out of debug builds: the command fails
+    // closed instead of silently probing the production release endpoint on
+    // every test launch.
+    await expect(
+      page.getByText("当前无法检查或安装更新，本机数据未受影响。"),
+    ).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByText(/已是最新版本/)).toHaveCount(0);
+  });
+
   test("creates a custom account, refreshes real quota, tests its endpoint, and keeps the key out of storage", async () => {
     const provider = new FixtureProvider();
     await provider.start();

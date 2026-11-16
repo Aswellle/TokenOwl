@@ -923,6 +923,9 @@ fn refresh_all_accounts(app: &AppHandle) {
 #[cfg(desktop)]
 #[tauri::command]
 async fn updater_check(app: AppHandle) -> Result<Option<UpdateInfo>, String> {
+    if !updater_runtime_enabled() {
+        return Err("the updater is disabled in debug builds".to_owned());
+    }
     let update = app
         .updater()
         .map_err(|error| error.to_string())?
@@ -939,6 +942,9 @@ async fn updater_check(app: AppHandle) -> Result<Option<UpdateInfo>, String> {
 #[cfg(desktop)]
 #[tauri::command]
 async fn updater_install(app: AppHandle) -> Result<(), String> {
+    if !updater_runtime_enabled() {
+        return Err("the updater is disabled in debug builds".to_owned());
+    }
     let update = app
         .updater()
         .map_err(|error| error.to_string())?
@@ -1005,7 +1011,8 @@ fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
 /// (endpoint check → download → signature verify → install → restart) a few
 /// seconds after startup; `TOKENOWL_TEST_BANNER=1` sends one synthetic
 /// notification through the production dispatch chain to verify the OS
-/// banner appears on screen.
+/// banner appears on screen. Both drills are meaningful on release builds —
+/// debug builds have no updater plugin at all.
 fn start_drill_hooks(app: &AppHandle) {
     if std::env::var("TOKENOWL_UPDATER_DRILL").is_ok_and(|value| value == "1") {
         let handle = app.clone();
@@ -1056,25 +1063,17 @@ async fn updater_drill(app: AppHandle) {
 
 fn start_background_tasks(app: &AppHandle) {
     let handle = app.clone();
-    let updater_running = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
 
     tauri::async_runtime::spawn(async move {
         loop {
-            // Prevent concurrent updater checks.
-            if !updater_running.swap(true, std::sync::atomic::Ordering::SeqCst) {
-                let running = updater_running.clone();
-                let update_handle = handle.clone();
-                tauri::async_runtime::spawn(async move {
-                    emit_update_if_available(&update_handle);
-                    running.store(false, std::sync::atomic::Ordering::SeqCst);
-                });
-            }
-
             // The plan decides which accounts are actually due: per-provider
             // defaults, the user's cadence preference, the opt-in adaptive
             // policy, and failure backoff all feed one due time per account.
             // A not-yet-due account is not refreshed; the loop wakes at the
             // earliest due time (or 30 s later when something is due now).
+            // Update checks deliberately do NOT ride this loop: its sleep
+            // can shrink to the 60 s refresh floor, which used to turn a
+            // tray-resident instance into a once-a-minute GitHub heartbeat.
             let now = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .map_or(0, |duration| duration.as_secs());
@@ -1106,7 +1105,52 @@ fn start_background_tasks(app: &AppHandle) {
     });
 }
 
+/// How long after startup the first release probe waits, and how often a
+/// running release build re-probes afterwards.
+///
+/// Update checks used to ride the background refresh loop, so a
+/// tray-resident instance fetched the release manifest up to once a minute
+/// and the release's download counter mostly measured heartbeats instead of
+/// people. They are now an independent, low-frequency task: one check
+/// shortly after startup, then one per day. The settings page's manual
+/// "检查更新" button stays on-demand, and the background refresh loop is
+/// free to wake at its own cadence.
+const UPDATE_FIRST_CHECK_DELAY: std::time::Duration = std::time::Duration::from_secs(30);
+const UPDATE_CHECK_INTERVAL: std::time::Duration = std::time::Duration::from_secs(24 * 60 * 60);
+
+/// Whether this build may talk to the production updater at all.
+///
+/// Debug builds never do: no plugin, no startup probe, and the check/install
+/// commands answer with a clear error. Test suites launch dozens of real
+/// processes; without this gate every one of them would be counted as a
+/// release download. Release builds keep the real updater, including the
+/// `TOKENOWL_UPDATER_DRILL` QA drill.
+fn updater_runtime_enabled() -> bool {
+    !cfg!(debug_assertions)
+}
+
+/// Owns the release build's low-frequency update probes. Checks run strictly
+/// sequentially inside this one task, so no concurrency guard is needed.
+fn start_updater_task(app: &AppHandle) {
+    if !updater_runtime_enabled() {
+        return;
+    }
+    let handle = app.clone();
+    tauri::async_runtime::spawn(async move {
+        // Let startup work (database open, first refresh) settle before the
+        // first network probe.
+        tokio::time::sleep(UPDATE_FIRST_CHECK_DELAY).await;
+        loop {
+            emit_update_if_available(&handle);
+            tokio::time::sleep(UPDATE_CHECK_INTERVAL).await;
+        }
+    });
+}
+
 fn emit_update_if_available(app: &AppHandle) {
+    if !updater_runtime_enabled() {
+        return;
+    }
     let handle = app.clone();
     tauri::async_runtime::spawn(async move {
         let Ok(updater) = handle.updater() else {
@@ -1163,17 +1207,32 @@ fn data_directory(app: &tauri::App) -> Result<std::path::PathBuf, std::io::Error
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 /// Starts the `TokenOwl` desktop application.
+/// Builds the Tauri builder with the desktop plugin set.
+///
+/// The updater plugin ships in release builds only: a dev or test binary
+/// must never heartbeat the production release endpoint, where every check
+/// is a counted GitHub download and one native test run launches dozens of
+/// processes.
+fn tauri_builder() -> tauri::Builder<tauri::Wry> {
+    let builder = tauri::Builder::default()
+        .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_global_shortcut::Builder::new().build());
+    if updater_runtime_enabled() {
+        builder.plugin(tauri_plugin_updater::Builder::new().build())
+    } else {
+        builder
+    }
+}
+
+/// Starts the `TokenOwl` desktop application.
 ///
 /// # Panics
 ///
 /// Panics when the Tauri runtime fails to start, which is fatal for the process.
 pub fn run() {
-    tauri::Builder::default()
-        .plugin(tauri_plugin_opener::init())
-        .plugin(tauri_plugin_process::init())
-        .plugin(tauri_plugin_notification::init())
-        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
-        .plugin(tauri_plugin_updater::Builder::new().build())
+    tauri_builder()
         .setup(|app| {
             let database_path = data_directory(app)?.join("tokenowl.sqlite3");
             let runtime =
@@ -1215,6 +1274,7 @@ pub fn run() {
             setup_tray(app)?;
             setup_shortcuts(app.handle());
             start_background_tasks(app.handle());
+            start_updater_task(app.handle());
             start_drill_hooks(app.handle());
             Ok(())
         })
@@ -1290,6 +1350,24 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn debug_builds_never_run_the_release_updater() {
+        // Test binaries are debug builds: the updater must be compiled out
+        // so a native test run cannot pollute release download counts.
+        // Flipping `updater_runtime_enabled` means consciously updating this
+        // guard together with the release drill's expectations.
+        assert!(!updater_runtime_enabled());
+    }
+
+    #[test]
+    fn update_checks_never_ride_the_refresh_loop() {
+        // The refresh loop may wake as often as every 60 s; the updater must
+        // stay an independent, low-frequency task. These bounds fail loudly
+        // if someone couples the two again.
+        assert!(UPDATE_CHECK_INTERVAL >= std::time::Duration::from_secs(6 * 60 * 60));
+        assert!(UPDATE_FIRST_CHECK_DELAY >= std::time::Duration::from_secs(1));
+    }
 
     #[test]
     fn fit_into_work_area_shrinks_and_respects_minimums() {

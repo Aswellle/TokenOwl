@@ -91,17 +91,36 @@ export function useAccounts(bridge: DashboardBridge) {
         setPhase("ready");
       } catch (error) {
         const message = bridgeErrorText(error);
-        setAccounts((current) =>
-          current.map((account) =>
-            accountId && account.id !== accountId
-              ? account
-              : {
-                  ...account,
-                  status: "error",
-                  errorMessage: message || copy.notices.refreshFailedOne,
-                },
-          ),
-        );
+        // A single-account failure already persisted its diagnostics before
+        // the command surfaced the error. Re-read the account list so the
+        // row keeps the stable error code — the credential-recovery action
+        // and its explanation are driven by that code, not by the thrown IPC
+        // error. A refresh-all failure is different: the command returns the
+        // per-account results instead of throwing, so a throw here means the
+        // whole wave failed and every row is marked locally.
+        let reloaded = false;
+        if (accountId) {
+          try {
+            setAccounts(await bridge.listAccounts());
+            reloaded = true;
+          } catch {
+            // Fall through to the local error state below.
+          }
+        }
+        if (!reloaded) {
+          setAccounts((current) =>
+            current.map((account) =>
+              accountId && account.id !== accountId
+                ? account
+                : {
+                    ...account,
+                    status: "error",
+                    errorMessage: message || copy.notices.refreshFailedOne,
+                  },
+            ),
+          );
+        }
+        setPhase("ready");
         // An expired key has its own recovery path now: point at the row's
         // update-key action instead of a generic retry loop.
         setNotice({

@@ -232,7 +232,11 @@ describe("Dashboard state machine", () => {
   });
 
   it("directs an expired-key refresh failure to the row's key update action", async () => {
-    mockListAccounts.mockResolvedValue([mockAccount]);
+    mockListAccounts
+      .mockResolvedValueOnce([mockAccount])
+      // The failed refresh persisted its diagnostics; the follow-up list is
+      // what carries the stable code the recovery action keys on.
+      .mockResolvedValue([{ ...mockAccount, status: "error", errorCode: "AuthExpired" }]);
     mockRefresh.mockRejectedValue({
       code: "AuthExpired",
       message: "provider request failed",
@@ -242,6 +246,9 @@ describe("Dashboard state machine", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /刷新账户 Test Account/ }));
     await waitFor(() => expect(screen.getByText(/密钥已失效或被拒绝/)).toBeInTheDocument());
+    expect(
+      await screen.findByRole("button", { name: /更新账户 Test Account 的 API 密钥/ }),
+    ).toBeInTheDocument();
     // The structured error text never reaches the notice; the actionable
     // guidance does.
     expect(screen.queryByText("provider request failed")).toBeNull();

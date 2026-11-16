@@ -457,6 +457,7 @@ export function SetupForm({
                               key={member.id}
                               type="button"
                               className={`picker__option${member.id === profileId ? " is-active" : ""}`}
+                              aria-pressed={member.id === profileId}
                               onClick={() => {
                                 selectProfile(member.id);
                                 setExpandedBrand(null);

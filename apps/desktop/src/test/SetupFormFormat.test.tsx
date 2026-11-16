@@ -44,6 +44,14 @@ vi.mock("../lib/tauri", () => ({
     historyBreakdown: vi.fn().mockResolvedValue([]),
     providerMatrix: vi.fn().mockResolvedValue([]),
     manifestProfiles: mockManifestProfiles,
+    manifestPlayground: vi.fn().mockResolvedValue({
+      valid: true,
+      errors: [],
+      warnings: [],
+      declaredEndpoints: [],
+      metrics: [],
+      reset: null,
+    }),
     usageWindows: vi.fn(),
     getProxy: vi.fn(async () => null),
     lanTrustList: vi.fn(async () => []),
@@ -100,6 +108,7 @@ async function openSetupForm() {
   mockManifestProfiles.mockResolvedValue({
     profiles: [openaiProfile, anthropicProfile, geminiProfile],
     skipped: [],
+    community: [],
   });
   render(<App />);
   await waitFor(() =>
@@ -142,6 +151,7 @@ describe("setup form brand variant grouping", () => {
     mockManifestProfiles.mockResolvedValue({
       profiles: [zhipuProfile, zhipuIntlProfile],
       skipped: [],
+    community: [],
     });
     render(<App />);
     await waitFor(() =>

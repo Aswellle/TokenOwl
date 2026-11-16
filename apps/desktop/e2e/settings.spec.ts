@@ -383,3 +383,13 @@ test.describe("refresh strategy", () => {
     await expect(adaptive).toBeChecked();
   });
 });
+
+test.describe("manifest playground", () => {
+  test("validates a pasted manifest and shows the mapped metric locally", async ({ page }) => {
+    await openSettings(page);
+    await page.getByText("Manifest 本地实验台", { exact: true }).click();
+    await page.getByRole("button", { name: "本地解析" }).click();
+    await expect(page.getByText(/清单通过结构校验/)).toBeVisible();
+    await expect(page.getByText(/used 42\.5/)).toBeVisible();
+  });
+});

@@ -18,6 +18,8 @@ import type {
   UpdateInfo,
   UsageWindowsViewModel,
   ManifestProfilesViewModel,
+  ManifestPlaygroundInput,
+  ManifestPlaygroundViewModel,
 } from "../types";
 
 /** Shape every Rust command rejects with: a stable category plus human-facing
@@ -99,6 +101,8 @@ export const tauriBridge: DashboardBridge = {  listAccounts: () => invoke<Accoun
       days ? { days } : undefined,
     ),
   manifestProfiles: () => invoke<ManifestProfilesViewModel>("manifest_profiles"),
+  manifestPlayground: (input: ManifestPlaygroundInput) =>
+    invoke<ManifestPlaygroundViewModel>("manifest_playground", { input }),
   providerMatrix: () =>
     invoke<ProviderMatrixRowViewModel[]>("provider_matrix"),
   usageWindows: (accountId?: string) =>

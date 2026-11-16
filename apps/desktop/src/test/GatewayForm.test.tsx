@@ -44,6 +44,14 @@ vi.mock("../lib/tauri", () => ({
     historyBreakdown: vi.fn().mockResolvedValue([]),
     providerMatrix: vi.fn().mockResolvedValue([]),
     manifestProfiles: mockManifestProfiles,
+    manifestPlayground: vi.fn().mockResolvedValue({
+      valid: true,
+      errors: [],
+      warnings: [],
+      declaredEndpoints: [],
+      metrics: [],
+      reset: null,
+    }),
     usageWindows: vi.fn(),
     getProxy: vi.fn(async () => null),
     lanTrustList: vi.fn(async () => []),
@@ -90,6 +98,7 @@ async function openSetupForm() {
   mockManifestProfiles.mockResolvedValue({
     profiles: [fixedProfile, gatewayProfile],
     skipped: [],
+    community: [],
   });
   render(<App />);
   await waitFor(() =>

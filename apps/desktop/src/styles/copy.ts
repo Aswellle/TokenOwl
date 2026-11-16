@@ -214,6 +214,35 @@ export const copy = {
     saved: "刷新策略已保存。",
   },
 
+  playground: {
+    title: "Manifest 本地实验台",
+    summary: "校验社区清单并用示例响应测试字段映射",
+    intro:
+      "粘贴清单和一段脱敏的示例 JSON，在本地检查端点、映射路径与解析结果。不会发起网络请求，也不会写入数据库。",
+    manifestLabel: "Manifest YAML",
+    endpointLabel: "端点",
+    bodyLabel: "示例响应 JSON",
+    endpointNames: {
+      models: "models（仅 JSON 校验）",
+      quota: "quota",
+      usage: "usage",
+      balance: "balance",
+      reset: "reset",
+    } as Record<string, string>,
+    run: "本地解析",
+    running: "正在解析…",
+    valid: "清单通过结构校验",
+    invalid: "清单未通过校验",
+    declared: "声明的端点",
+    metrics: "解析出的指标",
+    resetObserved: "解析出的重置时间",
+    none: "示例响应未产生任何指标。",
+    errors: "错误",
+    warnings: "提示",
+    failed: "本地解析失败，请检查输入大小后重试。",
+    note: "只在本地解析，不上传；请勿粘贴真实密钥或未脱敏的完整响应。",
+  },
+
   notices: {
     loadFailed: "无法连接本地服务，界面已切换为离线状态；本机数据不会被清除。",
     refreshFailed: "刷新失败，已保留最近一次成功的数据。",
@@ -374,6 +403,18 @@ export const copy = {
     formatGemini: "Gemini",
     nativeFormatHelp: "由原生适配器探测：密钥校验 + 速率限制头；额度数据以网关实际返回为准，无独立配额端点。",
     communitySkipped: "部分社区包未能加载",
+    communityBadge: "社区",
+    communityUnknownFile: "文件名未知",
+    communitySource: (file: string, schema: number) =>
+      `来源：community-providers/${file} · schema v${schema} · 已通过结构校验`,
+    communityPacks: (count: number) => `社区清单（${count}）`,
+    communityAccounts: (count: number) => `${count} 个账户`,
+    communityStatus: {
+      idle: "尚未使用",
+      refreshing: "刷新中",
+      healthy: "最近请求成功",
+      failed: "最近请求失败",
+    } as Record<string, string>,
     gatewayBaseUrl: "网关地址",
     gatewayBaseUrlPlaceholder: "http://localhost:4000/v1",
     gatewayBaseUrlHelp:

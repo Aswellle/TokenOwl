@@ -261,16 +261,61 @@ export interface HistoryDayBreakdownViewModel {
 }
 
 /** Setup profiles plus the community packs that failed validation. */
+export interface PlaygroundMetricViewModel {
+  metricId?: string | null;
+  metricName?: string | null;
+  unit?: string | null;
+  currency?: string | null;
+  used?: number | null;
+  limit?: number | null;
+  remaining?: number | null;
+  status: "available" | "partial" | "unavailable" | "error";
+}
+
+export interface ManifestPlaygroundInput {
+  manifestYaml: string;
+  endpoint: "models" | "quota" | "usage" | "balance" | "reset";
+  sampleBody: string;
+}
+
+export interface ManifestPlaygroundViewModel {
+  valid: boolean;
+  errors: string[];
+  warnings: string[];
+  schemaVersion?: number | null;
+  id?: string | null;
+  capabilityLevel?: string | null;
+  declaredEndpoints: string[];
+  metrics: PlaygroundMetricViewModel[];
+  reset?: { resetAt: string; windowId?: string | null } | null;
+}
+
+export interface CommunityPackViewModel {
+  id: string;
+  name: string;
+  file?: string | null;
+  schemaVersion: number;
+  authMethods: string[];
+  accountCount: number;
+  lastAttemptAt?: number | null;
+  lastStatus?: "idle" | "refreshing" | "healthy" | "failed" | null;
+  lastErrorCode?: string | null;
+}
+
 export interface ManifestProfilesViewModel {
   profiles: ManifestProfileViewModel[];
   /** "file: reason" entries for skipped community packs. */
   skipped: string[];
+  /** Validated community packs and their last request state. */
+  community: CommunityPackViewModel[];
 }
 
 export interface ProviderMatrixRowViewModel {
   id: string;
   name: string;
   apiFormat: string;
+  authMethods: string[];
+  schemaVersion: number;
   level?: string | null;
   accountTypes: string[];
   quotaUnits: string[];
@@ -298,6 +343,13 @@ export interface ManifestProfileViewModel {
   brand?: string;
   /** The platform label inside a brand's variant list (国内版, OpenAI 兼容). */
   variant?: string;
+  /** `builtin` or `community`. */
+  source: "builtin" | "community";
+  /** Community pack file name inside `community-providers/`. */
+  sourceFile?: string | null;
+  schemaVersion: number;
+  authMethods: string[];
+  lastVerifiedAt?: string | null;
   level: string;
   accountTypes: string[];
   quotaUnits: string[];
@@ -345,6 +397,8 @@ export interface DashboardBridge {
   historyBreakdown(days?: number): Promise<HistoryDayBreakdownViewModel[]>;
   providerMatrix(): Promise<ProviderMatrixRowViewModel[]>;
   manifestProfiles(): Promise<ManifestProfilesViewModel>;
+  /** Validates a pasted manifest and runs its mappings on a local sample. */
+  manifestPlayground(input: ManifestPlaygroundInput): Promise<ManifestPlaygroundViewModel>;
   usageWindows(accountId?: string): Promise<UsageWindowsViewModel>;
   /** The configured proxy URL, or null for a direct connection. */
   getProxy(): Promise<string | null>;

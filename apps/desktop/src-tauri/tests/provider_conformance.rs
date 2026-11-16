@@ -160,3 +160,78 @@ fn model_only_manifests_cannot_claim_above_l2() {
         );
     }
 }
+
+/// Shared conformance for built-ins and community packs. The same structural
+/// and executable-surface assertions apply to both: a data file gets no more
+/// trust than the embedded set, and a built-in gets no exemption from the
+/// checks a community author must satisfy.
+fn assert_manifest_conforms(id: &str, manifest: &ProviderManifest) {
+    assert_eq!(
+        manifest.schema_version,
+        tokenowl_lib::providers::manifest::MANIFEST_SCHEMA_VERSION,
+        "{id}: schema version must be the one this build understands"
+    );
+    assert_eq!(
+        manifest.validate_for_registration(),
+        Ok(()),
+        "{id}: must pass the full registration contract"
+    );
+    assert_eq!(
+        manifest.auth,
+        vec!["api_key".to_owned()],
+        "{id}: only the executable auth flow may be declared"
+    );
+    let format = WireFormat::parse(
+        manifest
+            .api_format
+            .as_deref()
+            .unwrap_or("openai-compatible"),
+    );
+    match format {
+        Some(WireFormat::Anthropic | WireFormat::GoogleAi) => {
+            assert!(
+                manifest.endpoints.models.is_some(),
+                "{id}: native adapters need a models endpoint"
+            );
+            for (kind, endpoint) in [
+                ("quota", &manifest.endpoints.quota),
+                ("usage", &manifest.endpoints.usage),
+                ("balance", &manifest.endpoints.balance),
+                ("reset", &manifest.endpoints.reset),
+            ] {
+                assert!(
+                    endpoint.is_none(),
+                    "{id}: native adapter never requests `{kind}`"
+                );
+            }
+        }
+        Some(WireFormat::OpenAiCompatible) | None => {
+            let config = manifest.to_config();
+            assert_eq!(config.models_endpoint, manifest.endpoints.models);
+            assert_eq!(config.quota_endpoint, manifest.endpoints.quota);
+            assert_eq!(config.usage_endpoint, manifest.endpoints.usage);
+            assert_eq!(config.balance_endpoint, manifest.endpoints.balance);
+            assert_eq!(config.reset_endpoint, manifest.endpoints.reset);
+        }
+    }
+    if let Some(level) = manifest.effective_capability_level() {
+        assert!(
+            matches!(level.as_str(), "L1" | "L2" | "L3" | "L4"),
+            "{id}: unexpected capability level {level}"
+        );
+    }
+}
+
+#[test]
+fn built_in_and_community_manifests_share_one_conformance_contract() {
+    for (id, manifest) in builtin_manifests() {
+        assert_manifest_conforms(id, &manifest);
+    }
+    let community = ProviderManifest::from_yaml(include_str!("fixtures/community/acme-relay.yaml"))
+        .expect("community fixture parses");
+    assert_manifest_conforms("acme-relay", &community);
+    assert_eq!(
+        community.effective_capability_level().as_deref(),
+        Some("L3")
+    );
+}

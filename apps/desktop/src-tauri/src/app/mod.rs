@@ -1205,6 +1205,7 @@ pub fn run() {
             commands::refresh_settings_get,
             commands::refresh_settings_set,
             commands::manifest_profiles,
+            commands::manifest_playground,
             commands::lan_consent_begin,
             commands::proxy_get,
             commands::proxy_set,

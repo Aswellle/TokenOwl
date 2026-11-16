@@ -49,6 +49,14 @@ vi.mock("../lib/tauri", () => ({
     historyBreakdown: vi.fn().mockResolvedValue([]),
     providerMatrix: vi.fn().mockResolvedValue([]),
     manifestProfiles: mockManifestProfiles,
+    manifestPlayground: vi.fn().mockResolvedValue({
+      valid: true,
+      errors: [],
+      warnings: [],
+      declaredEndpoints: [],
+      metrics: [],
+      reset: null,
+    }),
     usageWindows: vi.fn(),
     getProxy: vi.fn(async () => null),
     lanTrustList: vi.fn(async () => []),
@@ -74,7 +82,7 @@ const createdAccount = {
 
 async function fillForm(baseUrl: string) {
   mockListAccounts.mockResolvedValue([]);
-  mockManifestProfiles.mockResolvedValue({ profiles: [], skipped: [] });
+  mockManifestProfiles.mockResolvedValue({ profiles: [], skipped: [], community: [] });
   render(<App />);
   await waitFor(() =>
     expect(screen.getByRole("button", { name: /添加账户|Add Provider/i })).toBeInTheDocument(),

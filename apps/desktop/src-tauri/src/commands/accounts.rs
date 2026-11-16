@@ -1094,15 +1094,102 @@ pub struct ManifestProfilesView {
     pub profiles: Vec<crate::providers::builtin::ManifestProfile>,
     /// Community packs that failed validation, as "file: reason" strings.
     pub skipped: Vec<String>,
+    /// Valid community packs with their source file and the most recent
+    /// request status across accounts using them.
+    pub community: Vec<CommunityPackView>,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CommunityPackView {
+    pub id: String,
+    pub name: String,
+    pub file: Option<String>,
+    pub schema_version: u32,
+    pub auth_methods: Vec<String>,
+    pub account_count: usize,
+    /// Latest attempt across accounts of this pack, when any exists.
+    pub last_attempt_at: Option<u64>,
+    /// `idle` | `refreshing` | `healthy` | `failed`, from the same account.
+    pub last_status: Option<String>,
+    pub last_error_code: Option<String>,
+}
+
+fn community_pack_views(
+    repository: &LocalRepository,
+    packs: &[crate::providers::community::CommunityManifest],
+) -> Vec<CommunityPackView> {
+    let accounts = repository.accounts().unwrap_or_default();
+    packs
+        .iter()
+        .map(|pack| {
+            let matching: Vec<_> = accounts
+                .iter()
+                .filter(|account| {
+                    account.provider_id.split(':').next() == Some(pack.manifest.id.as_str())
+                })
+                .collect();
+            let mut latest: Option<(u64, String, Option<String>)> = None;
+            for account in &matching {
+                let state = repository.refresh_state(&account.id).unwrap_or_default();
+                let attempt = state.last_started_at.unwrap_or(0);
+                if latest
+                    .as_ref()
+                    .is_none_or(|(previous, _, _)| attempt >= *previous)
+                {
+                    let status = match state.status {
+                        RefreshStatus::Idle => "idle",
+                        RefreshStatus::Refreshing => "refreshing",
+                        RefreshStatus::Succeeded => "healthy",
+                        RefreshStatus::Failed => "failed",
+                    };
+                    latest = Some((attempt, status.to_owned(), state.error_code.clone()));
+                }
+            }
+            CommunityPackView {
+                id: pack.manifest.id.clone(),
+                name: pack.manifest.name.clone(),
+                file: pack
+                    .source_path
+                    .file_name()
+                    .map(|name| name.to_string_lossy().into_owned()),
+                schema_version: pack.manifest.schema_version,
+                auth_methods: pack.manifest.auth.clone(),
+                account_count: matching.len(),
+                last_attempt_at: latest.as_ref().map(|(attempt, _, _)| *attempt),
+                last_status: latest.as_ref().map(|(_, status, _)| status.clone()),
+                last_error_code: latest.and_then(|(_, _, error)| error),
+            }
+        })
+        .collect()
 }
 
 #[tauri::command]
 pub fn manifest_profiles(
     state: State<'_, Arc<AppRuntime>>,
 ) -> Result<ManifestProfilesView, CommandError> {
-    let (profiles, skipped) =
-        crate::providers::builtin::all_manifest_profiles(Some(&state.data_dir));
-    Ok(ManifestProfilesView { profiles, skipped })
+    let mut profiles = crate::providers::builtin::manifest_profiles();
+    let directory = crate::providers::builtin::community_manifest_dir(&state.data_dir);
+    let scan = crate::providers::community::scan_community_manifests(&directory);
+    let skipped = scan.skipped;
+    let packs = crate::providers::community::dedupe_community(scan.loaded);
+    for pack in &packs {
+        let file_name = pack
+            .source_path
+            .file_name()
+            .map(|name| name.to_string_lossy().into_owned());
+        profiles.push(crate::providers::builtin::profile_from_manifest(
+            pack.manifest.clone(),
+            "community",
+            file_name,
+        ));
+    }
+    let community_packs = community_pack_views(&state.repository()?, &packs);
+    Ok(ManifestProfilesView {
+        profiles,
+        skipped,
+        community: community_packs,
+    })
 }
 
 /// The `docs/09` provider capability catalog: every planned provider with its

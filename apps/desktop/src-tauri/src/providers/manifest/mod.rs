@@ -4,10 +4,26 @@ use serde::{Deserialize, Serialize};
 use std::time::Duration;
 use url::Url;
 
+/// Manifest schema version this build understands. Packs without the field
+/// predate versioning and are treated as version 1; a newer version is
+/// rejected with a clear reason instead of being parsed with missing
+/// semantics. Bumping this constant is a breaking change that needs a
+/// migration note in the repository documentation.
+pub const MANIFEST_SCHEMA_VERSION: u32 = 1;
+
+/// Default for packs written before `schemaVersion` existed.
+const fn default_schema_version() -> u32 {
+    MANIFEST_SCHEMA_VERSION
+}
+
 /// YAML manifest for OpenAI-compatible providers.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProviderManifest {
+    /// Declarative schema version. Missing means the legacy (version 1)
+    /// layout; callers should write it explicitly.
+    #[serde(default = "default_schema_version")]
+    pub schema_version: u32,
     pub id: String,
     pub version: u32,
     pub name: String,
@@ -147,6 +163,74 @@ pub struct ManifestNetwork {
     pub follow_redirects: Option<bool>,
 }
 
+/// Upper bound on the named `mapping.metrics` list. Each entry becomes a
+/// snapshot; an unbounded list is a data file pretending to be a schema.
+const MAX_MANIFEST_METRICS: usize = 16;
+/// Dot-path segments a mapping may walk. Deep paths are a stack-overflow and
+/// accidental-traversal risk with no legitimate provider shape behind them.
+const MAX_MAPPING_PATH_DEPTH: usize = 8;
+/// Longest single dot-path segment.
+const MAX_MAPPING_SEGMENT_CHARS: usize = 64;
+/// Units the mapped parser understands. A declared unit outside this set
+/// would make every refresh silently produce no metric, so it is a load-time
+/// error instead.
+const SUPPORTED_MAPPING_UNITS: [&str; 9] = [
+    "token", "tokens", "credit", "credits", "request", "requests", "currency", "usd", "percent",
+];
+
+fn validate_mapping_path(label: &str, value: &str) -> Result<(), String> {
+    if value.trim().is_empty() || value.chars().count() > 128 {
+        return Err(format!("{label} must be 1-128 characters"));
+    }
+    if value.chars().any(char::is_whitespace) {
+        return Err(format!("{label} must not contain whitespace"));
+    }
+    let segments: Vec<&str> = value.split('.').collect();
+    if segments.len() > MAX_MAPPING_PATH_DEPTH {
+        return Err(format!(
+            "{label} may have at most {MAX_MAPPING_PATH_DEPTH} dot-path segments"
+        ));
+    }
+    if segments
+        .iter()
+        .any(|segment| segment.is_empty() || segment.chars().count() > MAX_MAPPING_SEGMENT_CHARS)
+    {
+        return Err(format!(
+            "{label} segments must be 1-{MAX_MAPPING_SEGMENT_CHARS} characters"
+        ));
+    }
+    Ok(())
+}
+
+fn validate_manifest_field(label: &str, field: &ManifestFieldMapping) -> Result<(), String> {
+    validate_mapping_path(&format!("{label}.value"), &field.value)?;
+    if let Some(unit) = field.unit.as_deref()
+        && !SUPPORTED_MAPPING_UNITS.contains(&unit)
+    {
+        return Err(format!(
+            "{label}.unit `{unit}` is not a supported quota unit"
+        ));
+    }
+    if let Some(currency) = field.currency.as_deref()
+        && (currency.trim().is_empty() || currency.chars().count() > 8)
+    {
+        return Err(format!("{label}.currency must be 1-8 characters"));
+    }
+    if let Some(role) = field.role.as_deref()
+        && !matches!(role, "used" | "remaining" | "limit")
+    {
+        return Err(format!(
+            "{label}.role `{role}` must be used, remaining, or limit"
+        ));
+    }
+    if let Some(name) = field.name.as_deref()
+        && (name.trim().is_empty() || name.chars().count() > 64)
+    {
+        return Err(format!("{label}.name must be 1-64 characters"));
+    }
+    Ok(())
+}
+
 impl ProviderManifest {
     /// Parse a YAML manifest string.
     ///
@@ -213,6 +297,23 @@ impl ProviderManifest {
     /// boundaries call this so a hand-edited pack fails with the offending
     /// field named instead of registering garbage that breaks later.
     pub fn validate_schema_bounds(&self) -> Result<(), String> {
+        if self.schema_version != MANIFEST_SCHEMA_VERSION {
+            return Err(format!(
+                "unsupported schemaVersion {} (this build supports {MANIFEST_SCHEMA_VERSION})",
+                self.schema_version
+            ));
+        }
+        // Only API-key auth is implemented. A pack declaring OAuth or a
+        // browser session would advertise a login flow the app cannot run;
+        // refuse it instead of falling back to an API key silently.
+        if self.auth.is_empty() || self.auth.len() > 4 {
+            return Err("auth must list 1-4 supported methods".to_owned());
+        }
+        if let Some(method) = self.auth.iter().find(|method| method.as_str() != "api_key") {
+            return Err(format!(
+                "unsupported auth method `{method}` (only api_key is implemented)"
+            ));
+        }
         let id_valid = !self.id.is_empty()
             && self.id.len() <= 64
             && self
@@ -230,6 +331,9 @@ impl ProviderManifest {
         if self.name.trim().is_empty() || self.name.chars().count() > 64 {
             return Err("name must be 1-64 characters".to_owned());
         }
+        if self.base_url.chars().count() > 512 {
+            return Err("baseUrl must be at most 512 characters".to_owned());
+        }
         if let Some(timeout_ms) = self.network.as_ref().and_then(|n| n.timeout_ms)
             && !(1_000..=120_000).contains(&timeout_ms)
         {
@@ -239,26 +343,12 @@ impl ProviderManifest {
         }
         if let Some(mapping) = self.mapping.as_ref() {
             for (kind, field) in [("balance", &mapping.balance), ("usage", &mapping.usage)] {
-                if let Some(field) = field
-                    && (field.value.trim().is_empty()
-                        || field.value.chars().count() > 128
-                        || field.value.chars().any(char::is_whitespace))
-                {
-                    return Err(format!(
-                        "mapping.{kind}.value must be 1-128 characters without whitespace"
-                    ));
+                if let Some(field) = field {
+                    validate_manifest_field(&format!("mapping.{kind}"), field)?;
                 }
             }
             if let Some(reset) = mapping.reset.as_ref() {
-                if reset.value.trim().is_empty()
-                    || reset.value.chars().count() > 128
-                    || reset.value.chars().any(char::is_whitespace)
-                {
-                    return Err(
-                        "mapping.reset.value must be 1-128 characters without whitespace"
-                            .to_owned(),
-                    );
-                }
+                validate_mapping_path("mapping.reset.value", &reset.value)?;
                 if let Some(format) = reset.timestamp_format.as_deref()
                     && !matches!(format, "rfc3339" | "unix_seconds" | "unix_millis")
                 {
@@ -266,37 +356,22 @@ impl ProviderManifest {
                         "mapping.reset.timestampFormat `{format}` must be rfc3339, unix_seconds, or unix_millis"
                     ));
                 }
-                if let Some(window_id) = reset.window_id.as_deref()
-                    && (window_id.trim().is_empty()
-                        || window_id.chars().count() > 128
-                        || window_id.chars().any(char::is_whitespace))
-                {
-                    return Err(
-                        "mapping.reset.windowId must be 1-128 characters without whitespace"
-                            .to_owned(),
-                    );
+                if let Some(window_id) = reset.window_id.as_deref() {
+                    validate_mapping_path("mapping.reset.windowId", window_id)?;
                 }
             }
-            for (index, metric) in mapping.metrics.iter().flatten().enumerate() {
-                if metric.value.trim().is_empty()
-                    || metric.value.chars().count() > 128
-                    || metric.value.chars().any(char::is_whitespace)
-                {
-                    return Err(format!(
-                        "mapping.metrics[{index}].value must be 1-128 characters without whitespace"
-                    ));
-                }
+            let metrics = mapping.metrics.as_deref().unwrap_or_default();
+            if metrics.len() > MAX_MANIFEST_METRICS {
+                return Err(format!(
+                    "mapping.metrics may declare at most {MAX_MANIFEST_METRICS} entries"
+                ));
+            }
+            for (index, metric) in metrics.iter().enumerate() {
+                validate_manifest_field(&format!("mapping.metrics[{index}]"), metric)?;
                 let name = metric.name.as_deref().unwrap_or_default().trim();
                 if name.is_empty() || name.chars().count() > 64 {
                     return Err(format!(
                         "mapping.metrics[{index}].name must be 1-64 characters"
-                    ));
-                }
-                if let Some(role) = metric.role.as_deref()
-                    && !matches!(role, "used" | "remaining" | "limit")
-                {
-                    return Err(format!(
-                        "mapping.metrics[{index}].role `{role}` must be used, remaining, or limit"
                     ));
                 }
             }
@@ -473,6 +548,7 @@ fn validate_registration_base_url(base_url: &str) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fmt::Write as _;
 
     const OPENAI_MANIFEST: &str = r"
 id: openai
@@ -796,6 +872,107 @@ mapping:
                 "mapping `{mapping_value}` must be rejected"
             );
         }
+    }
+
+    #[test]
+    fn schema_version_defaults_to_one_and_future_versions_are_rejected() {
+        let manifest = ProviderManifest::from_yaml(OPENAI_MANIFEST).expect("valid YAML");
+        assert_eq!(manifest.schema_version, MANIFEST_SCHEMA_VERSION);
+        assert_eq!(manifest.validate_schema_bounds(), Ok(()));
+
+        let future = OPENAI_MANIFEST.replace(
+            "id: openai",
+            "schemaVersion: 2
+id: openai",
+        );
+        let manifest = ProviderManifest::from_yaml(&future).expect("valid YAML");
+        let error = manifest
+            .validate_schema_bounds()
+            .expect_err("a newer schema must not be parsed with old semantics");
+        assert!(
+            error.contains("unsupported schemaVersion 2"),
+            "got `{error}`"
+        );
+    }
+
+    #[test]
+    fn auth_must_name_the_one_executable_flow() {
+        for auth in ["auth: [oauth]", "auth: []", "auth: [api_key, oauth]"] {
+            let yaml = OPENAI_MANIFEST.replace(
+                "auth:
+  - api_key",
+                auth,
+            );
+            let manifest = ProviderManifest::from_yaml(&yaml).expect("valid YAML");
+            let error = manifest
+                .validate_schema_bounds()
+                .expect_err("unimplemented auth flows must be refused");
+            assert!(
+                error.contains("auth") || error.contains("unsupported auth method"),
+                "unexpected reason for `{auth}`: `{error}`"
+            );
+        }
+    }
+
+    #[test]
+    fn mapping_bounds_reject_deep_paths_unknown_units_and_oversized_metrics() {
+        let deep = bounds_yaml("acme", "Acme", 15_000, "a.b.c.d.e.f.g.h.i");
+        let manifest = ProviderManifest::from_yaml(&deep).expect("valid YAML");
+        let error = manifest
+            .validate_schema_bounds()
+            .expect_err("nine path segments exceed the bound");
+        assert!(error.contains("dot-path segments"), "got `{error}`");
+
+        let unknown_unit = "schemaVersion: 1
+id: unit-pack
+version: 1
+name: Unit Pack
+auth: [api_key]
+baseUrl: https://unit.test/v1
+endpoints:
+  usage: /usage
+mapping:
+  usage:
+    value: data.used
+    unit: kilowatt_hour
+";
+        let manifest = ProviderManifest::from_yaml(unknown_unit).expect("valid YAML");
+        let error = manifest
+            .validate_schema_bounds()
+            .expect_err("an unknown unit would silently drop every metric");
+        assert!(
+            error.contains("not a supported quota unit"),
+            "got `{error}`"
+        );
+
+        let mut metrics = String::new();
+        for index in 0..17 {
+            let _ = writeln!(
+                metrics,
+                "    - value: data.m{index}
+      name: M{index}"
+            );
+        }
+        let too_many = format!(
+            "schemaVersion: 1
+id: many
+version: 1
+name: Many
+auth: [api_key]
+baseUrl: https://many.test/v1
+endpoints:
+  usage: /usage
+mapping:
+  usage:
+    value: data.used
+  metrics:
+{metrics}"
+        );
+        let manifest = ProviderManifest::from_yaml(&too_many).expect("valid YAML");
+        let error = manifest
+            .validate_schema_bounds()
+            .expect_err("the metrics list must stay bounded");
+        assert!(error.contains("at most 16 entries"), "got `{error}`");
     }
 
     /// Embedded manifests are authored alongside the validator; if one stops

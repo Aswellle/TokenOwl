@@ -29,6 +29,7 @@ import { LocalUsageSection } from "./components/LocalUsageSection";
 import { ProviderView } from "./components/ProviderView";
 import { ProviderMatrix } from "./components/ProviderMatrix";
 import { RefreshSection } from "./components/RefreshSection";
+import { ManifestPlayground } from "./components/ManifestPlayground";
 import { SetupForm } from "./components/SetupForm";
 import { AccountRow } from "./components/AccountRow";
 import { ProxySection } from "./components/ProxySection";
@@ -660,6 +661,7 @@ export function App({ bridge = tauriBridge }: AppProps = {}) {
                   onSubmit={handleCreate}
                 />
                 <RefreshSection bridge={bridge} />
+                <ManifestPlayground bridge={bridge} />
                 <ProviderMatrix bridge={bridge} />
                 <LanTrustSection bridge={bridge} />
                 <ProxySection bridge={bridge} />

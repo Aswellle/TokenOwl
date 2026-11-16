@@ -39,6 +39,108 @@ const MAX_MANIFEST_BYTES: u64 = 256 * 1024;
 /// stays a summary instead of a wall of text in the UI.
 const MAX_SKIPPED_REASONS: usize = 8;
 
+/// Fields a community pack may declare. Anything else is rejected rather than
+/// ignored: a typo or a field from another tool's manifest must fail loudly,
+/// and there is no manifest key that can name code, a script, a dynamic
+/// library, or a redirect policy.
+const TOP_LEVEL_FIELDS: &[&str] = &[
+    "schemaVersion",
+    "id",
+    "version",
+    "name",
+    "category",
+    "region",
+    "auth",
+    "baseUrl",
+    "apiKeyHeader",
+    "endpoints",
+    "mapping",
+    "network",
+    "capability",
+    "apiFormat",
+    "customBaseUrl",
+    "brand",
+    "variant",
+];
+const ENDPOINT_FIELDS: &[&str] = &["models", "balance", "usage", "quota", "reset"];
+const MAPPING_FIELDS: &[&str] = &["balance", "usage", "metrics", "reset"];
+const FIELD_MAPPING_FIELDS: &[&str] = &["value", "unit", "currency", "role", "name"];
+const RESET_MAPPING_FIELDS: &[&str] = &["value", "timestampFormat", "windowId"];
+const NETWORK_FIELDS: &[&str] = &["timeoutMs", "followRedirects"];
+const CAPABILITY_FIELDS: &[&str] = &[
+    "level",
+    "accountTypes",
+    "quotaUnits",
+    "targetWindows",
+    "priority",
+    "lastVerifiedAt",
+];
+
+fn mapping_get<'a>(mapping: &'a serde_yaml::Mapping, key: &str) -> Option<&'a serde_yaml::Value> {
+    mapping.get(serde_yaml::Value::String(key.to_owned()))
+}
+
+fn check_fields(value: &serde_yaml::Value, path: &str, allowed: &[&str]) -> Result<(), String> {
+    let mapping = value
+        .as_mapping()
+        .ok_or_else(|| format!("{path} must be a YAML mapping"))?;
+    for key in mapping.keys() {
+        let name = key
+            .as_str()
+            .ok_or_else(|| format!("{path} has a non-string field name"))?;
+        if !allowed.contains(&name) {
+            return Err(format!(
+                "`{path}.{name}` is not a recognized manifest field"
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// Rejects unknown fields anywhere the manifest schema defines semantics.
+/// Nested unknown maps are rejected too, so a pack cannot smuggle behavior
+/// hints that a future parser might honor accidentally.
+pub(crate) fn reject_unknown_fields(yaml: &str) -> Result<(), String> {
+    let value: serde_yaml::Value =
+        serde_yaml::from_str(yaml).map_err(|error| format!("invalid YAML ({error})"))?;
+    check_fields(&value, "manifest", TOP_LEVEL_FIELDS)?;
+    let root = value.as_mapping().expect("checked above");
+    if let Some(endpoints) = mapping_get(root, "endpoints") {
+        check_fields(endpoints, "endpoints", ENDPOINT_FIELDS)?;
+    }
+    if let Some(network) = mapping_get(root, "network") {
+        check_fields(network, "network", NETWORK_FIELDS)?;
+    }
+    if let Some(capability) = mapping_get(root, "capability") {
+        check_fields(capability, "capability", CAPABILITY_FIELDS)?;
+    }
+    if let Some(mapping) = mapping_get(root, "mapping") {
+        check_fields(mapping, "mapping", MAPPING_FIELDS)?;
+        let mapping = mapping.as_mapping().expect("checked above");
+        for field in ["balance", "usage"] {
+            if let Some(value) = mapping_get(mapping, field) {
+                check_fields(value, &format!("mapping.{field}"), FIELD_MAPPING_FIELDS)?;
+            }
+        }
+        if let Some(metrics) = mapping_get(mapping, "metrics") {
+            let items = metrics
+                .as_sequence()
+                .ok_or_else(|| "mapping.metrics must be a YAML list".to_owned())?;
+            for (index, item) in items.iter().enumerate() {
+                check_fields(
+                    item,
+                    &format!("mapping.metrics[{index}]"),
+                    FIELD_MAPPING_FIELDS,
+                )?;
+            }
+        }
+        if let Some(reset) = mapping_get(mapping, "reset") {
+            check_fields(reset, "mapping.reset", RESET_MAPPING_FIELDS)?;
+        }
+    }
+    Ok(())
+}
+
 /// Scans `directory` for `*.yaml` / `*.yml` manifests and validates each.
 /// Missing directories are not an error — community packs are optional — but
 /// an unreadable directory is reported instead of silently swallowed.
@@ -121,6 +223,7 @@ fn load_community_manifest(path: &Path) -> Result<CommunityManifest, String> {
         ));
     }
     let yaml = std::fs::read_to_string(path).map_err(|error| format!("unreadable ({error})"))?;
+    reject_unknown_fields(&yaml)?;
     let manifest = ProviderManifest::from_yaml(&yaml)
         .map_err(|error| format!("invalid manifest ({error})"))?;
     // Community packs are limited to the one wire protocol a data file can
@@ -183,6 +286,7 @@ mod tests {
     }
 
     const VALID_PACK: &str = "\
+schemaVersion: 1
 id: acme-relay
 version: 1
 name: Acme Relay
@@ -246,6 +350,77 @@ apiFormat: openai-compatible
         let scan = scan_community_manifests(&dir);
         assert_eq!(scan.loaded.len(), 0);
         assert!(scan.skipped[0].contains("collides with a built-in"));
+    }
+
+    #[test]
+    fn unknown_fields_are_rejected_with_their_name() {
+        let dir = std::env::temp_dir().join("tokenowl-community-unknown-field");
+        let _ = std::fs::remove_dir_all(&dir);
+        write_pack(
+            &dir,
+            "sneaky.yaml",
+            "schemaVersion: 1
+id: sneaky
+version: 1
+name: Sneaky
+auth: [api_key]
+baseUrl: https://sneaky.test
+script: run-me.sh
+endpoints:
+  models: /models
+",
+        );
+        let scan = scan_community_manifests(&dir);
+        assert_eq!(scan.loaded.len(), 0);
+        assert!(
+            scan.skipped[0].contains("manifest.script")
+                && scan.skipped[0].contains("not a recognized manifest field"),
+            "got {:?}",
+            scan.skipped
+        );
+    }
+
+    #[test]
+    fn future_schema_versions_are_rejected_and_legacy_packs_still_load() {
+        let dir = std::env::temp_dir().join("tokenowl-community-schema");
+        let _ = std::fs::remove_dir_all(&dir);
+        write_pack(
+            &dir,
+            "future.yaml",
+            &VALID_PACK.replace("schemaVersion: 1", "schemaVersion: 2"),
+        );
+        let scan = scan_community_manifests(&dir);
+        assert_eq!(scan.loaded.len(), 0);
+        assert!(scan.skipped[0].contains("unsupported schemaVersion 2"));
+
+        let legacy = VALID_PACK
+            .replace(
+                "schemaVersion: 1
+",
+                "",
+            )
+            .replace("acme-relay", "legacy-relay");
+        write_pack(&dir, "legacy.yaml", &legacy);
+        let scan = scan_community_manifests(&dir);
+        assert_eq!(scan.loaded.len(), 1, "missing schemaVersion is version 1");
+        assert_eq!(
+            scan.loaded[0].manifest.schema_version,
+            crate::providers::manifest::MANIFEST_SCHEMA_VERSION
+        );
+    }
+
+    #[test]
+    fn unsupported_auth_methods_are_rejected_at_load() {
+        let dir = std::env::temp_dir().join("tokenowl-community-auth");
+        let _ = std::fs::remove_dir_all(&dir);
+        write_pack(
+            &dir,
+            "oauth.yaml",
+            &VALID_PACK.replace("auth: [api_key]", "auth: [oauth]"),
+        );
+        let scan = scan_community_manifests(&dir);
+        assert_eq!(scan.loaded.len(), 0);
+        assert!(scan.skipped[0].contains("unsupported auth method `oauth`"));
     }
 
     #[test]

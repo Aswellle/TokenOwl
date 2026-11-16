@@ -3,6 +3,7 @@ import { motion } from "motion/react";
 import { AlertDialog } from "../../../components/AlertDialog";
 import { copy } from "../../../styles/copy";
 import type {
+  CommunityPackViewModel,
   DashboardBridge,
   GenericOpenAiAccountInput,
   ManifestProfileViewModel,
@@ -33,6 +34,7 @@ export function SetupForm({
 }) {
   const [profiles, setProfiles] = useState<ManifestProfileViewModel[]>([]);
   const [packSkipped, setPackSkipped] = useState<string[]>([]);
+  const [communityPacks, setCommunityPacks] = useState<CommunityPackViewModel[]>([]);
   const [profileId, setProfileId] = useState("custom");
   const [label, setLabel] = useState("");
   const [baseUrl, setBaseUrl] = useState("https://api.openai.com/v1");
@@ -59,6 +61,7 @@ export function SetupForm({
         if (!active) return;
         setProfiles(view.profiles);
         setPackSkipped(view.skipped);
+        setCommunityPacks(view.community);
       })
       .catch(() => null);
     return () => {
@@ -304,6 +307,31 @@ export function SetupForm({
           {copy.form.communitySkipped}: {packSkipped.join("；")}
         </p>
       )}
+      {communityPacks.length > 0 && (
+        <details className="community-packs">
+          <summary>{copy.form.communityPacks(communityPacks.length)}</summary>
+          <ul className="community-packs__list">
+            {communityPacks.map((pack) => (
+              <li key={pack.id} className="community-packs__item">
+                <span>
+                  <strong>{pack.name}</strong>{" "}
+                  <span className="mono">{pack.file ?? copy.form.communityUnknownFile}</span>
+                </span>
+                <span className="community-packs__status">
+                  {copy.form.communityStatus[pack.lastStatus ?? "idle"] ??
+                    copy.form.communityStatus.idle}
+                  {pack.accountCount > 0
+                    ? ` · ${copy.form.communityAccounts(pack.accountCount)}`
+                    : ""}
+                  {pack.lastErrorCode
+                    ? ` · ${copy.refreshDiagnostics[pack.lastErrorCode] ?? pack.lastErrorCode}`
+                    : ""}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
       {lanConsent && (
         <AlertDialog
           className="lan-consent"
@@ -389,6 +417,11 @@ export function SetupForm({
                       >
                         <ProviderIcon providerId={group.key} size={18} />
                         <span>{group.activeMember.name}</span>
+                        {group.activeMember.source === "community" && (
+                          <span className="picker__badge" aria-hidden="true">
+                            {copy.form.communityBadge}
+                          </span>
+                        )}
                         {(group.activeMember.level === "L1" ||
                           group.activeMember.level === "L2") && (
                           // Hidden from the accessible name: selecting the
@@ -430,6 +463,11 @@ export function SetupForm({
                               }}
                             >
                               <span>{member.variant ?? member.name}</span>
+                              {member.source === "community" && (
+                                <span className="picker__badge" aria-hidden="true">
+                                  {copy.form.communityBadge}
+                                </span>
+                              )}
                               <span className="picker__option-meta">{formatLabel(member.apiFormat)}</span>
                               {(member.level === "L1" || member.level === "L2") && (
                                 <span className="picker__badge" aria-hidden="true">
@@ -609,6 +647,14 @@ export function SetupForm({
                 <span className="field__help">{copy.form.customNote}</span>
               )}
             </div>
+            {profile?.source === "community" && (
+              <span className="field__help" role="note">
+                {copy.form.communitySource(
+                  profile.sourceFile ?? copy.form.communityUnknownFile,
+                  profile.schemaVersion,
+                )}
+              </span>
+            )}
             {profile && (profile.level === "L1" || profile.level === "L2") && (
               <span className="field__help" role="note">
                 {copy.form.noQuotaCapabilityNote}

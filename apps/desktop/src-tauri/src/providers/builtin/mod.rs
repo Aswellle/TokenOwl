@@ -144,6 +144,10 @@ pub struct ProviderMatrixRow {
     pub id: String,
     pub name: String,
     pub api_format: String,
+    /// Auth flows the manifest declares. Only `api_key` is executable today;
+    /// a row naming anything else would be a capability the app cannot honor.
+    pub auth_methods: Vec<String>,
+    pub schema_version: u32,
     /// Capability level of an implemented provider; `None` means planned.
     pub level: Option<String>,
     pub account_types: Vec<String>,
@@ -199,6 +203,8 @@ pub fn provider_matrix() -> Vec<ProviderMatrixRow> {
                     .api_format
                     .clone()
                     .unwrap_or_else(|| "openai-compatible".to_owned()),
+                auth_methods: manifest.auth.clone(),
+                schema_version: manifest.schema_version,
                 level: manifest.effective_capability_level(),
                 account_types: split_list(&capability.account_types),
                 quota_units: split_list(&capability.quota_units),
@@ -226,6 +232,8 @@ pub fn provider_matrix() -> Vec<ProviderMatrixRow> {
             id: (*id).to_owned(),
             name: (*name).to_owned(),
             api_format: "openai-compatible".to_owned(),
+            auth_methods: vec!["api_key".to_owned()],
+            schema_version: crate::providers::manifest::MANIFEST_SCHEMA_VERSION,
             level: None,
             account_types: types.iter().map(|value| (*value).to_owned()).collect(),
             quota_units: units.iter().map(|value| (*value).to_owned()).collect(),
@@ -249,6 +257,14 @@ pub struct ManifestProfile {
     pub custom_base_url: bool,
     pub brand: Option<String>,
     pub variant: Option<String>,
+    /// `builtin` or `community`; the UI marks community packs distinctly.
+    pub source: String,
+    /// File name inside `community-providers/` for a community pack. Never a
+    /// full path: the UI does not need the user's directory layout.
+    pub source_file: Option<String>,
+    pub schema_version: u32,
+    pub auth_methods: Vec<String>,
+    pub last_verified_at: Option<String>,
     pub level: String,
     pub account_types: Vec<String>,
     pub quota_units: Vec<String>,
@@ -318,13 +334,15 @@ pub fn manifest_profiles() -> Vec<ManifestProfile> {
             if let Err(reason) = manifest.validate_schema_bounds() {
                 panic!("embedded manifest {id}: {reason}");
             }
-            profile_from_manifest(manifest)
+            profile_from_manifest(manifest, "builtin", None)
         })
         .collect()
 }
 
-fn profile_from_manifest(
+pub(crate) fn profile_from_manifest(
     manifest: crate::providers::manifest::ProviderManifest,
+    source: &str,
+    source_file: Option<String>,
 ) -> ManifestProfile {
     let level = manifest
         .effective_capability_level()
@@ -341,6 +359,11 @@ fn profile_from_manifest(
         custom_base_url: manifest.custom_base_url.unwrap_or(false),
         brand: manifest.brand,
         variant: manifest.variant,
+        source: source.to_owned(),
+        source_file,
+        schema_version: manifest.schema_version,
+        auth_methods: manifest.auth.clone(),
+        last_verified_at: capability.last_verified_at.clone(),
         level,
         account_types: capability.account_types,
         quota_units: capability.quota_units,
@@ -368,7 +391,11 @@ pub fn all_manifest_profiles(
         let scan = crate::providers::community::scan_community_manifests(&directory);
         skipped = scan.skipped;
         for pack in crate::providers::community::dedupe_community(scan.loaded) {
-            profiles.push(profile_from_manifest(pack.manifest));
+            let file_name = pack
+                .source_path
+                .file_name()
+                .map(|name| name.to_string_lossy().into_owned());
+            profiles.push(profile_from_manifest(pack.manifest, "community", file_name));
         }
     }
     (profiles, skipped)

@@ -1,0 +1,27 @@
+schemaVersion: 1
+id: acme-relay
+version: 1
+name: Acme Relay
+category: community
+region: global
+auth: [api_key]
+baseUrl: https://relay.acme.test/v1
+apiKeyHeader: Authorization
+endpoints:
+  models: /models
+  usage: /usage
+  reset: /reset
+mapping:
+  usage:
+    value: data.used
+    unit: token
+    role: used
+  reset:
+    value: data.reset_at
+    timestampFormat: unix_seconds
+capability:
+  level: L3
+  accountTypes: [api]
+  quotaUnits: [token]
+  targetWindows: [provider-defined]
+  priority: P2

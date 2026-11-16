@@ -26,6 +26,7 @@ use thiserror::Error;
 mod accounts;
 mod history;
 mod lan;
+mod manifest;
 mod notifications;
 mod refresh;
 mod settings;
@@ -34,6 +35,7 @@ mod usage;
 pub use accounts::*;
 pub use history::*;
 pub use lan::*;
+pub use manifest::*;
 pub use notifications::*;
 pub use refresh::*;
 pub use settings::*;
@@ -199,6 +201,11 @@ mod tests {
             custom_base_url: false,
             brand: None,
             variant: None,
+            source: "builtin".to_owned(),
+            source_file: None,
+            schema_version: crate::providers::manifest::MANIFEST_SCHEMA_VERSION,
+            auth_methods: vec!["api_key".to_owned()],
+            last_verified_at: None,
             level: "L3".to_owned(),
             account_types: vec!["prepaid".to_owned()],
             quota_units: vec!["currency".to_owned()],
@@ -221,6 +228,11 @@ mod tests {
                 "customBaseUrl": false,
                 "brand": null,
                 "variant": null,
+                "source": "builtin",
+                "sourceFile": null,
+                "schemaVersion": 1,
+                "authMethods": ["api_key"],
+                "lastVerifiedAt": null,
                 "level": "L3",
                 "accountTypes": ["prepaid"],
                 "quotaUnits": ["currency"],

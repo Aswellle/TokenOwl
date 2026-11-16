@@ -6,6 +6,8 @@ import type {
   HistorySummaryViewModel,
   NotificationPreferencesViewModel,
   ManifestProfileViewModel,
+  ManifestPlaygroundInput,
+  ManifestPlaygroundViewModel,
   NotificationViewModel,
   ProviderMatrixRowViewModel,
   RefreshSettings,
@@ -572,6 +574,11 @@ export function createMockBridge(): DashboardBridge {
         baseUrl,
         apiFormat: "openai-compatible",
         customBaseUrl: false,
+        source: "builtin",
+        sourceFile: null,
+        schemaVersion: 1,
+        authMethods: ["api_key"],
+        lastVerifiedAt: null,
         level,
         accountTypes: ["api"],
         quotaUnits: ["token"],
@@ -666,7 +673,56 @@ export function createMockBridge(): DashboardBridge {
         skipped: hasScenario("manifest-skipped")
           ? ["broken.yaml: 缺少必填字段 provider", "old-pack.yaml: 版本不受支持"]
           : [],
+        community: [],
       };
+    },
+    async manifestPlayground(input: ManifestPlaygroundInput) {
+      await new Promise((resolve) => setTimeout(resolve, latency()));
+      const base: ManifestPlaygroundViewModel = {
+        valid: false,
+        errors: [],
+        warnings: [],
+        declaredEndpoints: [],
+        metrics: [],
+        reset: null,
+      };
+      if (!input.manifestYaml.includes("id:")) {
+        base.errors.push("invalid manifest: missing id");
+        return base;
+      }
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(input.sampleBody);
+      } catch {
+        base.valid = true;
+        base.schemaVersion = 1;
+        base.id = "acme-relay";
+        base.declaredEndpoints = ["models", "usage"];
+        base.errors.push("invalid JSON response");
+        return base;
+      }
+      void parsed;
+      base.valid = true;
+      base.schemaVersion = 1;
+      base.id = "acme-relay";
+      base.capabilityLevel = "L3";
+      base.declaredEndpoints = ["models", "usage", "reset"];
+      if (input.endpoint === "usage") {
+        base.metrics.push({
+          metricId: "usage",
+          metricName: "usage",
+          unit: "token",
+          currency: null,
+          used: 42.5,
+          limit: null,
+          remaining: null,
+          status: "partial",
+        });
+      }
+      if (input.endpoint === "reset") {
+        base.reset = { resetAt: "2025-11-24T16:00:00Z", windowId: "weekly" };
+      }
+      return base;
     },
     async providerMatrix() {
       await new Promise((resolve) => setTimeout(resolve, latency()));
@@ -684,6 +740,8 @@ export function createMockBridge(): DashboardBridge {
         id,
         name,
         apiFormat: "openai-compatible",
+        authMethods: ["api_key"],
+        schemaVersion: 1,
         level,
         accountTypes,
         quotaUnits,

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { bridgeErrorCode } from "../../../lib/tauri";
 import { copy } from "../../../styles/copy";
 import type { DashboardBridge } from "../../../types";
 
@@ -36,8 +37,16 @@ export function ProxySection({ bridge }: { bridge: DashboardBridge }) {
         ok: true,
         text: trimmed === "" ? copy.proxy.cleared : copy.proxy.saved,
       });
-    } catch {
-      setStatus({ ok: false, text: copy.proxy.invalid });
+    } catch (error) {
+      // Two different failures live behind this button: a rejected URL (the
+      // backend's InvalidInput, with the fix named in the canned copy) and a
+      // credential-store outage — blaming the address for the latter would
+      // send the user editing a URL that is already fine.
+      const code = bridgeErrorCode(error);
+      setStatus({
+        ok: false,
+        text: code && code !== "InvalidInput" ? copy.proxy.storeFailed : copy.proxy.invalid,
+      });
     } finally {
       setBusy(false);
     }

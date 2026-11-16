@@ -47,10 +47,10 @@ describe("ProxySection", () => {
     await waitFor(() => expect(screen.getByText(/恢复直连/)).toBeInTheDocument());
   });
 
-  it("keeps the field editable and reports the failure when saving rejects", async () => {
+  it("keeps the field editable and names the fix when the backend rejects the URL", async () => {
     const bridge = makeBridge({
       setProxy: vi.fn(async () => {
-        throw new Error("invalid");
+        throw { code: "InvalidInput", message: "invalid account input: proxy URL is not a valid absolute URL" };
       }),
     });
     render(<ProxySection bridge={bridge} />);
@@ -59,6 +59,21 @@ describe("ProxySection", () => {
     fireEvent.click(screen.getByRole("button", { name: "保存代理设置" }));
 
     await waitFor(() => expect(screen.getByText(/代理地址无效/)).toBeInTheDocument());
+    expect(input).toBeEnabled();
+  });
+
+  it("blames the credential store, not the URL, when the store rejects the save", async () => {
+    const bridge = makeBridge({
+      setProxy: vi.fn(async () => {
+        throw { code: "Credential", message: "credential error: unavailable" };
+      }),
+    });
+    render(<ProxySection bridge={bridge} />);
+    const input = await screen.findByRole("textbox", { name: "网络代理" });
+    fireEvent.change(input, { target: { value: "http://127.0.0.1:7890" } });
+    fireEvent.click(screen.getByRole("button", { name: "保存代理设置" }));
+
+    await waitFor(() => expect(screen.getByText(/凭据库/)).toBeInTheDocument());
     expect(input).toBeEnabled();
   });
 });

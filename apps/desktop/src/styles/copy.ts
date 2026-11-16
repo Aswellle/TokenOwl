@@ -404,6 +404,8 @@ export const copy = {
     saved: "已保存，重启应用后生效。",
     cleared: "已清除代理，重启应用后恢复直连。",
     invalid: "代理地址无效：请使用 http:// 或 https:// 开头的完整 URL。",
+    storeFailed:
+      "代理设置未能写入系统凭据库，原设置未改变。请稍后重试；地址本身无需修改。",
   },
 
   lanTrust: {

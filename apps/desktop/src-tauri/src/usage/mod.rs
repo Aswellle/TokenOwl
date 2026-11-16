@@ -339,7 +339,7 @@ mod tests {
         );
         assert_eq!(seen[0].len(), MAX_LINE_BYTES);
         assert!(outcome.skipped.is_empty(), "nothing was oversized");
-        assert!(outcome.errors.is_empty());
+        assert_eq!(outcome.errors, Vec::<String>::new());
 
         seen.clear();
         outcome.skipped.clear();

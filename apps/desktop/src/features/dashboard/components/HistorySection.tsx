@@ -149,6 +149,7 @@ export function HistorySection({
   const [breakdown, setBreakdown] = useState<Map<number, HistoryDayAccountViewModel[]>>(new Map());
   const [failed, setFailed] = useState(false);
   const cellRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  const heatmapRef = useRef<HTMLDivElement | null>(null);
   const [focusIndex, setFocusIndex] = useState<number | null>(null);
 
   const load = useCallback(async () => {
@@ -170,6 +171,19 @@ export function HistorySection({
   useEffect(() => {
     void load();
   }, [load, reloadSignal]);
+
+  // The heatmap is oldest-to-newest and can overflow at narrow widths. The
+  // useful end is today, so start at the right edge instead of making the
+  // user scroll past six months to reach the current week.
+  useEffect(() => {
+    if (!summary) return;
+    const node = heatmapRef.current;
+    if (!node) return;
+    const frame = window.requestAnimationFrame(() => {
+      node.scrollLeft = node.scrollWidth;
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [summary]);
 
   const cuts = useMemo(() => computeCuts(summary?.days ?? []), [summary]);
   const maxTokens = useMemo(
@@ -414,6 +428,7 @@ export function HistorySection({
                 role="group"
                 aria-label={copy.a11y.heatmap}
                 tabIndex={0}
+                ref={heatmapRef}
                 onKeyDown={moveFocus}
               >
                 <div

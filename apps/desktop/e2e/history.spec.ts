@@ -27,6 +27,15 @@ test.describe("history", () => {
     const count = await cells.count();
     expect(count).toBeGreaterThanOrEqual(182);
     expect(count).toBeLessThanOrEqual(190);
+    // The useful edge is today, not six months ago: when the grid overflows
+    // the heatmap opens scrolled to the right.
+    await expect
+      .poll(() =>
+        page
+          .locator(".heatmap__scroll")
+          .evaluate((element) => element.scrollLeft + element.clientWidth >= element.scrollWidth - 1),
+      )
+      .toBe(true);
     await expect(page.locator(".heatmap__legend .heat-swatch")).toHaveCount(5);
     await expect(page.locator(".heatmap__hint")).toHaveText("用方向键查看每一天的用量");
   });

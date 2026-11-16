@@ -196,9 +196,9 @@ function EmptyState({
       <span className={`empty__mark${offline ? " empty__mark--offline" : ""}`} aria-hidden="true">
         <IconOwl size={40} strokeWidth={1.4} />
       </span>
-      <h3 className="empty__title">
+      <h2 className="empty__title">
         {offline ? copy.notices.offlineTitle : copy.quota.firstRunTitle}
-      </h3>
+      </h2>
       <p className="empty__body">{offline ? copy.notices.offlineBody : copy.form.intro}</p>
       <div className="empty__actions">
         {offline ? (
@@ -225,6 +225,7 @@ export interface AppProps {
 
 export function App({ bridge = tauriBridge }: AppProps = {}) {
   const viewRef = useRef<ViewId>("overview");
+  const contentRef = useRef<HTMLElement | null>(null);
   const [view, setView] = useState<ViewId>("overview");
   const [direction, setDirection] = useState(1);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -339,6 +340,14 @@ export function App({ bridge = tauriBridge }: AppProps = {}) {
     const timer = window.setInterval(() => setNow(Date.now()), 30_000);
     return () => window.clearInterval(timer);
   }, []);
+
+  // The content area is the only scroller. Switching views keeps its
+  // scrollTop by default, so navigating away from a long settings/history
+  // page landed the next view mid-document (its summary cards clipped above
+  // the viewport). Every view change starts at the top.
+  useEffect(() => {
+    if (contentRef.current) contentRef.current.scrollTop = 0;
+  }, [view, selectedId]);
 
   const summary = useMemo(() => {
     const healthy = accounts.filter((account) => account.status === "healthy").length;
@@ -466,7 +475,7 @@ export function App({ bridge = tauriBridge }: AppProps = {}) {
         </nav>
       )}
 
-      <main className="content" aria-label={copy.a11y.dashboardRegion}>
+      <main className="content" aria-label={copy.a11y.dashboardRegion} ref={contentRef}>
         <AnimatePresence initial={false}>
           {notice && !(phase === "offline" && accounts.length === 0) && (
             <Notice key="notice" tone={notice.tone}>

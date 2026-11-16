@@ -20,8 +20,9 @@ pub const DIAGNOSTICS_SCHEMA_VERSION: u32 = 1;
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DiagnosticsPreviewView {
-    /// FNV-1a of the exact JSON. Export accepts only this token, so a changed
-    /// bundle cannot be written without a fresh review.
+    /// FNV-1a of the timestamp-free document. Export accepts only this token,
+    /// so a changed bundle cannot be written without a fresh review; the
+    /// exported copy carries its own `generatedAt`.
     pub token: String,
     pub generated_at: u64,
     pub json: String,
@@ -149,9 +150,8 @@ fn build_bundle(runtime: &AppRuntime) -> Result<(String, String), CommandError> 
         }));
     }
 
-    let bundle = serde_json::json!({
+    let mut bundle = serde_json::json!({
         "schemaVersion": DIAGNOSTICS_SCHEMA_VERSION,
-        "generatedAt": unix_seconds(),
         "app": {
             "version": env!("CARGO_PKG_VERSION"),
             "os": std::env::consts::OS,
@@ -173,10 +173,18 @@ fn build_bundle(runtime: &AppRuntime) -> Result<(String, String), CommandError> 
         },
         "accounts": account_views,
     });
+    // The token covers the stable document only: `generatedAt` changes on
+    // every build, so hashing it would make every export fail the preview
+    // check one second later. Serialize the timestamp-free value, hash it,
+    // then add the timestamp for the displayed/exported document.
+    let stable = serde_json::to_string(&bundle).map_err(|error| {
+        CommandError::InvalidInput(format!("cannot encode diagnostics: {error}"))
+    })?;
+    let token = format!("{:016x}", crate::usage::fnv1a64(stable.as_bytes()));
+    bundle["generatedAt"] = serde_json::json!(unix_seconds());
     let json = serde_json::to_string_pretty(&bundle).map_err(|error| {
         CommandError::InvalidInput(format!("cannot encode diagnostics: {error}"))
     })?;
-    let token = format!("{:016x}", crate::usage::fnv1a64(json.as_bytes()));
     Ok((json, token))
 }
 
@@ -192,8 +200,10 @@ pub fn diagnostics_preview(
     })
 }
 
-/// Writes the previewed bundle. A mismatched token means the underlying state
+/// Writes the reviewed bundle. A mismatched token means the underlying state
 /// changed since the preview; the user must review the new document first.
+/// The written document carries a fresh `generatedAt`; everything the token
+/// covers is identical.
 #[tauri::command]
 pub fn diagnostics_export(
     expected_token: String,
@@ -395,6 +405,20 @@ mod tests {
     }
 
     #[test]
+    fn the_preview_token_is_stable_across_generation_times() {
+        let (runtime, dir) = runtime("stable-token");
+        let (first_json, first) = build_bundle(&runtime).expect("first");
+        std::thread::sleep(std::time::Duration::from_millis(1_100));
+        let (second_json, second) = build_bundle(&runtime).expect("second");
+        assert_eq!(first, second, "the timestamp must not change the token");
+        assert_ne!(
+            first_json, second_json,
+            "the displayed document still carries a fresh timestamp"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn export_requires_the_preview_token() {
         let (runtime, dir) = runtime("token");
         let (_json, token) = build_bundle(&runtime).expect("bundle");
@@ -410,8 +434,20 @@ mod tests {
         let (json, token) = build_bundle(&runtime).expect("bundle");
         let result = export_for(&runtime, &token).expect("export");
         let written = std::fs::read_to_string(&result.path).expect("read");
-        assert_eq!(written, json);
-        assert_eq!(result.bytes, json.len());
+        // `generatedAt` is intentionally fresh on every build; the token
+        // covers the stable document, so the rest must match exactly.
+        let mut preview: serde_json::Value = serde_json::from_str(&json).expect("preview json");
+        let mut exported: serde_json::Value = serde_json::from_str(&written).expect("export json");
+        preview
+            .as_object_mut()
+            .expect("object")
+            .remove("generatedAt");
+        exported
+            .as_object_mut()
+            .expect("object")
+            .remove("generatedAt");
+        assert_eq!(preview, exported);
+        assert_eq!(result.bytes, written.len());
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

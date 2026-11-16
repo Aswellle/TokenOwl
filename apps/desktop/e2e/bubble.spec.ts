@@ -259,6 +259,9 @@ test.describe("bubble form", () => {
     await expect(page.locator(".quota-rings__track")).toHaveCount(3);
     // The centre mark steps down to keep a clear margin to the inner band.
     await expect(page.locator(".bubble__mark .provider-icon")).toHaveCSS("width", "15px");
+    // The light chip tightens to 1px at three rings so it cannot cover the
+    // innermost band.
+    await expect(page.locator(".bubble__mark")).toHaveCSS("padding", "1px");
   });
 
   test("unknown windows keep track-only rings and never fake a zero arc", async ({ page }) => {

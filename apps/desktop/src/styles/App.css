@@ -46,6 +46,10 @@
   /* Interactive accent (system blue) + TokenOwl brand teal. */
   --accent: #0a7aff;
   --accent-ink: #0063e1;
+  /* Solid primary-button fills carry white text and must reach 4.5:1; the
+     raw accent is only 4.0:1. Hover goes one step darker. */
+  --accent-button: #0063e1;
+  --accent-button-hover: #0052bd;
   --accent-soft: rgba(10, 122, 255, 0.12);
   --brand: #0eb5a3;
   --brand-ink: #0a8d80;
@@ -110,6 +114,8 @@
 
     --accent: #0a84ff;
     --accent-ink: #4da3ff;
+    --accent-button: #0a63c9;
+    --accent-button-hover: #084f9f;
     --accent-soft: rgba(10, 132, 255, 0.18);
     --brand: #2fd5c0;
     --brand-ink: #5fdcc9;
@@ -454,13 +460,13 @@ button:disabled {
   min-height: 34px;
   padding: 0 14px;
   color: #fff;
-  background: var(--accent);
+  background: var(--accent-button);
   font-weight: 600;
   box-shadow: 0 1px 2px rgba(10, 122, 255, 0.35);
 }
 
 .btn--primary:hover:not(:disabled) {
-  background: var(--accent-ink);
+  background: var(--accent-button-hover);
 }
 
 .btn--danger {
@@ -1555,6 +1561,22 @@ button:disabled {
   filter: drop-shadow(0 1px 2px rgba(9, 32, 28, 0.45));
 }
 
+/* A provider mark sits on the dark watch-style dial; monochrome brand marks
+   (and the neutral key fallback) disappeared into it. The chip gives every
+   mark a stable light ground while the rings keep the colour. */
+.bubble__mark:not(.bubble__mark--solo) {
+  padding: 2px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.28);
+}
+
+/* Three rings tighten the inner hole to 18px; a 1px rim keeps the 15px mark
+   clear of the ring instead of covering it. */
+.bubble__mark[data-ring-count="3"] {
+  padding: 1px;
+}
+
 /* Empty bubble: the owl is the whole show — sized to fill the circle without
    transforms (the svg's own 24-unit viewBox already pads the glyph ~30%). */
 .bubble__mark--solo {
@@ -2390,11 +2412,13 @@ button:disabled {
   align-items: center;
   justify-content: center;
   width: 62px;
-  height: 18px;
+  /* 24px is the WCAG 2.2 minimum target; the old 18px strip was easy to
+     miss with a pointer. */
+  height: 24px;
   padding: 0;
   border: 1px solid var(--hairline-strong);
   border-bottom: 0;
-  border-radius: 9px 9px 0 0;
+  border-radius: 12px 12px 0 0;
   background: var(--surface-hover);
   color: var(--ink-2);
   cursor: pointer;

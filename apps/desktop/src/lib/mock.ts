@@ -330,6 +330,7 @@ export function createMockBridge(): DashboardBridge {
   // Local usage sources the preview has opted into; starts off, like the
   // real setting's safe default.
   let mockLocalUsageEnabled: string[] = [];
+  let mockLocalUsageCleared = false;
   let notifications = demoNotifications(Date.now());
   let preferences: NotificationPreferencesViewModel = { ...demoPreferences };
   let refreshSettings: RefreshSettings = { adaptive: false, cadenceMinutes: 0 };
@@ -397,9 +398,37 @@ export function createMockBridge(): DashboardBridge {
       if (hasScenario("key-fail")) throw new Error("模拟密钥更新失败");
       const target = accounts.find((account) => account.id === accountId);
       if (!target) throw new Error("模拟账户不存在");
+      if (hasScenario("key-reject")) {
+        return {
+          outcome: "rejected" as const,
+          errorCode: "AuthRequired",
+          retryAt: null,
+          account: structuredClone(target),
+        };
+      }
+      if (hasScenario("key-indeterminate")) {
+        return {
+          outcome: "validation_indeterminate" as const,
+          errorCode: "RateLimited",
+          retryAt: null,
+          account: structuredClone(target),
+        };
+      }
+      // A verified candidate is committed: the row leaves the recovery state.
+      const healthy: AccountViewModel = {
+        ...target,
+        status: "healthy",
+        freshness: "fresh",
+        errorCode: null,
+        errorMessage: null,
+        diagnostics: { ...target.diagnostics, status: "healthy", errorCode: null },
+      };
+      accounts = accounts.map((account) => (account.id === accountId ? healthy : account));
       return {
         outcome: "validated_and_saved" as const,
-        account: structuredClone(target),
+        errorCode: null,
+        retryAt: null,
+        account: structuredClone(healthy),
       };
     },
     async localUsageSources() {
@@ -437,25 +466,52 @@ export function createMockBridge(): DashboardBridge {
       }
     },
     async scanLocalUsage() {
+      mockLocalUsageCleared = false;
       return [];
     },
     async localUsageSummary() {
+      if (!hasScenario("local-usage") || mockLocalUsageEnabled.length === 0 || mockLocalUsageCleared) {
+        return {
+          days: [],
+          totals: {
+            dayStartUnix: 0,
+            model: "total",
+            inputTokens: 0,
+            outputTokens: 0,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 0,
+            eventCount: 0,
+          },
+          sourceCounts: [],
+        };
+      }
       return {
-        days: [],
+        days: [
+          {
+            dayStartUnix: Math.floor(Date.now() / 1000) - 86_400,
+            model: "claude-sonnet",
+            inputTokens: 1234,
+            outputTokens: 234,
+            cacheReadTokens: 50,
+            cacheWriteTokens: 10,
+            eventCount: 2,
+          },
+        ],
         totals: {
           dayStartUnix: 0,
           model: "total",
-          inputTokens: 0,
-          outputTokens: 0,
-          cacheReadTokens: 0,
-          cacheWriteTokens: 0,
-          eventCount: 0,
+          inputTokens: 1234,
+          outputTokens: 234,
+          cacheReadTokens: 50,
+          cacheWriteTokens: 10,
+          eventCount: 2,
         },
-        sourceCounts: [],
+        sourceCounts: [["claude-code", 2]] as Array<[string, number]>,
       };
     },
     async clearLocalUsage() {
-      return 0;
+      mockLocalUsageCleared = true;
+      return 2;
     },
     async exportHistory() {
       return { path: "C:\mock\export.csv", rows: 0 };
@@ -574,7 +630,11 @@ export function createMockBridge(): DashboardBridge {
         null,
         2,
       );
-      return { token: "0000000000000000", generatedAt: Math.floor(Date.now() / 1000), json };
+      return {
+        token: hasScenario("diagnostics-stale") ? "1111111111111111" : "0000000000000000",
+        generatedAt: Math.floor(Date.now() / 1000),
+        json,
+      };
     },
     async exportDiagnostics(expectedToken: string): Promise<DiagnosticsExportResult> {
       await new Promise((resolve) => setTimeout(resolve, latency()));

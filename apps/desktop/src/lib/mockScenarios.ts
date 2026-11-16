@@ -376,6 +376,27 @@ function applyAccountFlags(accounts: AccountViewModel[], now: number): AccountVi
       ...next.slice(1),
     ];
   }
+  if (hasScenario("auth-error")) {
+    const first = next[0];
+    next = [
+      {
+        ...first,
+        status: "error",
+        freshness: "expired",
+        errorCode: "AuthExpired",
+        errorMessage: "provider rejected the stored credential",
+        diagnostics: {
+          ...first.diagnostics,
+          status: "failed",
+          errorCode: "AuthExpired",
+          httpStatus: 401,
+          endpointKind: "quota",
+          consecutiveFailures: 2,
+        },
+      },
+      ...next.slice(1),
+    ];
+  }
   if (hasScenario("error-no-snapshots")) {
     next = next.map((account) => ({
       ...account,

@@ -6,9 +6,10 @@ use super::{
     HealthGrade, LanConsentRecord, LocalRepository, OpenAiCompatibleAdapter,
     OpenAiCompatibleConfig, PathBuf, ProviderError, QuotaUnit, RefreshStatus, Serialize,
     SnapshotStatus, SnapshotViewDto, State, StorageError, authorize_lan_target, is_loopback_host,
-    load_lan_trusts, notify_account_events, proxy_setting, refresh_account, remaining_ratio,
-    resolves_to_lan, unix_seconds, worst_grade,
+    load_lan_trusts, notify_account_events, proxy_routing_from, proxy_setting, refresh_account,
+    remaining_ratio, resolves_to_lan, unix_seconds, worst_grade,
 };
+use crate::networking::ProxyState;
 
 pub(super) const DEFAULT_QUOTA_ENDPOINT: &str = "/usage";
 
@@ -26,6 +27,9 @@ pub struct AppRuntime {
     pub(crate) lan_consents: LanConsentLedger,
     /// Per-account single-flight gate across every refresh entrance.
     pub(crate) refresh_gate: InFlightGate,
+    /// Live proxy routing shared by every adapter: a settings change takes
+    /// effect on the next request instead of at the next launch.
+    pub proxy_state: Arc<ProxyState>,
 }
 
 /// Per-account single-flight gate across the refresh entrances (background
@@ -126,20 +130,30 @@ impl AppRuntime {
         if let Some(parent) = database_path.parent() {
             std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
         }
-        LocalRepository::open(&database_path).map_err(|error| error.to_string())?;
+        let repository =
+            LocalRepository::open(&database_path).map_err(|error| error.to_string())?;
         // The proxy URL (which may embed proxy credentials) lives in the OS
         // credential store under its own reference, so it never lands in
-        // SQLite or a log. A keyring failure leaves the transport direct —
-        // availability beats guessing at a half-read secret.
+        // SQLite or a log. A keyring failure leaves the custom route without
+        // a URL — availability beats guessing at a half-read secret.
         let proxy = proxy_setting(&credentials);
-        let adapter =
-            OpenAiCompatibleAdapter::with_proxy(proxy.clone(), OpenAiCompatibleConfig::default())
-                .map_err(|error| error.to_string())?;
-        let anthropic =
-            AnthropicAdapter::with_proxy(proxy.clone(), OpenAiCompatibleConfig::default())
-                .map_err(|error| error.to_string())?;
-        let google = GoogleAiAdapter::with_proxy(proxy, OpenAiCompatibleConfig::default())
-            .map_err(|error| error.to_string())?;
+        // Region routing is a non-secret preference and lives in settings.
+        let proxy_state = Arc::new(ProxyState::new(proxy_routing_from(&repository), proxy));
+        let adapter = OpenAiCompatibleAdapter::with_shared_proxy(
+            OpenAiCompatibleConfig::default(),
+            Arc::clone(&proxy_state),
+        )
+        .map_err(|error| error.to_string())?;
+        let anthropic = AnthropicAdapter::with_shared_proxy(
+            OpenAiCompatibleConfig::default(),
+            Arc::clone(&proxy_state),
+        )
+        .map_err(|error| error.to_string())?;
+        let google = GoogleAiAdapter::with_shared_proxy(
+            OpenAiCompatibleConfig::default(),
+            Arc::clone(&proxy_state),
+        )
+        .map_err(|error| error.to_string())?;
         Ok(Self {
             database_path,
             credentials,
@@ -149,6 +163,7 @@ impl AppRuntime {
             data_dir,
             lan_consents: LanConsentLedger::default(),
             refresh_gate: InFlightGate::default(),
+            proxy_state,
             freshness_policy: FreshnessPolicy {
                 fresh_for: std::time::Duration::from_secs(600),
                 stale_after: std::time::Duration::from_secs(1800),

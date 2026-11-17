@@ -1,6 +1,7 @@
 //! Settings command surface, split out of the former single-file module.
 
-use super::{AppRuntime, Arc, CommandError, CredentialStore, State};
+use super::{AppRuntime, Arc, CommandError, CredentialStore, LocalRepository, State};
+use crate::networking::{ProxyRoute, ProxyRouting};
 
 /// OS credential-store reference for the user-configured proxy URL. It may
 /// embed proxy credentials (`http://user:pass@host:port`), so it rides the
@@ -87,6 +88,56 @@ pub(super) fn restore_masked_password(submitted: &str, stored: Option<&str>) -> 
 /// Returns the configured proxy URL for the settings page, with any embedded
 /// password masked so the secret never re-enters the webview. `None` means
 /// direct.
+/// Settings key for the per-region proxy policy. Non-secret: it names routes,
+/// never a URL (the URL itself stays in the credential store).
+pub(super) const PROXY_ROUTING_KEY: &str = "proxy_routing";
+
+/// Reads the persisted routing policy. A missing or malformed value means the
+/// safe defaults — domestic direct, international through the system proxy —
+/// so a corrupted row can never silently route domestic traffic abroad.
+pub(super) fn proxy_routing_from(repository: &LocalRepository) -> ProxyRouting {
+    repository
+        .get_setting(PROXY_ROUTING_KEY)
+        .ok()
+        .flatten()
+        .and_then(|value| serde_json::from_value(value).ok())
+        .unwrap_or_default()
+}
+
+#[tauri::command]
+pub fn proxy_routing_get(state: State<'_, Arc<AppRuntime>>) -> Result<ProxyRouting, CommandError> {
+    Ok(state.proxy_state.routing())
+}
+
+/// Persists and applies the routing policy immediately: the transport reads
+/// it per request, so no restart is involved.
+#[tauri::command]
+pub fn proxy_routing_set(
+    domestic: ProxyRoute,
+    international: ProxyRoute,
+    state: State<'_, Arc<AppRuntime>>,
+) -> Result<ProxyRouting, CommandError> {
+    let routing = ProxyRouting {
+        domestic,
+        international,
+    };
+    if routing.domestic == ProxyRoute::Custom && proxy_setting(&state.credentials).is_none() {
+        return Err(CommandError::InvalidInput(
+            "the custom route needs a proxy URL; save one first".to_owned(),
+        ));
+    }
+    if routing.international == ProxyRoute::Custom && proxy_setting(&state.credentials).is_none() {
+        return Err(CommandError::InvalidInput(
+            "the custom route needs a proxy URL; save one first".to_owned(),
+        ));
+    }
+    let value = serde_json::to_value(routing)
+        .map_err(|error| CommandError::InvalidInput(error.to_string()))?;
+    state.repository()?.set_setting(PROXY_ROUTING_KEY, &value)?;
+    state.proxy_state.set_routing(routing);
+    Ok(routing)
+}
+
 #[tauri::command]
 pub fn proxy_get(state: State<'_, Arc<AppRuntime>>) -> Result<Option<String>, CommandError> {
     Ok(proxy_setting(&state.credentials)
@@ -94,22 +145,42 @@ pub fn proxy_get(state: State<'_, Arc<AppRuntime>>) -> Result<Option<String>, Co
         .map(mask_proxy_password))
 }
 
-/// Stores or clears the proxy URL. Takes effect on the next app start — the
-/// adapters build their HTTP client once at boot — and the frontend says so.
+/// Stores or clears the proxy URL and applies it immediately: the custom
+/// route resolves the URL per request, so no restart is needed.
 #[tauri::command]
 pub fn proxy_set(
     url: Option<String>,
     state: State<'_, Arc<AppRuntime>>,
 ) -> Result<(), CommandError> {
-    match url {
-        Some(value) => {
-            let stored = proxy_setting(&state.credentials);
-            let merged = restore_masked_password(value.trim(), stored.as_deref());
-            let validated = validate_proxy_url(&merged)?;
-            state.credentials.set(PROXY_CREDENTIAL_REF, &validated)?;
-        }
-        None => {
-            state.credentials.delete(PROXY_CREDENTIAL_REF)?;
+    if let Some(value) = url {
+        let stored = proxy_setting(&state.credentials);
+        let merged = restore_masked_password(value.trim(), stored.as_deref());
+        let validated = validate_proxy_url(&merged)?;
+        state.credentials.set(PROXY_CREDENTIAL_REF, &validated)?;
+        state.proxy_state.set_custom_url(Some(validated));
+    } else {
+        state.credentials.delete(PROXY_CREDENTIAL_REF)?;
+        state.proxy_state.set_custom_url(None);
+        // A cleared URL leaves the custom route without a target; fall
+        // back to direct so no request silently bypasses the intent.
+        let routing = state.proxy_state.routing();
+        if routing.domestic == ProxyRoute::Custom || routing.international == ProxyRoute::Custom {
+            let fallback = ProxyRouting {
+                domestic: if routing.domestic == ProxyRoute::Custom {
+                    ProxyRoute::Direct
+                } else {
+                    routing.domestic
+                },
+                international: if routing.international == ProxyRoute::Custom {
+                    ProxyRoute::Direct
+                } else {
+                    routing.international
+                },
+            };
+            let value = serde_json::to_value(fallback)
+                .map_err(|error| CommandError::InvalidInput(error.to_string()))?;
+            state.repository()?.set_setting(PROXY_ROUTING_KEY, &value)?;
+            state.proxy_state.set_routing(fallback);
         }
     }
     Ok(())
@@ -142,4 +213,40 @@ pub fn dock_state_set(
         .repository()?
         .set_setting(DOCK_COLLAPSED_KEY, &serde_json::Value::Bool(collapsed))?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn missing_routing_means_domestic_direct_and_international_system() {
+        let repository = LocalRepository::open_in_memory().expect("in-memory repository");
+        assert_eq!(proxy_routing_from(&repository), ProxyRouting::default());
+    }
+
+    #[test]
+    fn malformed_routing_falls_back_to_the_safe_defaults() {
+        let repository = LocalRepository::open_in_memory().expect("in-memory repository");
+        repository
+            .set_setting(PROXY_ROUTING_KEY, &serde_json::json!({ "domestic": 7 }))
+            .expect("store malformed value");
+        assert_eq!(proxy_routing_from(&repository), ProxyRouting::default());
+    }
+
+    #[test]
+    fn a_persisted_policy_round_trips() {
+        let repository = LocalRepository::open_in_memory().expect("in-memory repository");
+        let routing = ProxyRouting {
+            domestic: ProxyRoute::System,
+            international: ProxyRoute::Custom,
+        };
+        repository
+            .set_setting(
+                PROXY_ROUTING_KEY,
+                &serde_json::to_value(routing).expect("encode"),
+            )
+            .expect("store");
+        assert_eq!(proxy_routing_from(&repository), routing);
+    }
 }

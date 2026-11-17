@@ -15,8 +15,9 @@ use crate::domain::provider::{
     ProviderAdapter, ProviderDescriptor, ProviderError, ProviderErrorKind, ProviderResult,
     QuotaSnapshot, QuotaSnapshotSet, SnapshotStatus, UsagePoint, UsageRange,
 };
-use crate::networking::{HttpClient, HttpClientConfig};
+use crate::networking::{HttpClient, HttpClientConfig, ProxyState};
 use reqwest::header::{HeaderMap, HeaderValue};
+use std::sync::Arc;
 use std::time::Duration;
 use url::Url;
 
@@ -85,6 +86,27 @@ impl GoogleAiAdapter {
         Self::new_with_proxy(AdapterLimits::default(), config, proxy)
     }
 
+    /// [`Self::new`] sharing the application's live proxy policy: route
+    /// selection (direct / system / custom) is read per request, so a
+    /// settings change applies without rebuilding the adapter.
+    pub fn with_shared_proxy(
+        config: OpenAiCompatibleConfig,
+        state: Arc<ProxyState>,
+    ) -> ProviderResult<Self> {
+        let limits = AdapterLimits::default();
+        if limits.timeout.is_zero() || limits.max_response_bytes == 0 {
+            return Err(ProviderError::new(
+                ProviderErrorKind::ConfigInvalid,
+                "HTTP timeout and response limit must be positive",
+            ));
+        }
+        let client = HttpClient::with_state(
+            HttpClientConfig::from_adapter_limits(limits.timeout, limits.max_response_bytes),
+            Some(state),
+        )?;
+        Ok(Self { client, config })
+    }
+
     /// Resolves the config a request must use: the account's own config when
     /// the caller supplied one, falling back to the construction config only
     /// for direct adapter use (tests, tools). `AppRuntime` constructs these
@@ -102,12 +124,12 @@ impl GoogleAiAdapter {
     ) -> ProviderResult<ProbeOutcome> {
         let url = endpoint_url(config)?;
         let headers = request_headers(config, credentials)?;
-        let request = self
-            .client
+        let http = self.client.route(&config.region);
+        let request = http
             .get(url)
             .headers(headers)
             .header("accept", "application/json");
-        let response = self.client.send_capped(request).await?;
+        let response = http.send_capped(request).await?;
         let status = response.status;
         match status {
             200..=299 => Ok(ProbeOutcome::Healthy),

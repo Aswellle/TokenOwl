@@ -12,8 +12,9 @@ use crate::domain::provider::{
     ProviderErrorKind, ProviderResult, QuotaSnapshot, QuotaSnapshotSet, SnapshotStatus, UsagePoint,
     UsageRange,
 };
-use crate::networking::{HttpClient, HttpClientConfig};
+use crate::networking::{HttpClient, HttpClientConfig, ProxyState};
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
+use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use url::Url;
 
@@ -94,6 +95,31 @@ impl OpenAiCompatibleAdapter {
         config: OpenAiCompatibleConfig,
     ) -> ProviderResult<Self> {
         Self::new_with_proxy(AdapterLimits::default(), config, proxy)
+    }
+
+    /// [`Self::new`] sharing the application's live proxy policy: route
+    /// selection (direct / system / custom) is read per request, so a
+    /// settings change applies without rebuilding the adapter.
+    pub fn with_shared_proxy(
+        config: OpenAiCompatibleConfig,
+        state: Arc<ProxyState>,
+    ) -> ProviderResult<Self> {
+        let limits = AdapterLimits::default();
+        if limits.timeout.is_zero() || limits.max_response_bytes == 0 {
+            return Err(ProviderError::new(
+                ProviderErrorKind::ConfigInvalid,
+                "HTTP timeout and response limit must be positive",
+            ));
+        }
+        let client = HttpClient::with_state(
+            HttpClientConfig::from_adapter_limits(limits.timeout, limits.max_response_bytes),
+            Some(state),
+        )?;
+        Ok(Self {
+            client,
+            limits,
+            config,
+        })
     }
 
     pub fn limits(&self) -> AdapterLimits {
@@ -281,12 +307,12 @@ impl OpenAiCompatibleAdapter {
         // Do not send a body or query containing secrets. Some compatible
         // providers require the account/model in metadata; those are
         // configured as URL paths.
-        let request = self
-            .client
+        let http = self.client.route(&config.region);
+        let request = http
             .get(url)
             .headers(headers)
             .header("accept", "application/json");
-        let outcome = self.client.send_capped(request).await;
+        let outcome = http.send_capped(request).await;
         match outcome {
             Ok(response) => {
                 // Balance endpoints use a dedicated envelope parser first
@@ -339,12 +365,12 @@ impl OpenAiCompatibleAdapter {
             Ok(headers) => headers,
             Err(error) => return ResetFetch::Failed(attributed(error)),
         };
-        let request = self
-            .client
+        let http = self.client.route(&config.region);
+        let request = http
             .get(url)
             .headers(headers)
             .header("accept", "application/json");
-        let response = match self.client.send_capped(request).await {
+        let response = match http.send_capped(request).await {
             Ok(response) => response,
             Err(error) => return ResetFetch::Failed(attributed(error)),
         };
@@ -460,12 +486,12 @@ impl OpenAiCompatibleAdapter {
                 return probe;
             }
         };
-        let request = self
-            .client
+        let http = self.client.route(&config.region);
+        let request = http
             .get(url)
             .headers(headers)
             .header("accept", "application/json");
-        match self.client.send_capped(request).await {
+        match http.send_capped(request).await {
             Ok(response) => {
                 let outcome = match response.status {
                     200..=299
@@ -608,12 +634,12 @@ impl OpenAiCompatibleAdapter {
     ) -> ProviderResult<ProbeOutcome> {
         let url = endpoint_url(config, endpoint)?;
         let headers = request_headers(config, credentials)?;
-        let request = self
-            .client
+        let http = self.client.route(&config.region);
+        let request = http
             .get(url)
             .headers(headers)
             .header("accept", "application/json");
-        let outcome = self.client.send_capped(request).await;
+        let outcome = http.send_capped(request).await;
         Ok(match outcome {
             Ok(response) => classify_probe_response(&response),
             Err(error) => ProbeOutcome::Indeterminate(error),

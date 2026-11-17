@@ -1305,6 +1305,8 @@ pub fn run() {
             commands::lan_consent_begin,
             commands::proxy_get,
             commands::proxy_set,
+            commands::proxy_routing_get,
+            commands::proxy_routing_set,
             commands::lan_trust_list,
             commands::lan_trust_add,
             commands::lan_trust_remove,

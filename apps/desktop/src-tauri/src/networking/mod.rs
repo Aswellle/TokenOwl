@@ -6,9 +6,11 @@
 //! being re-implemented per adapter. Adapters keep their own
 //! `AdapterLimits` (per-provider timeout/size defaults) and feed them in via
 //! [`HttpClientConfig::from_adapter_limits`].
-use crate::domain::provider::{ProviderError, ProviderErrorKind, ProviderResponse};
+use crate::domain::provider::{ProviderError, ProviderErrorKind, ProviderRegion, ProviderResponse};
 use reqwest::header::HeaderMap;
 use reqwest::{Client, RequestBuilder};
+use serde::{Deserialize, Serialize};
+use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
 /// HTTP client configuration.
@@ -24,12 +26,118 @@ pub struct HttpClientConfig {
     /// surfaced to the caller instead of being followed, so credentials in
     /// request headers can never leak to a second host.
     pub follow_redirects: bool,
-    /// Proxy policy, explicit by design. `None` disables proxies entirely —
-    /// environment variables such as `HTTP_PROXY` are ignored — while `Some`
-    /// routes through exactly that proxy. Reqwest's implicit environment
-    /// proxy detection is deliberately opted out of so transport behavior is
-    /// deterministic and testable.
+    /// Explicit proxy URL, used by [`ProxyRoute::Custom`]. `None` means the
+    /// custom route is unavailable; the route itself still decides whether
+    /// traffic is direct, system-proxied, or sent here.
     pub proxy: Option<String>,
+    /// Per-region proxy routing. Defaults to direct transport (tests and
+    /// adapters built without an app policy never pick up an ambient proxy);
+    /// the application supplies the user's policy through a shared
+    /// [`ProxyState`].
+    pub routing: ProxyRouting,
+}
+
+/// How one request leaves the machine.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ProxyRoute {
+    /// Connect straight to the provider.
+    #[default]
+    Direct,
+    /// Whatever the operating system is configured to use (Windows Internet
+    /// Settings, or the environment on other platforms).
+    System,
+    /// The explicit proxy URL the user stored.
+    Custom,
+}
+
+/// Proxy policy split by provider region: domestic services usually need a
+/// direct connection while international ones need the system proxy, and
+/// neither should interfere with the other.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProxyRouting {
+    pub domestic: ProxyRoute,
+    pub international: ProxyRoute,
+}
+
+impl Default for ProxyRouting {
+    fn default() -> Self {
+        Self {
+            domestic: ProxyRoute::Direct,
+            international: ProxyRoute::System,
+        }
+    }
+}
+
+impl ProxyRouting {
+    pub fn route_for(&self, region: &ProviderRegion) -> ProxyRoute {
+        match region {
+            ProviderRegion::China => self.domestic,
+            // Every other declared region — and any provider that declares
+            // none — is treated as international.
+            _ => self.international,
+        }
+    }
+
+    /// The legacy single-proxy semantics: one URL for every request.
+    fn single_proxy() -> Self {
+        Self {
+            domestic: ProxyRoute::Custom,
+            international: ProxyRoute::Custom,
+        }
+    }
+}
+
+/// Live proxy policy shared by every adapter. The transport reads it per
+/// request, so changing a proxy setting applies without restarting the app
+/// and without rebuilding any client.
+#[derive(Debug)]
+pub struct ProxyState {
+    routing: RwLock<ProxyRouting>,
+    custom_url: RwLock<Option<String>>,
+}
+
+impl ProxyState {
+    pub fn new(routing: ProxyRouting, custom_url: Option<String>) -> Self {
+        Self {
+            routing: RwLock::new(routing),
+            custom_url: RwLock::new(custom_url),
+        }
+    }
+
+    /// A poisoned lock degrades to the safe policy (direct transport)
+    /// instead of panicking inside a network call.
+    pub fn routing(&self) -> ProxyRouting {
+        self.routing.read().map_or(
+            ProxyRouting {
+                domestic: ProxyRoute::Direct,
+                international: ProxyRoute::Direct,
+            },
+            |guard| *guard,
+        )
+    }
+
+    pub fn custom_url(&self) -> Option<String> {
+        self.custom_url.read().ok().and_then(|guard| guard.clone())
+    }
+
+    pub fn set_routing(&self, routing: ProxyRouting) {
+        if let Ok(mut guard) = self.routing.write() {
+            *guard = routing;
+        }
+    }
+
+    pub fn set_custom_url(&self, url: Option<String>) {
+        if let Ok(mut guard) = self.custom_url.write() {
+            *guard = url;
+        }
+    }
+
+    /// Which route a request for this region takes right now.
+    pub fn route_for(&self, region: &ProviderRegion) -> ProxyRoute {
+        self.routing().route_for(region)
+    }
 }
 
 impl Default for HttpClientConfig {
@@ -40,6 +148,7 @@ impl Default for HttpClientConfig {
             max_response_bytes: 1024 * 1024,
             follow_redirects: false,
             proxy: None,
+            routing: ProxyRouting::default(),
         }
     }
 }
@@ -75,42 +184,94 @@ impl HttpClientConfig {
 /// config holds no secrets and `reqwest::Client`'s own Debug is opaque.
 #[derive(Clone, Debug)]
 pub struct HttpClient {
-    client: Client,
+    direct: Client,
+    system: Client,
+    custom: Client,
     config: HttpClientConfig,
+    state: Arc<ProxyState>,
+}
+
+/// One request's transport, bound to the client its route resolved to.
+///
+/// Adapters never hold a `reqwest::Client` directly; they ask for the routed
+/// view with [`HttpClient::route`], which keeps the proxy decision in one
+/// place and reads the live policy at call time.
+pub struct RouteClient<'a> {
+    client: &'a Client,
+    config: &'a HttpClientConfig,
+}
+
+fn base_builder(config: &HttpClientConfig) -> reqwest::ClientBuilder {
+    let mut builder = Client::builder()
+        .timeout(config.timeout)
+        .connect_timeout(config.connect_timeout);
+    if !config.follow_redirects {
+        builder = builder.redirect(reqwest::redirect::Policy::none());
+    }
+    builder
+}
+
+fn build_error(error: reqwest::Error) -> ProviderError {
+    ProviderError::new(
+        ProviderErrorKind::ConfigInvalid,
+        format!("failed to build HTTP client: {error}"),
+    )
 }
 
 impl HttpClient {
     /// Create a new HTTP client with the given configuration.
     pub fn new(config: HttpClientConfig) -> Result<Self, ProviderError> {
-        let mut builder = Client::builder()
-            .timeout(config.timeout)
-            .connect_timeout(config.connect_timeout);
+        Self::with_state(config, None)
+    }
 
-        if !config.follow_redirects {
-            builder = builder.redirect(reqwest::redirect::Policy::none());
-        }
+    /// A client sharing an application-wide [`ProxyState`]. Every adapter
+    /// built on the same state sees a routing or proxy-URL change on its
+    /// next request — no restart and no client rebuild.
+    pub fn with_state(
+        config: HttpClientConfig,
+        shared: Option<Arc<ProxyState>>,
+    ) -> Result<Self, ProviderError> {
+        let state = if let Some(state) = shared {
+            state
+        } else {
+            // Legacy single-proxy configuration: a config that names one
+            // proxy URL means "send everything there", not "ignore it
+            // because the default routing is direct".
+            let routing = if config.proxy.is_some() && config.routing == ProxyRouting::default() {
+                ProxyRouting::single_proxy()
+            } else {
+                config.routing
+            };
+            Arc::new(ProxyState::new(routing, config.proxy.clone()))
+        };
 
-        match &config.proxy {
-            Some(proxy_url) => {
-                let proxy = reqwest::Proxy::all(proxy_url).map_err(|e| {
-                    ProviderError::new(
-                        ProviderErrorKind::ConfigInvalid,
-                        format!("invalid proxy URL: {e}"),
-                    )
-                })?;
-                builder = builder.proxy(proxy);
-            }
-            None => builder = builder.no_proxy(),
-        }
+        // Three pools, one per departure route. `Direct` explicitly opts out
+        // of every ambient proxy; `System` keeps reqwest's platform
+        // detection (Windows Internet Settings, environment elsewhere); and
+        // `Custom` resolves the stored URL per request so a changed proxy
+        // takes effect immediately.
+        let direct = base_builder(&config)
+            .no_proxy()
+            .build()
+            .map_err(build_error)?;
+        let system = base_builder(&config).build().map_err(build_error)?;
+        let custom_state = Arc::clone(&state);
+        let custom = base_builder(&config)
+            .proxy(reqwest::Proxy::custom(move |_url: &reqwest::Url| {
+                custom_state
+                    .custom_url()
+                    .and_then(|url| reqwest::Url::parse(&url).ok())
+            }))
+            .build()
+            .map_err(build_error)?;
 
-        let client = builder.build().map_err(|e| {
-            ProviderError::new(
-                ProviderErrorKind::ConfigInvalid,
-                format!("failed to build HTTP client: {e}"),
-            )
-        })?;
-
-        Ok(Self { client, config })
+        Ok(Self {
+            direct,
+            system,
+            custom,
+            config,
+            state,
+        })
     }
 
     /// Create a new HTTP client with default configuration.
@@ -123,12 +284,84 @@ impl HttpClient {
         &self.config
     }
 
-    /// Build a GET request.
+    /// The live proxy policy this client reads.
+    pub fn proxy_state(&self) -> Arc<ProxyState> {
+        Arc::clone(&self.state)
+    }
+
+    /// Transport for a provider in `region`, chosen from the live policy.
+    pub fn route(&self, region: &ProviderRegion) -> RouteClient<'_> {
+        let client = match self.state.route_for(region) {
+            ProxyRoute::Direct => &self.direct,
+            ProxyRoute::System => &self.system,
+            ProxyRoute::Custom => &self.custom,
+        };
+        RouteClient {
+            client,
+            config: &self.config,
+        }
+    }
+
+    /// Direct transport, for callers with no provider region (transport
+    /// checks and tests).
+    pub fn direct(&self) -> RouteClient<'_> {
+        RouteClient {
+            client: &self.direct,
+            config: &self.config,
+        }
+    }
+
+    /// Check if a response exceeds the maximum size limit.
+    pub fn check_response_size(&self, content_length: Option<u64>) -> Result<(), ProviderError> {
+        if let Some(length) = content_length
+            && length > self.config.max_response_bytes as u64
+        {
+            return Err(ProviderError::new(
+                ProviderErrorKind::InvalidResponse,
+                format!(
+                    "response size {} exceeds limit {}",
+                    length, self.config.max_response_bytes
+                ),
+            ));
+        }
+        Ok(())
+    }
+
+    /// Redact sensitive headers for logging.
+    pub fn redact_headers(headers: &HeaderMap) -> Vec<(String, String)> {
+        headers
+            .iter()
+            .map(|(name, value)| {
+                let name_str = name.as_str().to_lowercase();
+                let value_str = if is_sensitive_header(&name_str) {
+                    "***REDACTED***".to_string()
+                } else {
+                    value.to_str().unwrap_or("").to_string()
+                };
+                (name.to_string(), value_str)
+            })
+            .collect()
+    }
+
+    /// Log request headers with sensitive values redacted.
+    pub fn log_request(&self, method: &str, url: &str, headers: &HeaderMap) {
+        let redacted = Self::redact_headers(headers);
+        tracing::debug!(
+            method = method,
+            url = url,
+            headers = ?redacted,
+            "HTTP request"
+        );
+    }
+}
+
+impl RouteClient<'_> {
+    /// Build a GET request on this route.
     pub fn get(&self, url: impl reqwest::IntoUrl) -> RequestBuilder {
         self.client.get(url)
     }
 
-    /// Build a POST request.
+    /// Build a POST request on this route.
     pub fn post(&self, url: impl reqwest::IntoUrl) -> RequestBuilder {
         self.client.post(url)
     }
@@ -186,49 +419,6 @@ impl HttpClient {
             body,
             headers: response_headers_to_map(&response_headers),
         })
-    }
-
-    /// Check if a response exceeds the maximum size limit.
-    pub fn check_response_size(&self, content_length: Option<u64>) -> Result<(), ProviderError> {
-        if let Some(length) = content_length
-            && length > self.config.max_response_bytes as u64
-        {
-            return Err(ProviderError::new(
-                ProviderErrorKind::InvalidResponse,
-                format!(
-                    "response size {} exceeds limit {}",
-                    length, self.config.max_response_bytes
-                ),
-            ));
-        }
-        Ok(())
-    }
-
-    /// Redact sensitive headers for logging.
-    pub fn redact_headers(headers: &HeaderMap) -> Vec<(String, String)> {
-        headers
-            .iter()
-            .map(|(name, value)| {
-                let name_str = name.as_str().to_lowercase();
-                let value_str = if is_sensitive_header(&name_str) {
-                    "***REDACTED***".to_string()
-                } else {
-                    value.to_str().unwrap_or("").to_string()
-                };
-                (name.to_string(), value_str)
-            })
-            .collect()
-    }
-
-    /// Log request headers with sensitive values redacted.
-    pub fn log_request(&self, method: &str, url: &str, headers: &HeaderMap) {
-        let redacted = Self::redact_headers(headers);
-        tracing::debug!(
-            method = method,
-            url = url,
-            headers = ?redacted,
-            "HTTP request"
-        );
     }
 }
 
@@ -303,6 +493,38 @@ mod tests {
         assert!(!config.follow_redirects);
         assert_eq!(config.proxy, None);
         assert_eq!(config.connect_timeout, Duration::from_secs(10));
+    }
+
+    #[test]
+    fn routing_maps_china_to_domestic_and_everything_else_international() {
+        let routing = ProxyRouting {
+            domestic: ProxyRoute::Direct,
+            international: ProxyRoute::System,
+        };
+        assert_eq!(
+            routing.route_for(&ProviderRegion::China),
+            ProxyRoute::Direct
+        );
+        assert_eq!(
+            routing.route_for(&ProviderRegion::Global),
+            ProxyRoute::System
+        );
+        assert_eq!(
+            routing.route_for(&ProviderRegion::NorthAmerica),
+            ProxyRoute::System
+        );
+        // An undeclared region takes the international route.
+        assert_eq!(
+            routing.route_for(&ProviderRegion::Custom("edge".to_owned())),
+            ProxyRoute::System
+        );
+    }
+
+    #[test]
+    fn the_default_policy_is_domestic_direct_and_international_system() {
+        let routing = ProxyRouting::default();
+        assert_eq!(routing.domestic, ProxyRoute::Direct);
+        assert_eq!(routing.international, ProxyRoute::System);
     }
 
     #[test]
@@ -381,6 +603,7 @@ mod tests {
         let error = tauri::async_runtime::block_on(async {
             HttpClient::with_defaults()
                 .unwrap()
+                .direct()
                 .get(&url)
                 .send()
                 .await

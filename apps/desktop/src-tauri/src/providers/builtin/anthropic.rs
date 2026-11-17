@@ -16,8 +16,9 @@ use crate::domain::provider::{
     ProviderResult, QuotaSnapshot, QuotaSnapshotSet, QuotaUnit, SnapshotStatus, UsagePoint,
     UsageRange, WindowType,
 };
-use crate::networking::{HttpClient, HttpClientConfig};
+use crate::networking::{HttpClient, HttpClientConfig, ProxyState};
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
+use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use url::Url;
 
@@ -114,6 +115,27 @@ impl AnthropicAdapter {
         Self::new_with_proxy(AdapterLimits::default(), config, proxy)
     }
 
+    /// [`Self::new`] sharing the application's live proxy policy: route
+    /// selection (direct / system / custom) is read per request, so a
+    /// settings change applies without rebuilding the adapter.
+    pub fn with_shared_proxy(
+        config: OpenAiCompatibleConfig,
+        state: Arc<ProxyState>,
+    ) -> ProviderResult<Self> {
+        let limits = AdapterLimits::default();
+        if limits.timeout.is_zero() || limits.max_response_bytes == 0 {
+            return Err(ProviderError::new(
+                ProviderErrorKind::ConfigInvalid,
+                "HTTP timeout and response limit must be positive",
+            ));
+        }
+        let client = HttpClient::with_state(
+            HttpClientConfig::from_adapter_limits(limits.timeout, limits.max_response_bytes),
+            Some(state),
+        )?;
+        Ok(Self { client, config })
+    }
+
     pub fn config(&self) -> &OpenAiCompatibleConfig {
         &self.config
     }
@@ -140,12 +162,12 @@ impl AnthropicAdapter {
     )> {
         let url = endpoint_url(config)?;
         let headers = request_headers(config, credentials)?;
-        let request = self
-            .client
+        let http = self.client.route(&config.region);
+        let request = http
             .get(url)
             .headers(headers)
             .header("accept", "application/json");
-        let response = self.client.send_capped(request).await?;
+        let response = http.send_capped(request).await?;
         let status = response.status;
         let identity = match status {
             200..=299 => HealthStatus::Healthy,

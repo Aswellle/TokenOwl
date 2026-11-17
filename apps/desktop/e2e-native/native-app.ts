@@ -191,9 +191,22 @@ export async function launchNativeApp(options: { dirs?: NativeDirs } = {}): Prom
   try {
     page = await waitForMainPage(browser, 30_000);
   } catch (error) {
+    // Name what the harness actually saw: a binary built with plain
+    // `tauri build --debug` still carries build.devUrl, so it waits for the
+    // Vite dev server on 1420 and shows a blank window when none is running.
+    // That misbuild used to surface only as a 30-second timeout.
+    const observed = browser
+      .contexts()
+      .flatMap((context) => context.pages())
+      .map((page) => page.url())
+      .join(", ");
     await browser.close().catch(() => undefined);
     child.kill();
-    throw new Error(`the dashboard never rendered: ${String(error)}\n${output}`);
+    throw new Error(`the dashboard never rendered: ${String(error)}
+observed pages: ${observed || "(none)"}
+build the binary with "pnpm build:native" so build.devUrl is cleared and the
+embedded frontend is used instead of a Vite dev server
+${output}`);
   }
 
   const app: NativeApp = {

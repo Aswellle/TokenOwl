@@ -12,7 +12,8 @@
     "e2e": "playwright test",
     "preview": "vite preview",
     "tauri": "tauri",
-    "e2e:native": "playwright test --config playwright.native.config.ts"
+    "e2e:native": "playwright test --config playwright.native.config.ts",
+    "build:native": "tauri build --debug --no-bundle --config src-tauri/tauri.native.conf.json"
   },
   "dependencies": {
     "@gsap/react": "^2.1.2",

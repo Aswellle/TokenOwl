@@ -11,10 +11,16 @@ runtime, and a prior native build:
 
 ```powershell
 cd apps/desktop
-pnpm tauri build --debug --no-bundle   # produces src-tauri/target/debug/tokenowl.exe
+pnpm build:native                      # debug binary with the embedded frontend
 pnpm e2e:native                        # runs e2e-native/*.spec.ts, one worker
 pnpm e2e:native --grep "bubble"        # one scenario
 ```
+
+`build:native` merges `src-tauri/tauri.native.conf.json`, which sets `build.devUrl` to null. A plain
+`tauri build --debug` keeps `build.devUrl` in the binary, so the window waits
+for the Vite dev server on port 1420 and shows a blank page when none is
+running — the suite then times out with "the dashboard never rendered" and no
+useful cause. The script makes the native run depend only on the built assets.
 
 ## Isolation
 

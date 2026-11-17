@@ -159,6 +159,10 @@ function NotificationSettings({
   const [quietEnd, setQuietEnd] = useState(() => minuteText(prefs.quietHoursEnd));
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Per-field validation feedback. Focusing a field and leaving it unchanged
+  // must never save, and an out-of-range entry is named instead of being
+  // silently replaced by the stored value.
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
 
   useEffect(() => {
     setThresholdText(String(prefs.lowQuotaThreshold));
@@ -184,32 +188,95 @@ function NotificationSettings({
       await onChange(next);
       setError(null);
       setSaved(true);
+      return true;
     } catch {
       setError(copy.notifications.saveFailed);
+      return false;
     }
   };
 
+  /** Puts every draft back to the persisted value. */
+  const resetDrafts = () => {
+    setThresholdText(String(prefs.lowQuotaThreshold));
+    setBalanceText(
+      prefs.balanceThreshold === null || prefs.balanceThreshold === undefined
+        ? ""
+        : String(prefs.balanceThreshold),
+    );
+    setResetMinutes(String(Math.round(prefs.resetSoonWindow / 60)));
+    setHorizonMinutes(String(Math.round(prefs.projectedExhaustionHorizon / 60)));
+    setQuietStart(minuteText(prefs.quietHoursStart));
+    setQuietEnd(minuteText(prefs.quietHoursEnd));
+  };
+
+  /**
+   * Commits the drafts on blur, but only when something actually changed.
+   *
+   * Focusing a field and tabbing away used to write the stored value back to
+   * the backend and flash "已保存", which reads as an edit the user never
+   * made. An unchanged draft is now a no-op, an invalid one is reported in
+   * place, and a changed one carries exactly the fields that changed.
+   */
   const commitNumbers = () => {
-    const threshold = Number(thresholdText);
-    const balance = balanceText.trim() === "" ? null : Number(balanceText);
-    const minutes = Number(resetMinutes);
-    const horizon = Number(horizonMinutes);
-    void commit({
+    const errors: Record<string, string> = {};
+    const parseNumber = (text: string): number | null => {
+      const trimmed = text.trim();
+      if (trimmed === "") return null;
+      const value = Number(trimmed);
+      return Number.isFinite(value) ? value : null;
+    };
+
+    const threshold = parseNumber(thresholdText);
+    if (threshold === null || threshold < 1 || threshold > 99) {
+      errors.threshold = copy.notifications.invalidThreshold;
+    }
+    const balance = parseNumber(balanceText);
+    if (balanceText.trim() !== "" && (balance === null || balance < 0)) {
+      errors.balance = copy.notifications.invalidBalance;
+    }
+    const reset = parseNumber(resetMinutes);
+    if (reset === null || reset < 5 || reset > 1_440) {
+      errors.reset = copy.notifications.invalidResetWindow;
+    }
+    const horizon = parseNumber(horizonMinutes);
+    if (horizon === null || horizon < 0 || horizon > 1_440) {
+      errors.horizon = copy.notifications.invalidHorizon;
+    }
+
+    if (Object.keys(errors).length > 0) {
+      setFieldErrors(errors);
+      return;
+    }
+    setFieldErrors({});
+
+    const next: NotificationPreferencesViewModel = {
       ...prefs,
-      lowQuotaThreshold: Number.isFinite(threshold) ? threshold : prefs.lowQuotaThreshold,
-      balanceThreshold:
-        balance === null || !Number.isFinite(balance) || balance < 0
-          ? null
-          : balance,
-      resetSoonWindow: Number.isFinite(minutes) && minutes > 0
-        ? Math.round(minutes * 60)
-        : prefs.resetSoonWindow,
-      projectedExhaustionHorizon:
-        Number.isFinite(horizon) && horizon >= 0
-          ? Math.round(horizon * 60)
-          : prefs.projectedExhaustionHorizon,
+      lowQuotaThreshold: threshold as number,
+      balanceThreshold: balance,
+      resetSoonWindow: Math.round((reset as number) * 60),
+      projectedExhaustionHorizon: Math.round((horizon as number) * 60),
       quietHoursStart: parseMinuteText(quietStart, prefs.quietHoursStart),
       quietHoursEnd: parseMinuteText(quietEnd, prefs.quietHoursEnd),
+    };
+
+    // Deep comparison against what is already stored: an untouched field (or
+    // a cleared optional field that was already empty) is not an edit.
+    const unchanged =
+      next.lowQuotaThreshold === prefs.lowQuotaThreshold &&
+      (next.balanceThreshold ?? null) === (prefs.balanceThreshold ?? null) &&
+      next.resetSoonWindow === prefs.resetSoonWindow &&
+      next.projectedExhaustionHorizon === prefs.projectedExhaustionHorizon &&
+      next.quietHoursStart === prefs.quietHoursStart &&
+      next.quietHoursEnd === prefs.quietHoursEnd;
+    if (unchanged) {
+      // Normalize whatever was typed back to the stored spelling (for
+      // example "20.0" → "20") without touching the backend.
+      resetDrafts();
+      return;
+    }
+
+    void commit(next).then((ok) => {
+      if (ok) resetDrafts();
     });
   };
 
@@ -298,9 +365,15 @@ function NotificationSettings({
                     onChange={(event) => setThresholdText(event.currentTarget.value)}
                     onBlur={commitNumbers}
                     aria-label={`${copy.notifications.lowQuotaThreshold}（${copy.notifications.lowQuotaSuffix}）`}
+                    aria-invalid={fieldErrors.threshold ? true : undefined}
                   />
                   <em>{copy.notifications.lowQuotaSuffix}</em>
                 </span>
+                {fieldErrors.threshold && (
+                  <small className="notif-number__error" role="alert">
+                    {fieldErrors.threshold}
+                  </small>
+                )}
               </label>
               <label className="notif-number">
                 <span>{copy.notifications.balanceThreshold}</span>
@@ -313,8 +386,14 @@ function NotificationSettings({
                     onChange={(event) => setBalanceText(event.currentTarget.value)}
                     onBlur={commitNumbers}
                     aria-label={copy.notifications.balanceThreshold}
+                    aria-invalid={fieldErrors.balance ? true : undefined}
                   />
                 </span>
+                {fieldErrors.balance && (
+                  <small className="notif-number__error" role="alert">
+                    {fieldErrors.balance}
+                  </small>
+                )}
                 <small>{copy.notifications.balanceThresholdHelp}</small>
               </label>
             </div>
@@ -333,9 +412,15 @@ function NotificationSettings({
                     onChange={(event) => setResetMinutes(event.currentTarget.value)}
                     onBlur={commitNumbers}
                     aria-label={`${copy.notifications.resetSoonWindow}（${copy.notifications.resetSoonSuffix}）`}
+                    aria-invalid={fieldErrors.reset ? true : undefined}
                   />
                   <em>{copy.notifications.resetSoonSuffix}</em>
                 </span>
+                {fieldErrors.reset && (
+                  <small className="notif-number__error" role="alert">
+                    {fieldErrors.reset}
+                  </small>
+                )}
                 <small>{copy.notifications.resetSoonHelp}</small>
               </label>
               <label className="notif-number">
@@ -349,9 +434,15 @@ function NotificationSettings({
                     onChange={(event) => setHorizonMinutes(event.currentTarget.value)}
                     onBlur={commitNumbers}
                     aria-label={`${copy.notifications.projectedHorizon}（${copy.notifications.projectedHorizonSuffix}）`}
+                    aria-invalid={fieldErrors.horizon ? true : undefined}
                   />
                   <em>{copy.notifications.projectedHorizonSuffix}</em>
                 </span>
+                {fieldErrors.horizon && (
+                  <small className="notif-number__error" role="alert">
+                    {fieldErrors.horizon}
+                  </small>
+                )}
                 <small>{copy.notifications.projectedHorizonHelp}</small>
               </label>
             </div>

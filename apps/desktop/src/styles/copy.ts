@@ -611,6 +611,10 @@ export const copy = {
     } as Record<string, string>,
     saved: "已保存",
     saveFailed: "保存失败，请检查输入后重试。",
+    invalidThreshold: "请输入 1–99 之间的百分比。",
+    invalidBalance: "请输入不小于 0 的数值，或留空关闭余额提醒。",
+    invalidResetWindow: "请输入 5–1440 之间的分钟数。",
+    invalidHorizon: "请输入 0–1440 之间的分钟数，0 表示关闭。",
     severity: {
       INFO: "信息",
       WARNING: "警告",

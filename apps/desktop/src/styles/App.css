@@ -2056,6 +2056,12 @@ button:disabled {
   color: var(--ink-3);
 }
 
+.notif-number__error {
+  color: var(--danger);
+  font-size: var(--step-0);
+  font-weight: 500;
+}
+
 .notif-settings__error {
   margin: 0;
   color: var(--danger);

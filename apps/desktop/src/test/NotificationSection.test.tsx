@@ -206,6 +206,49 @@ describe("NotificationSection", () => {
     );
   });
 
+  it("does not save when a field is focused and left unchanged", async () => {
+    const bridge = makeBridge();
+    render(<NotificationSection bridge={bridge} reloadSignal={0} />);
+    await screen.findByText("额度紧张", { selector: ".notif__title" });
+
+    for (const label of [/低额度阈值/, /余额下限/, /重置提前提醒/, /耗尽预测提前量/]) {
+      const field = screen.getByLabelText(label);
+      fireEvent.focus(field);
+      fireEvent.blur(field);
+    }
+
+    // No edit happened, so no write and no "已保存" flash may appear.
+    expect(bridge.setNotificationPreferences).not.toHaveBeenCalled();
+    expect(screen.queryByText("已保存")).not.toBeInTheDocument();
+  });
+
+  it("treats clearing an already-empty optional field as no change", async () => {
+    const bridge = makeBridge();
+    render(<NotificationSection bridge={bridge} reloadSignal={0} />);
+    await screen.findByText("额度紧张", { selector: ".notif__title" });
+
+    const balance = screen.getByLabelText(/余额下限/);
+    expect(balance).toHaveValue(null);
+    fireEvent.focus(balance);
+    fireEvent.blur(balance);
+
+    expect(bridge.setNotificationPreferences).not.toHaveBeenCalled();
+  });
+
+  it("names an out-of-range value instead of writing it", async () => {
+    const bridge = makeBridge();
+    render(<NotificationSection bridge={bridge} reloadSignal={0} />);
+    await screen.findByText("额度紧张", { selector: ".notif__title" });
+
+    const threshold = screen.getByLabelText(/低额度阈值/);
+    fireEvent.change(threshold, { target: { value: "150" } });
+    await waitFor(() => expect(threshold).toHaveValue(150));
+    fireEvent.blur(threshold);
+
+    expect(await screen.findByText(/请输入 1–99/)).toBeInTheDocument();
+    expect(bridge.setNotificationPreferences).not.toHaveBeenCalled();
+  });
+
   it("explains unreadable preferences while keeping the log usable", async () => {
     const bridge = makeBridge({
       getNotificationPreferences: vi.fn(async () => {

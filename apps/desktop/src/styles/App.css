@@ -2088,7 +2088,7 @@ button:disabled {
 }
 
 .setting-row--toggle {
-  cursor: pointer;
+  cursor: default;
 }
 
 .setting-row__text {
@@ -2127,6 +2127,47 @@ button:disabled {
   font-style: normal;
   color: var(--ink-3);
   font-size: var(--step-0);
+}
+
+/* Click targets are the controls themselves: the checkbox hit area is its
+   own 24px switch, and hover/focus feedback lands on the hovered control,
+   not on the whole row. */
+.setting-row__switch {
+  display: inline-flex;
+  padding: 4px;
+  margin: -4px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.setting-row__switch:hover {
+  background: var(--inset);
+}
+
+.setting-row__switch input {
+  cursor: pointer;
+}
+
+.setting-row__control input[type="number"]:hover,
+.setting-row__control input[type="time"]:hover,
+.setting-row__control select:hover {
+  border-color: var(--ink-3);
+}
+
+.setting-row__control input:focus-visible,
+.setting-row__control select:focus-visible {
+  border-color: var(--accent);
+  outline: none;
+  box-shadow: 0 0 0 3.5px var(--accent-soft);
+}
+
+@media (forced-colors: active) {
+  .setting-row__control input:focus-visible,
+  .setting-row__control select:focus-visible {
+    outline: 2px solid CanvasText;
+    outline-offset: 1px;
+    box-shadow: none;
+  }
 }
 
 .setting-row__control input[type="number"] {

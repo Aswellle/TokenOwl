@@ -1951,8 +1951,7 @@ button:disabled {
 
 .notif-settings__body {
   display: grid;
-  /* Inter-group spacing is 2x the gap inside a group. */
-  gap: 20px;
+  gap: 16px;
   padding-top: 12px;
 }
 
@@ -1961,89 +1960,101 @@ button:disabled {
   margin: 0;
   padding: 0;
   display: grid;
-  gap: 20px;
-}
-
-.notif-settings__fields:disabled {
-  opacity: 0.5;
-}
-
-.notif-group {
-  border: 0;
-  margin: 0;
-  padding: 0;
-  display: grid;
-  gap: 10px;
+  gap: 18px;
   min-width: 0;
 }
 
-.notif-group legend {
-  padding: 0;
-  margin-bottom: 6px;
-  font-size: var(--step-0);
-  color: var(--ink-3);
+/* Disabled fields stay legible enough to read *why* they are off; contrast
+   rules exempt disabled controls, but the labels still carry meaning. */
+.notif-settings__fields:disabled {
+  opacity: 0.62;
 }
 
-.notif-group__checks {
+/* ---------- settings anatomy (shared by the settings panels) ---------- */
+
+.settings-group {
   display: grid;
-  gap: 10px;
+  gap: 0;
+  min-width: 0;
 }
 
-.notif-check {
-  display: flex;
-  gap: 8px;
-  align-items: flex-start;
+.settings-group__title {
+  margin: 0;
+  font-size: var(--step-1);
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.settings-group__intro {
+  margin: 3px 0 2px;
+  color: var(--ink-3);
+  font-size: var(--step-0);
+  line-height: 1.55;
+  text-wrap: pretty;
+}
+
+/* One row = label (with its help text underneath, on the same leading edge)
+   plus the control on the trailing edge. Every control in a panel therefore
+   shares one column, and no help text ever sits under a control. */
+.setting-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 4px 20px;
+  min-height: 44px;
+  padding: 10px 0;
+  min-width: 0;
+}
+
+.setting-row + .setting-row {
+  border-top: 1px solid var(--hairline);
+}
+
+.setting-row--toggle {
   cursor: pointer;
 }
 
-.notif-check input {
-  margin-top: 3px;
-}
-
-.notif-check span {
+.setting-row__text {
   display: grid;
-  gap: 1px;
+  gap: 2px;
+  min-width: 0;
 }
 
-.notif-check strong {
+.setting-row__text strong {
   font-size: var(--step-1);
   font-weight: 500;
   color: var(--ink);
 }
 
-.notif-check small {
+.setting-row__text small {
   color: var(--ink-3);
   font-size: var(--step-0);
-  line-height: 1.6;
+  line-height: 1.55;
+  text-wrap: pretty;
 }
 
-.notif-numbers {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
+.setting-row__error {
+  color: var(--danger) !important;
+  font-weight: 500;
 }
 
-.notif-number {
-  display: grid;
-  gap: 3px;
-  font-size: var(--step-0);
-  color: var(--ink-2);
-}
-
-.notif-number__input {
+.setting-row__control {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  justify-self: end;
 }
 
-.notif-number__input em {
+.setting-row__control em {
   font-style: normal;
   color: var(--ink-3);
+  font-size: var(--step-0);
 }
 
-.notif-number__input input {
+.setting-row__control input[type="number"] {
   width: 76px;
-  padding: 5px 8px;
+  min-height: 32px;
+  padding: 4px 8px;
   border: 1px solid var(--hairline-strong);
   border-radius: var(--radius-ctl);
   background: var(--field);
@@ -2052,14 +2063,23 @@ button:disabled {
   font-size: var(--step-1);
 }
 
-.notif-number small {
-  color: var(--ink-3);
+.setting-row--toggle > input[type="checkbox"] {
+  justify-self: end;
 }
 
-.notif-number__error {
-  color: var(--danger);
-  font-size: var(--step-0);
-  font-weight: 500;
+.notif-range {
+  gap: 4px;
+}
+
+.notif-range input[type="time"] {
+  min-height: 32px;
+  padding: 4px 8px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius-ctl);
+  background: var(--field);
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--step-1);
 }
 
 .notif-settings__error {
@@ -3338,11 +3358,6 @@ button:disabled {
   background: var(--surface);
   font: inherit;
   font-size: var(--step-0);
-}
-
-.notif-number__input--time input {
-  width: auto;
-  min-width: 88px;
 }
 
 /* ---------- refresh settings ---------- */

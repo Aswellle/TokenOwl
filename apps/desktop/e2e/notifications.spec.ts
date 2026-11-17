@@ -172,8 +172,8 @@ test.describe("notification settings disclosure", () => {
       "已启用 · 安静时段 22:00–08:00",
     );
     await openSettingsDetails(page);
-    for (const legend of ["系统通知", "提醒条件", "提醒时机", "安静时段"]) {
-      await expect(page.locator(".notif-group legend", { hasText: legend })).toBeVisible();
+    for (const group of ["系统通知", "提醒条件", "提醒时机", "安静时段"]) {
+      await expect(page.locator(".settings-group__title", { hasText: group })).toBeVisible();
     }
     // The 5–1440 minute window constraint is visible copy now, not only an
     // input attribute.

@@ -304,175 +304,185 @@ function NotificationSettings({
         <span className="notif-settings__state">{stateSummary}</span>
       </summary>
       <div className="notif-settings__body">
-        <label className="notif-check">
+        {/* Master switch: the only control that stays live while alerting is
+            off, so it sits outside the fieldset that mutes the rest. */}
+        <label className="setting-row setting-row--toggle">
+          <span className="setting-row__text">
+            <strong>{copy.notifications.enabled}</strong>
+            <small>{copy.notifications.enabledHelp}</small>
+          </span>
           <input
             type="checkbox"
             checked={prefs.enabled}
             onChange={(event) => void commit({ ...prefs, enabled: event.currentTarget.checked })}
           />
-          <span>
-            <strong>{copy.notifications.enabled}</strong>
-            <small>{copy.notifications.enabledHelp}</small>
-          </span>
         </label>
-        {/* The master toggle stays outside the disabled fieldset; nested
-            groups inherit the disable, so one flag mutes every control. */}
         <fieldset className="notif-settings__fields" disabled={!prefs.enabled}>
-          <fieldset className="notif-group">
-            <legend>{copy.notifications.groupDelivery}</legend>
-            <div className="notif-group__checks">
-              <label className="notif-check">
-                <input
-                  type="checkbox"
-                  checked={prefs.silentMode}
-                  onChange={(event) =>
-                    void commit({ ...prefs, silentMode: event.currentTarget.checked })
-                  }
-                />
-                <span>
-                  <strong>{copy.notifications.silentMode}</strong>
-                  <small>{copy.notifications.silentModeHelp}</small>
-                </span>
-              </label>
-              <label className="notif-check">
-                <input
-                  type="checkbox"
-                  checked={prefs.criticalOnly}
-                  onChange={(event) =>
-                    void commit({ ...prefs, criticalOnly: event.currentTarget.checked })
-                  }
-                />
-                <span>
-                  <strong>{copy.notifications.criticalOnly}</strong>
-                  {/* The threshold is configurable, so the example names the
-                      current value instead of a frozen number. */}
-                  <small>{copy.notifications.criticalOnlyHelp(prefs.lowQuotaThreshold)}</small>
-                </span>
-              </label>
-            </div>
-          </fieldset>
-          <fieldset className="notif-group">
-            <legend>{copy.notifications.groupConditions}</legend>
-            <div className="notif-numbers">
-              <label className="notif-number">
-                <span>{copy.notifications.lowQuotaThreshold}</span>
-                <span className="notif-number__input">
-                  <input
-                    type="number"
-                    min={1}
-                    max={99}
-                    value={thresholdText}
-                    onChange={(event) => setThresholdText(event.currentTarget.value)}
-                    onBlur={commitNumbers}
-                    aria-label={`${copy.notifications.lowQuotaThreshold}（${copy.notifications.lowQuotaSuffix}）`}
-                    aria-invalid={fieldErrors.threshold ? true : undefined}
-                  />
-                  <em>{copy.notifications.lowQuotaSuffix}</em>
-                </span>
+          <div className="settings-group">
+            <h3 className="settings-group__title">{copy.notifications.groupDelivery}</h3>
+            <p className="settings-group__intro">{copy.notifications.groupDeliveryIntro}</p>
+            <label className="setting-row setting-row--toggle">
+              <span className="setting-row__text">
+                <strong>{copy.notifications.silentMode}</strong>
+                <small>{copy.notifications.silentModeHelp}</small>
+              </span>
+              <input
+                type="checkbox"
+                checked={prefs.silentMode}
+                onChange={(event) =>
+                  void commit({ ...prefs, silentMode: event.currentTarget.checked })
+                }
+              />
+            </label>
+            <label className="setting-row setting-row--toggle">
+              <span className="setting-row__text">
+                <strong>{copy.notifications.criticalOnly}</strong>
+                {/* The threshold is configurable, so the example names the
+                    current value instead of a frozen number. */}
+                <small>{copy.notifications.criticalOnlyHelp(prefs.lowQuotaThreshold)}</small>
+              </span>
+              <input
+                type="checkbox"
+                checked={prefs.criticalOnly}
+                onChange={(event) =>
+                  void commit({ ...prefs, criticalOnly: event.currentTarget.checked })
+                }
+              />
+            </label>
+          </div>
+
+          <div className="settings-group">
+            <h3 className="settings-group__title">{copy.notifications.groupConditions}</h3>
+            <p className="settings-group__intro">{copy.notifications.groupConditionsIntro}</p>
+            <label className="setting-row">
+              <span className="setting-row__text">
+                <strong>{copy.notifications.lowQuotaThreshold}</strong>
+                <small>{copy.notifications.lowQuotaHelp}</small>
                 {fieldErrors.threshold && (
-                  <small className="notif-number__error" role="alert">
+                  <small className="setting-row__error" role="alert">
                     {fieldErrors.threshold}
                   </small>
                 )}
-              </label>
-              <label className="notif-number">
-                <span>{copy.notifications.balanceThreshold}</span>
-                <span className="notif-number__input">
-                  <input
-                    type="number"
-                    min={0}
-                    value={balanceText}
-                    placeholder="—"
-                    onChange={(event) => setBalanceText(event.currentTarget.value)}
-                    onBlur={commitNumbers}
-                    aria-label={copy.notifications.balanceThreshold}
-                    aria-invalid={fieldErrors.balance ? true : undefined}
-                  />
-                </span>
+              </span>
+              <span className="setting-row__control">
+                <input
+                  type="number"
+                  min={1}
+                  max={99}
+                  value={thresholdText}
+                  onChange={(event) => setThresholdText(event.currentTarget.value)}
+                  onBlur={commitNumbers}
+                  aria-label={`${copy.notifications.lowQuotaThreshold}（${copy.notifications.lowQuotaSuffix}）`}
+                  aria-invalid={fieldErrors.threshold ? true : undefined}
+                />
+                <em>{copy.notifications.lowQuotaSuffix}</em>
+              </span>
+            </label>
+            <label className="setting-row">
+              <span className="setting-row__text">
+                <strong>{copy.notifications.balanceThreshold}</strong>
+                <small>{copy.notifications.balanceThresholdHelp}</small>
                 {fieldErrors.balance && (
-                  <small className="notif-number__error" role="alert">
+                  <small className="setting-row__error" role="alert">
                     {fieldErrors.balance}
                   </small>
                 )}
-                <small>{copy.notifications.balanceThresholdHelp}</small>
-              </label>
-            </div>
-          </fieldset>
-          <fieldset className="notif-group">
-            <legend>{copy.notifications.groupTiming}</legend>
-            <div className="notif-numbers">
-              <label className="notif-number">
-                <span>{copy.notifications.resetSoonWindow}</span>
-                <span className="notif-number__input">
-                  <input
-                    type="number"
-                    min={5}
-                    max={1440}
-                    value={resetMinutes}
-                    onChange={(event) => setResetMinutes(event.currentTarget.value)}
-                    onBlur={commitNumbers}
-                    aria-label={`${copy.notifications.resetSoonWindow}（${copy.notifications.resetSoonSuffix}）`}
-                    aria-invalid={fieldErrors.reset ? true : undefined}
-                  />
-                  <em>{copy.notifications.resetSoonSuffix}</em>
-                </span>
+              </span>
+              <span className="setting-row__control">
+                <input
+                  type="number"
+                  min={0}
+                  value={balanceText}
+                  placeholder="—"
+                  onChange={(event) => setBalanceText(event.currentTarget.value)}
+                  onBlur={commitNumbers}
+                  aria-label={copy.notifications.balanceThreshold}
+                  aria-invalid={fieldErrors.balance ? true : undefined}
+                />
+              </span>
+            </label>
+          </div>
+
+          <div className="settings-group">
+            <h3 className="settings-group__title">{copy.notifications.groupTiming}</h3>
+            <p className="settings-group__intro">{copy.notifications.groupTimingIntro}</p>
+            <label className="setting-row">
+              <span className="setting-row__text">
+                <strong>{copy.notifications.resetSoonWindow}</strong>
+                <small>{copy.notifications.resetSoonHelp}</small>
                 {fieldErrors.reset && (
-                  <small className="notif-number__error" role="alert">
+                  <small className="setting-row__error" role="alert">
                     {fieldErrors.reset}
                   </small>
                 )}
-                <small>{copy.notifications.resetSoonHelp}</small>
-              </label>
-              <label className="notif-number">
-                <span>{copy.notifications.projectedHorizon}</span>
-                <span className="notif-number__input">
-                  <input
-                    type="number"
-                    min={0}
-                    max={1440}
-                    value={horizonMinutes}
-                    onChange={(event) => setHorizonMinutes(event.currentTarget.value)}
-                    onBlur={commitNumbers}
-                    aria-label={`${copy.notifications.projectedHorizon}（${copy.notifications.projectedHorizonSuffix}）`}
-                    aria-invalid={fieldErrors.horizon ? true : undefined}
-                  />
-                  <em>{copy.notifications.projectedHorizonSuffix}</em>
-                </span>
+              </span>
+              <span className="setting-row__control">
+                <input
+                  type="number"
+                  min={5}
+                  max={1440}
+                  value={resetMinutes}
+                  onChange={(event) => setResetMinutes(event.currentTarget.value)}
+                  onBlur={commitNumbers}
+                  aria-label={`${copy.notifications.resetSoonWindow}（${copy.notifications.resetSoonSuffix}）`}
+                  aria-invalid={fieldErrors.reset ? true : undefined}
+                />
+                <em>{copy.notifications.resetSoonSuffix}</em>
+              </span>
+            </label>
+            <label className="setting-row">
+              <span className="setting-row__text">
+                <strong>{copy.notifications.projectedHorizon}</strong>
+                <small>{copy.notifications.projectedHorizonHelp}</small>
                 {fieldErrors.horizon && (
-                  <small className="notif-number__error" role="alert">
+                  <small className="setting-row__error" role="alert">
                     {fieldErrors.horizon}
                   </small>
                 )}
-                <small>{copy.notifications.projectedHorizonHelp}</small>
-              </label>
-            </div>
-          </fieldset>
-          <fieldset className="notif-group">
-            <legend>{copy.notifications.groupQuiet}</legend>
-            <div className="notif-numbers">
-              <label className="notif-number">
-                <span>{copy.notifications.quietHours}</span>
-                <span className="notif-number__input notif-number__input--time">
-                  <input
-                    type="time"
-                    value={quietStart}
-                    onChange={(event) => setQuietStart(event.currentTarget.value)}
-                    onBlur={commitNumbers}
-                    aria-label={`${copy.notifications.quietHours} ${copy.notifications.quietStart}`}
-                  />
-                  <em>–</em>
-                  <input
-                    type="time"
-                    value={quietEnd}
-                    onChange={(event) => setQuietEnd(event.currentTarget.value)}
-                    onBlur={commitNumbers}
-                    aria-label={`${copy.notifications.quietHours} ${copy.notifications.quietEnd}`}
-                  />
-                </span>
+              </span>
+              <span className="setting-row__control">
+                <input
+                  type="number"
+                  min={0}
+                  max={1440}
+                  value={horizonMinutes}
+                  onChange={(event) => setHorizonMinutes(event.currentTarget.value)}
+                  onBlur={commitNumbers}
+                  aria-label={`${copy.notifications.projectedHorizon}（${copy.notifications.projectedHorizonSuffix}）`}
+                  aria-invalid={fieldErrors.horizon ? true : undefined}
+                />
+                <em>{copy.notifications.projectedHorizonSuffix}</em>
+              </span>
+            </label>
+          </div>
+
+          <div className="settings-group">
+            <h3 className="settings-group__title">{copy.notifications.groupQuiet}</h3>
+            <p className="settings-group__intro">{copy.notifications.groupQuietIntro}</p>
+            <label className="setting-row">
+              <span className="setting-row__text">
+                <strong>{copy.notifications.quietHours}</strong>
                 <small>{copy.notifications.quietHoursHelp}</small>
-              </label>
-            </div>
-          </fieldset>
+              </span>
+              <span className="setting-row__control notif-range">
+                <input
+                  type="time"
+                  value={quietStart}
+                  onChange={(event) => setQuietStart(event.currentTarget.value)}
+                  onBlur={commitNumbers}
+                  aria-label={`${copy.notifications.quietHours} ${copy.notifications.quietStart}`}
+                />
+                <em aria-hidden="true">–</em>
+                <input
+                  type="time"
+                  value={quietEnd}
+                  onChange={(event) => setQuietEnd(event.currentTarget.value)}
+                  onBlur={commitNumbers}
+                  aria-label={`${copy.notifications.quietHours} ${copy.notifications.quietEnd}`}
+                />
+              </span>
+            </label>
+          </div>
         </fieldset>
         {error && (
           <p className="notif-settings__error" role="alert">

@@ -52,15 +52,15 @@ test("a low-quota refresh creates alerts that can be read and muted", async ({
   await enabled.uncheck();
   await expect(settings.locator("summary")).toContainText("已停用");
   await expect(settings.locator(".notif-settings__fields")).toHaveAttribute("disabled", "");
-  await expect(settings.getByLabel("低额度阈值（% 以下提醒）")).toBeDisabled();
+  await expect(settings.getByLabel("低额度阈值（%）")).toBeDisabled();
   await expect(settings.getByRole("status")).toContainText("已保存");
 
   await enabled.check();
   await expect(settings.locator("summary")).toContainText("已启用");
-  await expect(settings.getByLabel("低额度阈值（% 以下提醒）")).toBeEnabled();
+  await expect(settings.getByLabel("低额度阈值（%）")).toBeEnabled();
 
   // A numeric threshold commits on blur, not on every keystroke.
-  const threshold = settings.getByLabel("低额度阈值（% 以下提醒）");
+  const threshold = settings.getByLabel("低额度阈值（%）");
   await expect(threshold).toHaveValue("20");
   await threshold.fill("35");
   await threshold.blur();

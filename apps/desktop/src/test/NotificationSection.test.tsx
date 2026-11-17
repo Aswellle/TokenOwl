@@ -333,12 +333,14 @@ describe("notification settings disclosure", () => {
     expect(screen.getByLabelText(/静默模式/)).toBeDisabled();
   });
 
-  it("groups the controls under named legends", async () => {
+  it("groups the controls under named headings", async () => {
     const bridge = makeBridge();
     render(<NotificationSection bridge={bridge} reloadSignal={0} />);
     await screen.findByText("通知设置", { selector: ".notif-settings__title" });
-    for (const legend of ["系统通知", "提醒条件", "提醒时机", "安静时段"]) {
-      expect(screen.getByText(legend, { selector: "legend" })).toBeInTheDocument();
+    for (const group of ["系统通知", "提醒条件", "提醒时机", "安静时段"]) {
+      expect(
+        screen.getByRole("heading", { name: group, level: 3 }),
+      ).toBeInTheDocument();
     }
     // The 5–1440 minute constraint is visible, not just an input attribute.
     expect(screen.getByText(/5–1440 分钟/)).toBeInTheDocument();

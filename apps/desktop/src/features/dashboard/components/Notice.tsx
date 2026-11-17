@@ -13,10 +13,14 @@ export function Notice({
   tone,
   icon,
   children,
+  actions,
 }: {
   tone?: "warning" | "danger" | "accent";
   icon?: boolean;
   children: ReactNode;
+  /** Rendered as a trailing flex child, so a dismiss button sits on the
+   * banner's own line at its trailing edge instead of wrapping below. */
+  actions?: ReactNode;
 }) {
   const Icon = tone === "danger" || tone === "warning" ? IconAlert : IconShield;
   return (
@@ -33,7 +37,8 @@ export function Notice({
           <Icon size={14} />
         </span>
       )}
-      <span>{children}</span>
+      <span className="notice__text">{children}</span>
+      {actions && <span className="notice__actions">{actions}</span>}
     </motion.p>
   );
 }

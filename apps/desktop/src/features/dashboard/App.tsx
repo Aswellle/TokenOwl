@@ -725,9 +725,8 @@ export function App({ bridge = tauriBridge }: AppProps = {}) {
                     animate="show"
                     exit="hide"
                   >
-                    <Notice>
-                      {copy.update.currentDetail}
-                      <span className="notice__actions">
+                    <Notice
+                      actions={
                         <button
                           className="btn btn--quiet"
                           type="button"
@@ -737,7 +736,9 @@ export function App({ bridge = tauriBridge }: AppProps = {}) {
                         >
                           <IconClose size={14} />
                         </button>
-                      </span>
+                      }
+                    >
+                      {copy.update.currentDetail}
                     </Notice>
                   </motion.div>
                 )}
@@ -748,9 +749,9 @@ export function App({ bridge = tauriBridge }: AppProps = {}) {
                     animate="show"
                     exit="hide"
                   >
-                    <Notice tone="warning">
-                      {copy.update.unavailable}
-                      <span className="notice__actions">
+                    <Notice
+                      tone="warning"
+                      actions={
                         <button
                           className="btn btn--quiet"
                           type="button"
@@ -760,7 +761,9 @@ export function App({ bridge = tauriBridge }: AppProps = {}) {
                         >
                           <IconClose size={14} />
                         </button>
-                      </span>
+                      }
+                    >
+                      {copy.update.unavailable}
                     </Notice>
                   </motion.div>
                 )}

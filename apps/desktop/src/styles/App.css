@@ -768,6 +768,13 @@ button:disabled {
   text-wrap: pretty;
 }
 
+/* The text span is a real flex child: a trailing actions slot (dismiss X,
+   banner CTA) then aligns to the banner's own trailing edge. */
+.notice__text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
 .notice--warning {
   border-color: color-mix(in srgb, var(--warning) 30%, transparent);
   background: var(--warning-soft);

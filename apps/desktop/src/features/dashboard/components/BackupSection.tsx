@@ -182,13 +182,13 @@ export function BackupSection({
   };
 
   return (
-    <section className="section backup-section" aria-labelledby="backup-title">
-      <div className="section__titlewrap">
-        <h2 className="section__title" id="backup-title">
+    <section className="section settings-card" aria-labelledby="backup-title">
+      <div className="settings-card__head">
+        <h2 className="settings-card__title" id="backup-title">
           {copy.backup.title}
         </h2>
+        <p className="settings-card__intro">{copy.backup.intro}</p>
       </div>
-      <p className="section__intro">{copy.backup.intro}</p>
 
       <div className="backup__block">
         <h3 className="backup__heading">{copy.backup.exportTitle}</h3>

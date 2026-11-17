@@ -203,6 +203,7 @@ export const copy = {
     intro:
       "每个账户按供应商声明的基础间隔刷新；这里的设置只调整上限与可选的自适应范围，不会绕过失败退避或供应商的 Retry-After。",
     cadence: "刷新间隔上限",
+    cadenceHelp: "每个账户按供应商默认间隔刷新，这里只设定允许的最大间隔。",
     auto: "按供应商默认",
     minutes: (minutes: number) => `${minutes} 分钟`,
     adaptive: "按消耗速度自动调整",

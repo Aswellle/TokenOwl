@@ -39,14 +39,15 @@ export function LanTrustSection({ bridge }: { bridge: DashboardBridge }) {
   };
 
   return (
-    <section className="section lan-trust" aria-label={copy.lanTrust.title}>
-      <div className="section__head">
-        <div className="section__titlewrap">
-          <h2 className="section__title">{copy.lanTrust.title}</h2>
-        </div>
+    <section className="section settings-card" aria-labelledby="lan-trust-title">
+      <div className="settings-card__head">
+        <h2 className="settings-card__title" id="lan-trust-title">
+          {copy.lanTrust.title}
+        </h2>
+        <p className="settings-card__intro">{copy.lanTrust.help}</p>
       </div>
       {targets.length === 0 ? (
-        <p className="lan-trust__empty">{copy.lanTrust.empty}</p>
+        <p className="section__empty">{copy.lanTrust.empty}</p>
       ) : (
         <ul className="lan-trust__list">
           {targets.map((target) => (
@@ -65,7 +66,6 @@ export function LanTrustSection({ bridge }: { bridge: DashboardBridge }) {
           ))}
         </ul>
       )}
-      <span className="field__help">{copy.lanTrust.help}</span>
       {failed && (
         <p className="form__error" role="alert">
           {copy.lanTrust.removeFailed}

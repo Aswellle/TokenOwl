@@ -904,6 +904,52 @@ button:disabled {
   line-height: 1.7;
 }
 
+/* ---------- settings page chrome ---------- */
+
+/* The settings view is a stack of equally-weighted cards: one background,
+   one border, one padding, one heading rhythm. A bare `.section` between
+   bordered disclosures read as an unfinished page. */
+.settings-panel {
+  display: grid;
+  gap: 16px;
+  margin-top: 8px;
+}
+
+.settings-panel > * {
+  margin-top: 0;
+}
+
+.settings-panel .form {
+  margin-top: 0;
+}
+
+.settings-card {
+  padding: 16px 18px;
+  border: 1px solid var(--hairline);
+  border-radius: 14px;
+  background: var(--surface);
+}
+
+.settings-card__head {
+  margin-bottom: 10px;
+}
+
+.settings-card__title {
+  font-size: var(--step-3);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1.4;
+}
+
+.settings-card__intro {
+  max-width: 62ch;
+  margin: 4px 0 0;
+  color: var(--ink-3);
+  font-size: var(--step-1);
+  line-height: 1.6;
+  text-wrap: pretty;
+}
+
 /* ---------- section ---------- */
 
 .section {
@@ -2020,7 +2066,8 @@ button:disabled {
   min-width: 0;
 }
 
-.setting-row__text strong {
+.setting-row__text strong,
+.setting-row__label {
   font-size: var(--step-1);
   font-weight: 500;
   color: var(--ink);
@@ -3120,11 +3167,6 @@ button:disabled {
   font-size: var(--step-0);
 }
 
-.lan-trust__empty {
-  color: var(--ink-3);
-  font-size: var(--step-0);
-}
-
 /* Opt-in "remember this target" inside the LAN consent dialog. */
 .lan-consent__remember {
   display: flex;
@@ -3361,42 +3403,6 @@ button:disabled {
 }
 
 /* ---------- refresh settings ---------- */
-
-.refresh-settings__row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 10px 0;
-  border-top: 1px solid var(--hairline);
-}
-
-.refresh-settings__row .field__input {
-  width: auto;
-  min-width: 148px;
-}
-
-.refresh-settings__toggle {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  padding: 10px 0 4px;
-  border-top: 1px solid var(--hairline);
-  cursor: pointer;
-}
-
-.refresh-settings__toggle input {
-  margin-top: 3px;
-}
-
-.refresh-settings__help {
-  display: block;
-  margin-top: 3px;
-  color: var(--ink-3);
-  font-size: var(--step-1);
-  font-style: normal;
-  line-height: 1.55;
-}
 
 .section__intro {
   /* Same measure cap as the form intro: long CJK explanations must not run

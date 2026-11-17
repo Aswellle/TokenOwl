@@ -58,13 +58,13 @@ export function RefreshSection({ bridge }: { bridge: DashboardBridge }) {
   };
 
   return (
-    <section className="section refresh-settings" aria-labelledby="refresh-settings-title">
-      <div className="section__titlewrap">
-        <h2 className="section__title" id="refresh-settings-title">
+    <section className="section settings-card" aria-labelledby="refresh-settings-title">
+      <div className="settings-card__head">
+        <h2 className="settings-card__title" id="refresh-settings-title">
           {copy.refreshSettings.title}
         </h2>
+        <p className="settings-card__intro">{copy.refreshSettings.intro}</p>
       </div>
-      <p className="section__intro">{copy.refreshSettings.intro}</p>
       {settings === null ? (
         error ? (
           <p className="form__error" role="alert">
@@ -78,44 +78,51 @@ export function RefreshSection({ bridge }: { bridge: DashboardBridge }) {
         )
       ) : (
         <>
-          <div className="refresh-settings__row">
-            <label className="field__label" htmlFor="refresh-cadence">
-              {copy.refreshSettings.cadence}
-            </label>
-            <select
-              className="field__input"
-              id="refresh-cadence"
-              value={settings.cadenceMinutes}
-              disabled={saving}
-              onChange={(event) =>
-                void apply({
-                  ...settings,
-                  cadenceMinutes: Number(event.currentTarget.value),
-                })
-              }
-            >
-              {CADENCES.map((minutes) => (
-                <option key={minutes} value={minutes}>
-                  {minutes === 0
-                    ? copy.refreshSettings.auto
-                    : copy.refreshSettings.minutes(minutes)}
-                </option>
-              ))}
-            </select>
+          <div className="setting-row">
+            <div className="setting-row__text">
+              <label className="setting-row__label" htmlFor="refresh-cadence">
+                {copy.refreshSettings.cadence}
+              </label>
+              <small>{copy.refreshSettings.cadenceHelp}</small>
+            </div>
+            <span className="setting-row__control">
+              <select
+                className="field__input"
+                id="refresh-cadence"
+                value={settings.cadenceMinutes}
+                disabled={saving}
+                aria-label={copy.refreshSettings.cadence}
+                onChange={(event) =>
+                  void apply({
+                    ...settings,
+                    cadenceMinutes: Number(event.currentTarget.value),
+                  })
+                }
+              >
+                {CADENCES.map((minutes) => (
+                  <option key={minutes} value={minutes}>
+                    {minutes === 0
+                      ? copy.refreshSettings.auto
+                      : copy.refreshSettings.minutes(minutes)}
+                  </option>
+                ))}
+              </select>
+            </span>
           </div>
-          <label className="refresh-settings__toggle">
+          <label className="setting-row setting-row--toggle">
+            <span className="setting-row__text">
+              <strong>{copy.refreshSettings.adaptive}</strong>
+              <small>{copy.refreshSettings.adaptiveHelp}</small>
+            </span>
             <input
               type="checkbox"
               checked={settings.adaptive}
               disabled={saving}
+              aria-label={copy.refreshSettings.adaptive}
               onChange={(event) =>
                 void apply({ ...settings, adaptive: event.currentTarget.checked })
               }
             />
-            <span>
-              <strong>{copy.refreshSettings.adaptive}</strong>
-              <em className="refresh-settings__help">{copy.refreshSettings.adaptiveHelp}</em>
-            </span>
           </label>
           {error && (
             <p className="form__error" role="alert">

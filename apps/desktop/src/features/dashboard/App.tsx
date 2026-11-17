@@ -663,7 +663,7 @@ export function App({ bridge = tauriBridge }: AppProps = {}) {
             )}
 
             {view === "settings" && (
-              <section className="section" aria-label={copy.views.settings}>
+              <section className="settings-panel" aria-label={copy.views.settings}>
                 <SetupForm
                   bridge={bridge}
                   submitting={formSubmitting}

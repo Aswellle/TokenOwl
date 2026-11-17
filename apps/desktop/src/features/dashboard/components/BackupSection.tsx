@@ -190,8 +190,9 @@ export function BackupSection({
         <p className="settings-card__intro">{copy.backup.intro}</p>
       </div>
 
-      <div className="backup__block">
+      <div className="settings-group backup__block">
         <h3 className="backup__heading">{copy.backup.exportTitle}</h3>
+        <p className="settings-group__intro">{copy.backup.exportIntro}</p>
         {accounts.length === 0 ? (
           <p className="history__note">{copy.backup.noAccounts}</p>
         ) : (
@@ -251,9 +252,12 @@ export function BackupSection({
         )}
       </div>
 
-      <div className="backup__block">
-        <h3 className="backup__heading">{copy.backup.importTitle}</h3>
-        <p className="history__note">{copy.backup.importHint}</p>
+      <div className="settings-group backup__block">
+        <h3 className="backup__heading">
+          <span className="step-badge">1</span>
+          {copy.backup.stepPaste}
+        </h3>
+        <p className="settings-group__intro">{copy.backup.importIntro}</p>
         <div className="field">
           <label className="field__label" htmlFor="backup-payload">
             {copy.backup.payloadLabel}
@@ -263,6 +267,7 @@ export function BackupSection({
             id="backup-payload"
             rows={7}
             value={payload}
+            placeholder={copy.backup.payloadPlaceholder}
             spellCheck={false}
             onChange={(event) => {
               setPayload(event.currentTarget.value);
@@ -271,14 +276,16 @@ export function BackupSection({
             }}
           />
         </div>
-        <button
-          className="btn btn--outline"
-          type="button"
-          onClick={() => void checkPayload()}
-          disabled={previewing || payload.trim().length === 0}
-        >
-          {previewing ? copy.backup.previewing : copy.backup.preview}
-        </button>
+        <div className="backup__actions">
+          <button
+            className="btn btn--outline"
+            type="button"
+            onClick={() => void checkPayload()}
+            disabled={previewing || payload.trim().length === 0}
+          >
+            {previewing ? copy.backup.previewing : copy.backup.preview}
+          </button>
+        </div>
         {previewFailed && (
           <p className="form__error" role="alert">
             {copy.backup.previewFailed}
@@ -286,6 +293,10 @@ export function BackupSection({
         )}
         {preview && (
           <div className="backup__preview">
+            <h3 className="backup__heading">
+              <span className="step-badge">2</span>
+              {copy.backup.stepKeys}
+            </h3>
             <p className="history__note" role="status">
               {copy.backup.previewSummary(
                 preview.schemaVersion,

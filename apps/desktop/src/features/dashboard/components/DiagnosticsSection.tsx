@@ -8,9 +8,10 @@ import type {
 } from "../../../types";
 
 /**
- * Local support bundle: preview first, then export the exact document that
- * was reviewed. The backend rejects a stale preview token, so a changed
- * bundle cannot be written without another look.
+ * Consumer-facing diagnostics: the entry point is "something is wrong, send
+ * the developer a file". The backend refuses to export a document the user
+ * has not seen, so the flow stays preview → export even though the wording
+ * hides the token mechanics.
  */
 export function DiagnosticsSection({ bridge }: { bridge: DashboardBridge }) {
   const [preview, setPreview] = useState<DiagnosticsPreview | null>(null);
@@ -44,8 +45,8 @@ export function DiagnosticsSection({ bridge }: { bridge: DashboardBridge }) {
       const result = await bridge.exportDiagnostics(preview.token);
       setExportResult(result);
     } catch {
-      // A changed backend state invalidates the token; the safe response is
-      // to ask for a fresh preview rather than silently writing either copy.
+      // State changed between preview and export; the safe response is to ask
+      // for a fresh preview rather than silently writing either copy.
       setPreview(null);
       setExportFailed(true);
     } finally {
@@ -54,18 +55,18 @@ export function DiagnosticsSection({ bridge }: { bridge: DashboardBridge }) {
   };
 
   return (
-    <details className="section diagnostics-section" aria-labelledby="diagnostics-title">
+    <details className="section settings-card diagnostics-section">
       <summary className="matrix__summary">
         <h2 className="section__title" id="diagnostics-title">
           {copy.diagnostics.title}
         </h2>
         <span className="matrix__summary-count">{copy.diagnostics.summary}</span>
       </summary>
-      <div className="diagnostics__body">
+      <div className="diagnostics__body" aria-labelledby="diagnostics-title">
         <p className="section__intro">{copy.diagnostics.intro}</p>
         <div className="diagnostics__actions">
           <button
-            className="btn btn--quiet"
+            className="btn btn--outline"
             type="button"
             onClick={() => void generate()}
             disabled={previewing}
@@ -75,7 +76,7 @@ export function DiagnosticsSection({ bridge }: { bridge: DashboardBridge }) {
           </button>
           {preview && (
             <button
-              className="btn btn--quiet"
+              className="btn btn--outline"
               type="button"
               onClick={() => void exportBundle()}
               disabled={exporting}
@@ -101,11 +102,14 @@ export function DiagnosticsSection({ bridge }: { bridge: DashboardBridge }) {
           </p>
         )}
         {preview && (
-          // tabindex="0" makes the scrollable region keyboard-reachable, so
-          // the full reviewed document is reachable without a pointer.
-          <pre className="diagnostics__json" tabIndex={0} aria-label={copy.diagnostics.summary}>
-            {preview.json}
-          </pre>
+          // The full document stays collapsed: a consumer wants the file, not
+          // a JSON wall, but the reviewed content must stay reachable.
+          <details className="diagnostics__content">
+            <summary>{copy.diagnostics.viewContent}</summary>
+            <pre className="diagnostics__json" tabIndex={0} aria-label={copy.diagnostics.summary}>
+              {preview.json}
+            </pre>
+          </details>
         )}
         <p className="history__note">{copy.diagnostics.note}</p>
       </div>

@@ -201,7 +201,7 @@ export const copy = {
   refreshSettings: {
     title: "刷新策略",
     intro:
-      "每个账户按供应商声明的基础间隔刷新；这里的设置只调整上限与可选的自适应范围，不会绕过失败退避或供应商的 Retry-After。",
+      "每个账户按其供应商的默认节奏刷新；这里设置的是最长间隔和可选的自动加速。请求失败后的自动重试不受影响。",
     cadence: "刷新间隔上限",
     cadenceHelp: "每个账户按供应商默认间隔刷新，这里只设定允许的最大间隔。",
     auto: "按供应商默认",
@@ -219,37 +219,45 @@ export const copy = {
   backup: {
     title: "账户配置备份",
     intro:
-      "备份只包含 Provider、名称、地址、协议与端点；绝不包含 API Key、凭据引用或代理密码。导入后需要为每个账户重新输入 Key，并逐个验证连接。",
-    exportTitle: "导出所选账户",
-    export: "导出配置",
+      "把账户的连接信息（名称、地址、接口格式）保存成一个 JSON 文件，用于换电脑或备份。文件不含 API 密钥，导入时需要重新输入并验证。",
+    exportTitle: "导出备份文件",
+    exportIntro: "勾选要备份的账户，然后导出。已连接的账户不受影响。",
+    export: "导出配置文件",
     exporting: "正在导出…",
-    exported: (path: string, count: number) => `已导出 ${count} 个账户到 ${path}`,
+    exported: (path: string, count: number) =>
+      `已导出 ${count} 个账户的配置，文件在：${path}`,
     exportFailed: "导出失败，没有写入文件。",
     selectAll: "全选",
     selectNone: "全不选",
-    noAccounts: "还没有可导出的账户。",
-    importTitle: "导入配置",
-    importHint:
-      "粘贴此前导出的 JSON。导入只做校验，不会直接创建账户；每一行都需要新 Key 才会调用创建流程。",
-    payloadLabel: "备份 JSON",
-    preview: "校验备份",
+    noAccounts: "还没有可备份的账户；先在上方连接一个账户。",
+    importTitle: "从备份文件导入",
+    importIntro:
+      "把之前导出的 JSON 内容粘贴到下面，校验通过后，再为每个账户输入 API 密钥完成添加。校验不会创建任何账户。",
+    payloadLabel: "备份文件内容（JSON）",
+    payloadPlaceholder: "粘贴备份文件的全部内容",
+    preview: "校验并预览",
     previewing: "正在校验…",
-    previewFailed: "备份无法解析或版本不受支持。",
-    previewEmpty: "备份中没有账户。",
+    previewFailed: "这份内容不是有效的备份文件，或版本不受支持。",
+    previewEmpty: "这份备份里没有账户。",
     previewSummary: (version: number, count: number, exportedAt: string) =>
-      `schema v${version} · ${count} 个账户 · 导出于 ${exportedAt}`,
-    duplicate: "已存在同名账户",
-    unavailable: "无法导入",
-    keyLabel: (label: string) => `${label} 的 API Key`,
-    importEntry: "添加并验证",
+      `备份格式版本 ${version} · ${count} 个账户 · 导出时间 ${exportedAt}`,
+    duplicate: "已有同名账户",
+    unavailable: "无法导入这一条",
+    keyLabel: (label: string) => `${label} 的 API 密钥`,
+    importEntry: "输入密钥并添加",
     importing: "正在验证…",
-    imported: "已添加，首次刷新验证成功。",
-    unverified: "已添加，但首次刷新未验证成功；请检查地址与 Key。",
-    importFailed: "添加失败，未保存任何凭据。",
-    missingKey: "请先输入 API Key。",
-    lanTitle: "导入的账户指向本地网络",
-    lanBody: "该地址看起来位于本地网络。确认要继续创建并允许本机向该地址发送请求吗？",
+    imported: "已添加，连接验证成功。",
+    unverified: "已添加，但暂时没有验证成功；请检查地址与密钥，稍后可在账户行重试刷新。",
+    importFailed: "添加失败，没有保存任何内容。",
+    missingKey: "请先输入这一条的 API 密钥。",
+    lanTitle: "这个备份指向本地网络地址",
+    lanBody: "该地址看起来位于局域网。确认要继续添加，并允许本机向该地址发送请求吗？",
     lanConfirm: "确认并继续",
+    stepSelect: "选择要备份的账户",
+    stepExport: "导出文件",
+    stepPaste: "粘贴备份内容",
+    stepVerify: "校验预览",
+    stepKeys: "逐条输入密钥并添加",
   },
 
   endpointTest: {
@@ -277,18 +285,20 @@ export const copy = {
   },
 
   diagnostics: {
-    title: "本地诊断包",
-    summary: "预览并导出脱敏诊断信息",
+    title: "问题反馈与诊断",
+    summary: "应用出问题时，生成一份不含密钥的诊断文件",
     intro:
-      "诊断包只包含应用与系统版本、存储 schema、刷新状态、Provider ID、协议、端点种类、HTTP 状态和错误码。不包含密钥、凭据引用、请求/响应正文、请求头、代理地址、账户名称、文件路径或自定义端点地址。",
+      "应用表现异常时，可以生成一份诊断文件发给开发者帮助定位。它只包含版本、系统、各账户的连接状态和错误类别，不包含密钥、地址、名称或任何请求内容，生成过程完全在本机完成。",
     preview: "生成诊断预览",
     previewing: "正在生成…",
     previewFailed: "诊断预览生成失败。",
-    export: "导出诊断包",
+    viewContent: "查看包含哪些信息",
+    export: "导出诊断文件",
     exporting: "正在导出…",
-    exported: (path: string, bytes: number) => `已导出诊断包（${bytes} 字节）到 ${path}`,
-    exportFailed: "诊断包导出失败。",
-    stale: "诊断内容已变化，请重新生成预览后再导出。",
+    exported: (path: string, bytes: number) =>
+      `诊断文件已保存（${bytes} 字节），位置：${path}`,
+    exportFailed: "诊断文件导出失败。",
+    stale: "状态刚发生了变化，请重新生成后再导出。",
     note: "预览确认后才会写入文件；所有内容仅保存在本机，不会自动上传。",
   },
 
@@ -422,7 +432,7 @@ export const copy = {
 
   form: {
     title: "连接 AI 供应商账户",
-    intro: "按接口请求格式选择供应商：OpenAI 兼容、Anthropic 或 Gemini。只有对方上报的字段才会显示，未知值不会补零。",
+    intro: "按接口请求格式选择供应商：OpenAI 兼容、Anthropic 或 Gemini。界面上只显示对方实际提供的数据，不会补零或估算。",
     label: "账户名称",
     labelPlaceholder: "例如：公司中转站",
     baseUrl: "接口地址",
@@ -460,7 +470,7 @@ export const copy = {
     } as Record<string, string>,
     profilePicker: "选择供应商",
     customOption: "自定义 / 兼容",
-    builtinNote: "接口地址与端点来自内置清单，按能力矩阵自动填充，无需手填。",
+    builtinNote: "接口地址和接口路径已按官方配置自动填好，不需要手动填写。",
     endpointsAvailable: "内置端点",
     protocolOpenai: "OpenAI 兼容格式",
     protocolAnthropic: "Anthropic 格式",
@@ -472,14 +482,14 @@ export const copy = {
     formatAnthropic: "Anthropic",
     formatGemini: "Gemini",
     nativeFormatHelp: "由原生适配器探测：密钥校验 + 速率限制头；额度数据以网关实际返回为准，无独立配额端点。",
-    communitySkipped: "部分社区包未能加载",
+    communitySkipped: "部分社区提供的配置未能加载",
     communityBadge: "社区",
     communityUnknownFile: "文件名未知",
     communitySource: (file: string, schema: number) =>
-      `来源：community-providers/${file} · schema v${schema} · 已通过结构校验`,
+      `来源：community-providers 文件夹中的 ${file}（格式版本 ${schema}），已通过安全校验`,
     communityVerified: (date: string) => `真实 API 核验 ${date}`,
     communityUnverified: "尚未声明真实 API 核验",
-    communityPacks: (count: number) => `社区清单（${count}）`,
+    communityPacks: (count: number) => `社区提供的接入配置（${count}）`,
     communityAccounts: (count: number) => `${count} 个账户`,
     communityStatus: {
       idle: "尚未使用",
@@ -491,7 +501,7 @@ export const copy = {
     gatewayBaseUrlPlaceholder: "http://localhost:4000/v1",
     gatewayBaseUrlHelp:
       "填入你部署的网关地址，必须是完整 URL，例如 http://localhost:4000/v1；不能使用示例占位域名。",
-    customNote: "自定义接入按 L1 能力处理：只有对方上报的字段才会显示。",
+    customNote: "自定义接入只显示对方实际返回的数据，不会补零或估算。",
     noQuotaBadge: "无额度接口",
     noQuotaCapabilityNote:
       "该供应商未公开密钥级额度查询接口：连接后仪表盘不会出现额度数据，这不是故障。",
@@ -524,26 +534,11 @@ export const copy = {
     quotaOverview: "当前额度",
   },
 
-  matrix: {
-    loading: "加载中",
-    rowCount: (count: number) => `${count} 个供应商`,
-    title: "供应商能力矩阵",
-    loadFailed: "供应商能力矩阵暂时无法读取，请稍后重试。",
-    loadFailedShort: "读取失败",
-    protocol: "协议",
-    intro:
-      "能力等级按 docs/09 首发规划：L4 完整额度（含重置）· L3 用量/余额 · L2 健康/模型 · L1 自定义接入。规划中的行以实测 fixture 为准，不预先标注等级。",
-    planned: "规划中",
-    contractCovered: "契约测试覆盖",
-    apiVerified: (date: string) => `API 核验 ${date}`,
-    units: "额度单位",
-    windows: "目标窗口",
-    level: {
-      L4: "完整额度",
-      L3: "用量/余额",
-      L2: "健康/模型",
-      L1: "自定义接入",
-    } as Record<string, string>,
+  capabilityLevels: {
+    L4: "完整额度",
+    L3: "用量/余额",
+    L2: "健康/模型",
+    L1: "自定义接入",
   },
 
   notifications: {

@@ -141,9 +141,10 @@ test.describe("diagnostics preview token", () => {
     await openSettings(page, "?scenario=diagnostics-stale");
     await page.locator("details.diagnostics-section summary").click();
     await page.getByRole("button", { name: "生成诊断预览" }).click();
+    await page.locator(".diagnostics__content summary").click();
     await expect(page.locator(".diagnostics__json")).toBeVisible();
-    await page.getByRole("button", { name: "导出诊断包" }).click();
-    await expect(page.getByText("诊断内容已变化，请重新生成预览后再导出。")).toBeVisible();
+    await page.getByRole("button", { name: "导出诊断文件" }).click();
+    await expect(page.getByText("状态刚发生了变化，请重新生成后再导出。")).toBeVisible();
     await expect(page.locator(".diagnostics__json")).toHaveCount(0);
   });
 });
@@ -155,7 +156,7 @@ test.describe("account backup selection", () => {
     const total = await boxes.count();
     expect(total).toBeGreaterThan(1);
     await boxes.nth(0).uncheck();
-    await page.getByRole("button", { name: "导出配置" }).click();
+    await page.getByRole("button", { name: "导出配置文件" }).click();
     await expect(
       page.getByRole("status").filter({ hasText: `已导出 ${total - 1} 个账户` }),
     ).toBeVisible({ timeout: 15_000 });

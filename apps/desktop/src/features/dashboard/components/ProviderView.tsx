@@ -236,7 +236,7 @@ export function ProviderView({
             className={`cap-chip ${LEVEL_CLASS[capabilityLevel] ?? "cap-chip--l1"}`}
             title={copy.a11y.capabilityChip(capabilityLevel)}
           >
-            {capabilityLevel} · {copy.matrix.level[capabilityLevel] ?? capabilityLevel}
+            {capabilityLevel} · {copy.capabilityLevels[capabilityLevel as keyof typeof copy.capabilityLevels] ?? capabilityLevel}
           </span>
         )}
         <button

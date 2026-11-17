@@ -276,7 +276,7 @@ test.describe("account creation", () => {
     page,
   }) => {
     await openSettings(page, "?scenario=manifest-skipped");
-    await expect(page.getByRole("status")).toContainText("部分社区包未能加载", {
+    await expect(page.getByRole("status")).toContainText("部分社区提供的配置未能加载", {
       timeout: 15_000,
     });
     await expect(page.getByRole("status")).toContainText("broken.yaml");
@@ -356,25 +356,15 @@ test.describe("refresh strategy", () => {
   });
 });
 
-test.describe("manifest playground", () => {
-  test("validates a pasted manifest and shows the mapped metric locally", async ({ page }) => {
-    await openSettings(page);
-    await page.getByText("Manifest 本地实验台", { exact: true }).click();
-    await page.getByRole("button", { name: "本地解析" }).click();
-    await expect(page.getByText(/清单通过结构校验/)).toBeVisible();
-    await expect(page.getByText(/used 42\.5/)).toBeVisible();
-  });
-});
-
 test.describe("account configuration backup", () => {
   test("exports a secret-free file and imports an entry after a new key", async ({ page }) => {
     await openSettings(page);
-    const exportButton = page.getByRole("button", { name: "导出配置" });
+    const exportButton = page.getByRole("button", { name: "导出配置文件" });
     await exportButton.scrollIntoViewIfNeeded();
     await exportButton.click();
     await expect(page.getByRole("status").filter({ hasText: /已导出 \d+ 个账户/ })).toBeVisible();
 
-    const payload = page.getByLabel("备份 JSON");
+    const payload = page.getByLabel("备份文件内容（JSON）");
     await payload.scrollIntoViewIfNeeded();
     await payload.fill(
       JSON.stringify({
@@ -389,23 +379,24 @@ test.describe("account configuration backup", () => {
         ],
       }),
     );
-    await page.getByRole("button", { name: "校验备份" }).click();
-    await expect(page.getByText(/schema v1/)).toBeVisible();
-    await page.getByLabel("Imported 的 API Key").fill("sk-mock-import");
-    await page.getByRole("button", { name: "添加并验证" }).click();
-    await expect(page.getByText("已添加，首次刷新验证成功。")).toBeVisible();
+    await page.getByRole("button", { name: "校验并预览" }).click();
+    await expect(page.getByText(/备份格式版本 1/)).toBeVisible();
+    await page.getByLabel("Imported 的 API 密钥").fill("sk-mock-import");
+    await page.getByRole("button", { name: "输入密钥并添加" }).click();
+    await expect(page.getByText("已添加，连接验证成功。")).toBeVisible();
   });
 });
 
 test.describe("local diagnostics", () => {
   test("previews a redacted bundle and exports the reviewed document", async ({ page }) => {
     await openSettings(page);
-    await page.getByText("本地诊断包", { exact: true }).click();
+    await page.getByText("问题反馈与诊断", { exact: true }).click();
     await page.getByRole("button", { name: "生成诊断预览" }).click();
-    const preview = page.getByLabel("预览并导出脱敏诊断信息");
+    await page.locator(".diagnostics__content summary").click();
+    const preview = page.getByLabel("应用出问题时，生成一份不含密钥的诊断文件");
     await expect(preview).toBeVisible();
     await expect(preview).toContainText('"schemaVersion": 1');
-    await page.getByRole("button", { name: "导出诊断包" }).click();
-    await expect(page.getByRole("status").filter({ hasText: "已导出诊断包" })).toBeVisible();
+    await page.getByRole("button", { name: "导出诊断文件" }).click();
+    await expect(page.getByRole("status").filter({ hasText: "诊断文件已保存" })).toBeVisible();
   });
 });

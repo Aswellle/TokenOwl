@@ -80,7 +80,7 @@ It lives in a corner of your screen as a tiny always-on-top bubble, opens into a
 
 **Take your configuration with you** — Export account configs as JSON with no keys (provider, label, URL, format, endpoints only). Import previews first, then asks for a fresh key per account and verifies the connection.
 
-**Self-service diagnostics** — Test every declared endpoint per account with a redacted result. Generate a local diagnostic bundle, review it, then export it. The offline manifest playground validates a community pack and runs its field mapping against a redacted sample response.
+**Self-service diagnostics** — Test every declared endpoint per account with a redacted result. Generate a local diagnostic bundle, review it, then export it.
 
 **Gateway-friendly** — Self-hosting New API, One API, or LiteLLM? They're first-class built-ins with editable base URLs. Custom OpenAI-compatible endpoints work too.
 

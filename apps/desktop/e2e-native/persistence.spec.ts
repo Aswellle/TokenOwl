@@ -47,15 +47,19 @@ test("refresh, dock, notification, and masked proxy preferences survive a restar
     // A remount reads the stored value back through proxy_get, which masks
     // the password segment; the real value never re-enters the webview.
     await page.getByRole("button", { name: "概览", exact: true }).click();
-    await expect(page.getByRole("heading", { name: "概览" })).toBeVisible();
+    // Wait for the settings tree to actually unmount: the view transition
+    // keeps the exiting instance around briefly, and a settings click during
+    // that window would reuse it instead of mounting a fresh one that reads
+    // the masked value back.
+    await expect(page.locator(".settings-panel")).toHaveCount(0);
     await openSettings(page);
     const proxyInput = page.getByRole("textbox", { name: "代理地址" });
     // Wait for the masked read: the field is empty until the effect's IPC
     // round-trip lands, and reading too early would sample the previous
     // mount's typed value instead.
     await expect
-      .poll(async () => (await proxyInput.inputValue()) || "", { timeout: 10_000 })
-      .toMatch(/^http:\/\/user:.+@127\.0\.0\.1:7890$/);
+      .poll(async () => await proxyInput.inputValue(), { timeout: 15_000 })
+      .not.toContain(PROXY_PASSWORD);
     const masked = await proxyInput.inputValue();
     expect(masked).toMatch(/^http:\/\/user:.+@127\.0\.0\.1:7890$/);
     expect(masked).not.toContain(PROXY_PASSWORD);

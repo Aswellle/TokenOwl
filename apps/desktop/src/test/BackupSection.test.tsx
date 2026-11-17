@@ -79,7 +79,7 @@ describe("account configuration backup", () => {
     await waitFor(() =>
       expect(screen.getByRole("checkbox", { name: /Work/ })).toBeChecked(),
     );
-    fireEvent.click(screen.getByRole("button", { name: "导出配置" }));
+    fireEvent.click(screen.getByRole("button", { name: "导出配置文件" }));
 
     await waitFor(() =>
       expect(bridge.exportAccountConfig).toHaveBeenCalledWith(["a1", "a2"]),
@@ -93,18 +93,18 @@ describe("account configuration backup", () => {
     const onImported = vi.fn();
     const bridge = makeBridge();
     render(<BackupSection bridge={bridge} accounts={accounts} onImported={onImported} />);
-    fireEvent.change(screen.getByLabelText("备份 JSON"), {
+    fireEvent.change(screen.getByLabelText("备份文件内容（JSON）"), {
       target: { value: '{"schemaVersion":1,"exportedAt":1,"accounts":[]}' },
     });
-    fireEvent.click(screen.getByRole("button", { name: "校验备份" }));
+    fireEvent.click(screen.getByRole("button", { name: "校验并预览" }));
 
-    expect(await screen.findByText(/schema v1/)).toBeInTheDocument();
-    expect(screen.getByText("已存在同名账户")).toBeInTheDocument();
+    expect(await screen.findByText(/备份格式版本 1/)).toBeInTheDocument();
+    expect(screen.getByText("已有同名账户")).toBeInTheDocument();
 
-    fireEvent.change(screen.getByLabelText("Work 的 API Key"), {
+    fireEvent.change(screen.getByLabelText("Work 的 API 密钥"), {
       target: { value: "sk-test" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "添加并验证" }));
+    fireEvent.click(screen.getByRole("button", { name: "输入密钥并添加" }));
 
     await waitFor(() =>
       expect(bridge.createAccount).toHaveBeenCalledWith(
@@ -112,7 +112,7 @@ describe("account configuration backup", () => {
       ),
     );
     await waitFor(() => expect(onImported).toHaveBeenCalledTimes(1));
-    expect(await screen.findByText("已添加，首次刷新验证成功。")).toBeInTheDocument();
+    expect(await screen.findByText("已添加，连接验证成功。")).toBeInTheDocument();
   });
 
   it("keeps the saved-but-unverified fact separate from success", async () => {
@@ -120,17 +120,17 @@ describe("account configuration backup", () => {
       createAccount: vi.fn(async () => created(false)),
     });
     render(<BackupSection bridge={bridge} accounts={accounts} onImported={() => {}} />);
-    fireEvent.change(screen.getByLabelText("备份 JSON"), {
+    fireEvent.change(screen.getByLabelText("备份文件内容（JSON）"), {
       target: { value: '{"schemaVersion":1,"exportedAt":1,"accounts":[]}' },
     });
-    fireEvent.click(screen.getByRole("button", { name: "校验备份" }));
-    fireEvent.change(await screen.findByLabelText("Work 的 API Key"), {
+    fireEvent.click(screen.getByRole("button", { name: "校验并预览" }));
+    fireEvent.change(await screen.findByLabelText("Work 的 API 密钥"), {
       target: { value: "sk-test" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "添加并验证" }));
+    fireEvent.click(screen.getByRole("button", { name: "输入密钥并添加" }));
 
-    expect(await screen.findByText(/首次刷新未验证成功/)).toBeInTheDocument();
-    expect(screen.queryByText("已添加，首次刷新验证成功。")).not.toBeInTheDocument();
+    expect(await screen.findByText(/已添加，但暂时没有验证成功/)).toBeInTheDocument();
+    expect(screen.queryByText("已添加，连接验证成功。")).not.toBeInTheDocument();
   });
 
   it("requires a key before calling the bridge and explains bad backups", async () => {
@@ -140,22 +140,22 @@ describe("account configuration backup", () => {
       }),
     });
     render(<BackupSection bridge={bridge} accounts={accounts} onImported={() => {}} />);
-    fireEvent.change(screen.getByLabelText("备份 JSON"), {
+    fireEvent.change(screen.getByLabelText("备份文件内容（JSON）"), {
       target: { value: "{}" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "校验备份" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent("备份无法解析");
+    fireEvent.click(screen.getByRole("button", { name: "校验并预览" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("不是有效的备份文件");
   });
 
   it("does not call create without a key", async () => {
     const bridge = makeBridge();
     render(<BackupSection bridge={bridge} accounts={accounts} onImported={() => {}} />);
-    fireEvent.change(screen.getByLabelText("备份 JSON"), {
+    fireEvent.change(screen.getByLabelText("备份文件内容（JSON）"), {
       target: { value: "{}" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "校验备份" }));
-    fireEvent.click(await screen.findByRole("button", { name: "添加并验证" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent("请先输入 API Key");
+    fireEvent.click(screen.getByRole("button", { name: "校验并预览" }));
+    fireEvent.click(await screen.findByRole("button", { name: "输入密钥并添加" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("请先输入这一条的 API 密钥");
     expect(bridge.createAccount).not.toHaveBeenCalled();
   });
 });

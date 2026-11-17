@@ -27,16 +27,16 @@ describe("local diagnostics bundle", () => {
     expect(await screen.findByText(/"schemaVersion":1/)).toBeInTheDocument();
     await waitFor(() =>
       expect(
-        screen.getByRole("button", { name: "导出诊断包" }),
+        screen.getByRole("button", { name: "导出诊断文件" }),
       ).toBeInTheDocument(),
     );
-    fireEvent.click(screen.getByRole("button", { name: "导出诊断包" }));
+    fireEvent.click(screen.getByRole("button", { name: "导出诊断文件" }));
 
     await waitFor(() =>
       expect(bridge.exportDiagnostics).toHaveBeenCalledWith("abc123"),
     );
     expect(await screen.findByRole("status")).toHaveTextContent(
-      "已导出诊断包",
+      "诊断文件已保存",
     );
   });
 
@@ -49,12 +49,12 @@ describe("local diagnostics bundle", () => {
     render(<DiagnosticsSection bridge={bridge} />);
     fireEvent.click(screen.getByRole("button", { name: "生成诊断预览" }));
     await screen.findByText(/"schemaVersion":1/);
-    fireEvent.click(screen.getByRole("button", { name: "导出诊断包" }));
+    fireEvent.click(screen.getByRole("button", { name: "导出诊断文件" }));
 
-    expect(await screen.findByRole("alert")).toHaveTextContent("诊断内容已变化");
+    expect(await screen.findByRole("alert")).toHaveTextContent("状态刚发生了变化");
     expect(screen.queryByText(/"schemaVersion":1/)).not.toBeInTheDocument();
     expect(
-      screen.queryByRole("button", { name: "导出诊断包" }),
+      screen.queryByRole("button", { name: "导出诊断文件" }),
     ).not.toBeInTheDocument();
   });
 

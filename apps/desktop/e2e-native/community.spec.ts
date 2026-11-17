@@ -42,7 +42,7 @@ capability:
  * A community pack is data, not a plugin: this test installs one into the
  * real app-data directory, creates an account from it, proves its declared
  * endpoints are the ones contacted, and checks that a malformed pack is
- * named in the skip list instead of disappearing. The offline playground is
+ * named in the skip list instead of disappearing.
  * exercised against the same pack.
  */
 test("a community pack loads, connects, and its invalid sibling is reported", async ({
@@ -64,7 +64,7 @@ test("a community pack loads, connects, and its invalid sibling is reported", as
     await page.getByRole("button", { name: "设置", exact: true }).click();
 
     // The invalid pack is named, not silently dropped.
-    const skipped = page.getByRole("status").filter({ hasText: "部分社区包未能加载" });
+    const skipped = page.getByRole("status").filter({ hasText: "部分社区提供的配置未能加载" });
     await expect(skipped).toContainText("bad-pack.yaml");
     await expect(skipped).not.toContainText("acme-native.yaml");
     const packs = page.locator("details.community-packs");
@@ -105,25 +105,6 @@ test("a community pack loads, connects, and its invalid sibling is reported", as
       await expect(endpointRows.nth(index)).toContainText("可访问");
     }
 
-    // The playground validates the same pack and maps the sample offline.
-    await page.getByRole("button", { name: "设置", exact: true }).click();
-    const playground = page.locator("details.manifest-playground");
-    await playground.locator("summary").click();
-    await playground.getByLabel("Manifest YAML").fill(manifest());
-    await playground
-      .getByLabel("示例响应 JSON")
-      .fill(JSON.stringify({ data: { used: 321, reset_at: 1_800_000_000 } }));
-    await playground.getByRole("button", { name: "本地解析" }).click();
-    await expect(playground.getByRole("status")).toContainText("清单通过结构校验");
-    await expect(playground.locator(".manifest-playground__metrics")).toContainText("321");
-
-    // An unknown top-level field is a validation error, not a warning.
-    await playground
-      .getByLabel("Manifest YAML")
-      .fill(manifest().replace("apiKeyHeader: Authorization", "script: alert(1)"));
-    await playground.getByRole("button", { name: "本地解析" }).click();
-    await expect(playground.getByRole("status")).toContainText("清单未通过校验");
-    await expect(playground.locator(".manifest-playground__errors")).toContainText("script");
   } finally {
     await app.close();
     await clearTestCredentials(dirs.credentialService);

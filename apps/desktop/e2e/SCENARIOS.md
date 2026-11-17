@@ -103,7 +103,7 @@ update-available/update-fail/install-fail/manifest-skipped）。
 | 供应商详情 | 打开/返回/Escape、用量窗口切换、无快照解释、用量查询失败保持 —、L4 能力 chip | dashboard.spec.ts |
 | 行操作 | 全部刷新、刷新失败保留行、移除二次确认/取消/Escape/失败提示 | dashboard.spec.ts |
 | 空/离线/加载 | 首跑空态、离线可重试、慢加载骨架、>5 账户 rail 计数、长标签不撑宽 | dashboard.spec.ts |
-| 设置 | 三种协议分组、变体菜单/Escape 焦点、网关地址、自定义格式、四类校验、创建成功重置/失败保留、LAN 同意/取消/分类失败、社区包跳过、能力矩阵失败、更新当前/可用/失败/安装失败、API 密钥 password 掩码 | settings.spec.ts |
+| 设置 | 三种协议分组、变体菜单/Escape 焦点、网关地址、自定义格式、四类校验、创建成功重置/失败保留、LAN 同意/取消/分类失败、社区包跳过、更新当前/可用/失败/安装失败、API 密钥 password 掩码 | settings.spec.ts |
 | 历史 | 30 天汇总、趋势图、热力图 182+ 格、日期/无记录可访问名、方向键、tooltip 分供应商与额度、空态、读取失败可重试 | history.spec.ts |
 | 通知 | 列表/未读徽标/严重度、单条已读、全部已读、类型筛选、空态、读取失败、标记失败、偏好开关/失焦提交/回滚/读取失败 | notifications.spec.ts |
 | 可访问性 | main 地标、唯一 h1、每视图按钮均有名称、表单控件均有标签、Dock Enter/Space、焦点环、LAN 对话框 Tab 陷阱与焦点返回、reduced-motion | accessibility.spec.ts |
@@ -254,10 +254,8 @@ F16 压力提示 `未上报窗口额度`。新增 e2e `?scenario=balance-only`�
 |---|---|---|---|
 | 刷新策略 | 选择 1/5/10/15/30 分钟上限并持久化；自适应开关独立保存；保存失败回滚并说明 | B | e2e/settings.spec.ts；src/test/RefreshSection.test.tsx |
 | 账户备份 | 勾选账户导出不含密钥的 JSON；粘贴备份校验预览；逐条输入新 Key 后创建并验证；缺 Key 不调用创建 | B/A | e2e/settings.spec.ts；src/test/BackupSection.test.tsx |
-| Manifest 实验台 | 展开、离线校验粘贴清单、显示映射出的指标；未知字段/未来 schema 在 Rust 侧拒绝 | B/A | e2e/settings.spec.ts；src-tauri/src/commands/manifest.rs tests |
 | 诊断包 | 生成预览、导出所审阅内容；token 过期时丢弃预览而不是写入另一份文档 | B/A | e2e/settings.spec.ts；src/test/DiagnosticsSection.test.tsx |
 | 端点测试 | 供应商详情逐端点结果（可访问/认证失败/HTTP 状态/延迟）；命令失败不冒充成功 | B/A | e2e/dashboard.spec.ts；src/test/ProviderEndpointTest.test.tsx |
-| 能力矩阵 | 每行显示“契约测试覆盖”；规划行仍不冒充已实现 | B | e2e/settings.spec.ts |
 | 刷新计划 | 每账户 due 时间、失败退避、空闲加倍/低额度减半、上下限 | A（Rust） | commands/accounts.rs cadence_tests；commands/refresh.rs tests |
 
 ### 9.2 新的诚实边界
@@ -284,14 +282,14 @@ F16 压力提示 `未上报窗口额度`。新增 e2e `?scenario=balance-only`�
 
 | 域 | 场景 | 用例位置 |
 |----|------|----------|
-| 真实 IPC | 首跑无 mock 数据、31 清单收敛为 27 个品牌组、能力矩阵 32 行且标“契约测试覆盖” | e2e-native/native.spec.ts |
+| 真实 IPC | 首跑无 mock 数据、31 清单收敛为 27 个品牌组 | e2e-native/native.spec.ts |
 | 账户闭环 | 自定义账户创建、LAN 同意、首刷额度、端点测试、密钥不进入 DOM/SQLite | 同上 |
 | 密钥轮换 | 401 拒绝候选 → 旧 Key 继续可用；供应商吊销旧 Key 后轮换到已验证新 Key；之后仅新 Key 可刷新 | e2e-native/rotation.spec.ts |
 | 降级路径 | 500 / 429(Retry-After) / 非 JSON 200 均保留最后快照并显示错误类；401 端点测试归为“认证失败” | e2e-native/degraded.spec.ts |
 | 备份/诊断 | 导出不含密钥、删除后导入预览、逐条重输 Key 创建；诊断预览/导出、token 过期拒绝写第二份文档；删除账户清理 keyring | e2e-native/backup-diagnostics.spec.ts |
 | 通知 | 低额度真实触发、单条/全部已读、总开关与依赖字段锁定、阈值 blur 保存 | e2e-native/notifications.spec.ts |
 | 本地用量 | Claude Code + Codex fixture、opt-in 门禁、cursor 续扫、重复扫描零新增、清除/禁用、提示词不落库 | e2e-native/local-usage.spec.ts |
-| 社区清单 | 有效包加载/创建、映射 usage、reset 端点真实请求、无效包列入 skipped、离线 playground 正反例 | e2e-native/community.spec.ts |
+| 社区清单 | 有效包加载/创建、映射 usage、reset 端点真实请求、无效包列入 skipped | e2e-native/community.spec.ts |
 | 重启持久化 | 刷新节奏/自适应、dock 折叠、通知静音、代理 URL 跨进程保留；代理密码读回掩码且不落盘 | e2e-native/persistence.spec.ts |
 | 代理分流 | 国内供应商直连、国际供应商走代理的传输级断言（代理收到绝对 URI、直连不经过代理）；适配器按账户 region 选路；切换策略后下一次请求即生效；非法/缺失策略回退到安全默认 | tests/proxy_transport.rs、commands::settings |
 | 设置自动保存 | 通知数值项聚焦后离开且未改动 → 不写库、不显示“已保存”；清空本已为空的余额下限视为未改动；越界值原地报错且不写库 | src/test/NotificationSection.test.tsx |

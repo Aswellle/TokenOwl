@@ -57,7 +57,7 @@ fixture.
 | `backup-diagnostics.spec.ts` | secret-free account export, delete + import preview + key re-entry, credential cleanup, diagnostics preview/export and stale token |
 | `notifications.spec.ts` | real threshold alert generation, per-row/mark-all read state, master mute and dependent-field locking, threshold save |
 | `local-usage.spec.ts` | both Claude Code and Codex fixtures, opt-in gating, cursor resume, idempotent rescans, clear/disable, prompt text absent from SQLite |
-| `community.spec.ts` | community pack load/skip reporting, gateway account creation, mapped usage, declared endpoints (including `reset`), offline playground valid/invalid |
+| `community.spec.ts` | community pack load/skip reporting, gateway account creation, mapped usage, declared endpoints (including `reset`) |
 | `persistence.spec.ts` | refresh cadence/adaptive, dock collapse, notification mute, masked proxy URL survive a process restart |
 | `window-bubble.spec.ts` | 56×56 logical tool window, DPI-aware Win32 rect/style, bubble rings/aria, dashboard↔bubble handoff both ways |
 | `accessibility.spec.ts` | landmarks, headings, names/labels, duplicate ids, target sizes, opaque-background contrast, focus ring, dialog focus trap, 560×480 reflow |

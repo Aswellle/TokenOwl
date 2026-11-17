@@ -37,7 +37,7 @@ test("account backup round-trips without secrets and diagnostics export requires
   // Export only the selected account.
   const checkbox = page.getByRole("checkbox", { name: /备份账户/ });
   await expect(checkbox).toBeChecked();
-  await page.getByRole("button", { name: "导出配置" }).click();
+  await page.getByRole("button", { name: "导出配置文件" }).click();
   await expect(page.getByRole("status").filter({ hasText: "已导出 1 个账户" })).toBeVisible({
     timeout: 15_000,
   });
@@ -62,11 +62,11 @@ test("account backup round-trips without secrets and diagnostics export requires
   expect(backup.text.toLowerCase()).not.toContain("credential");
 
   // Previewing while the same account exists warns without creating anything.
-  const payload = page.getByLabel("备份 JSON");
+  const payload = page.getByLabel("备份文件内容（JSON）");
   await payload.fill(backup.text);
-  await page.getByRole("button", { name: "校验备份" }).click();
-  await expect(page.getByText(/schema v1 · 1 个账户/)).toBeVisible();
-  await expect(page.getByText("已存在同名账户")).toBeVisible();
+  await page.getByRole("button", { name: "校验并预览" }).click();
+  await expect(page.getByText(/备份格式版本 1 · 1 个账户/)).toBeVisible();
+  await expect(page.getByText("已有同名账户")).toBeVisible();
 
   // Delete the account: the config row and its Credential Manager entry both
   // go away, while the reviewed backup remains on disk.
@@ -82,16 +82,16 @@ test("account backup round-trips without secrets and diagnostics export requires
   // Re-import: preview no longer flags a duplicate, and the row requires a
   // fresh key before the normal create path runs.
   await page.getByRole("button", { name: "设置", exact: true }).click();
-  await page.getByLabel("备份 JSON").fill(backup.text);
-  await page.getByRole("button", { name: "校验备份" }).click();
-  await expect(page.getByText(/schema v1 · 1 个账户/)).toBeVisible();
-  await expect(page.getByText("已存在同名账户")).toHaveCount(0);
-  await page.getByLabel("备份账户 的 API Key").fill(IMPORTED_KEY);
-  await page.getByRole("button", { name: "添加并验证" }).click();
-  const lan = page.getByRole("alertdialog", { name: "导入的账户指向本地网络" });
+  await page.getByLabel("备份文件内容（JSON）").fill(backup.text);
+  await page.getByRole("button", { name: "校验并预览" }).click();
+  await expect(page.getByText(/备份格式版本 1 · 1 个账户/)).toBeVisible();
+  await expect(page.getByText("已有同名账户")).toHaveCount(0);
+  await page.getByLabel("备份账户 的 API 密钥").fill(IMPORTED_KEY);
+  await page.getByRole("button", { name: "输入密钥并添加" }).click();
+  const lan = page.getByRole("alertdialog", { name: "这个备份指向本地网络地址" });
   await expect(lan).toBeVisible();
   await lan.getByRole("button", { name: "确认并继续" }).click();
-  await expect(page.getByText("已添加，首次刷新验证成功。")).toBeVisible({
+  await expect(page.getByText("已添加，连接验证成功。")).toBeVisible({
     timeout: 20_000,
   });
   expect(await testCredentialTargets(service)).toHaveLength(1);
@@ -104,6 +104,7 @@ test("account backup round-trips without secrets and diagnostics export requires
   await page.getByRole("button", { name: "设置", exact: true }).click();
   await page.locator("details.diagnostics-section summary").click();
   await page.getByRole("button", { name: "生成诊断预览" }).click();
+  await page.locator(".diagnostics__content summary").click();
   const preview = page.locator(".diagnostics__json");
   await expect(preview).toBeVisible({ timeout: 15_000 });
   const bundle = JSON.parse(await preview.innerText()) as {
@@ -127,8 +128,8 @@ test("account backup round-trips without secrets and diagnostics export requires
     expect(text).not.toContain(forbidden);
   }
 
-  await page.getByRole("button", { name: "导出诊断包" }).click();
-  await expect(page.getByRole("status").filter({ hasText: "已导出诊断包" })).toBeVisible({
+  await page.getByRole("button", { name: "导出诊断文件" }).click();
+  await expect(page.getByRole("status").filter({ hasText: "诊断文件已保存" })).toBeVisible({
     timeout: 15_000,
   });
   const diagnostics = await latestExport(app, "diagnostics", ".json");
@@ -144,8 +145,8 @@ test("account backup round-trips without secrets and diagnostics export requires
   await expect(page.locator(".refresh-settings").getByRole("status")).toContainText(
     "刷新策略已保存",
   );
-  await page.getByRole("button", { name: "导出诊断包" }).click();
-  await expect(page.getByText("诊断内容已变化，请重新生成预览后再导出。")).toBeVisible();
+  await page.getByRole("button", { name: "导出诊断文件" }).click();
+  await expect(page.getByText("状态刚发生了变化，请重新生成后再导出。")).toBeVisible();
   await expect(preview).toHaveCount(0);
   expect(await exportCount(app, "diagnostics")).toBe(1);
 });

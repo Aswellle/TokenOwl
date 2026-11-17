@@ -57,11 +57,12 @@ test("refresh, dock, notification, and masked proxy preferences survive a restar
     // Wait for the masked read: the field is empty until the effect's IPC
     // round-trip lands, and reading too early would sample the previous
     // mount's typed value instead.
+    // Poll for the masked shape: an empty string is the fresh mount before
+    // the IPC read lands, so "not the password" alone would pass vacuously.
     await expect
       .poll(async () => await proxyInput.inputValue(), { timeout: 15_000 })
-      .not.toContain(PROXY_PASSWORD);
+      .toMatch(/^http:\/\/user:.+@127\.0\.0\.1:7890$/);
     const masked = await proxyInput.inputValue();
-    expect(masked).toMatch(/^http:\/\/user:.+@127\.0\.0\.1:7890$/);
     expect(masked).not.toContain(PROXY_PASSWORD);
     expect(await appDataContains(app, PROXY_PASSWORD)).toBe(false);
 

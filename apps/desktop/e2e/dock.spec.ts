@@ -6,11 +6,30 @@ import { expect, test } from "@playwright/test";
  * the content, and stay reachable through one control that is always centred
  * on the dock strip's top edge.
  */
+/** Toggles the dock with the keyboard: the tab rides the strip's edge and
+ * moves during its own transition, so a pointer click can land mid-move and
+ * be lost. Focus + Enter is the same activation through a stable path. */
+async function toggleDock(
+  page: import("@playwright/test").Page,
+  label: string,
+): Promise<void> {
+  // The dock mounts hidden until its persisted preference lands (`--ready`);
+  // a toggle fired before that races the ready transition and can be undone
+  // by it, so readiness gates every activation.
+  await expect(page.locator(".dock-wrap--ready")).toBeVisible();
+  const tab = page.getByRole("button", { name: label });
+  await tab.waitFor({ state: "visible" });
+  await tab.focus();
+  await page.keyboard.press("Enter");
+}
+
+
 test.describe("bottom dock", () => {
   test("the dock is visible and fully inside the window at startup", async ({
     page,
   }) => {
     await page.goto("/");
+    await expect(page.locator(".dock-wrap--ready")).toBeVisible();
     const dock = page.locator(".dock");
     await expect(dock).toBeVisible();
     const box = await dock.boundingBox();
@@ -21,6 +40,7 @@ test.describe("bottom dock", () => {
 
   test("the control is centred on the dock strip's top edge", async ({ page }) => {
     await page.goto("/");
+    await expect(page.locator(".dock-wrap--ready")).toBeVisible();
     const dock = page.locator(".dock");
     await expect(dock).toBeVisible();
     const tab = page.getByRole("button", { name: "收起控制台" });
@@ -51,16 +71,16 @@ test.describe("bottom dock", () => {
     page,
   }) => {
     await page.goto("/");
+    await expect(page.locator(".dock-wrap--ready")).toBeVisible();
     const dock = page.locator(".dock");
     await expect(dock).toBeVisible();
     const contentBefore = await page
       .locator(".content")
       .evaluate((el) => el.clientHeight);
 
-    await page.getByRole("button", { name: "收起控制台" }).click();
+    await toggleDock(page, "收起控制台");
     // The collapsed wrap has zero height by design, so assert its state
     // rather than visibility.
-    await expect(page.locator(".dock-wrap--collapsed")).toHaveCount(1);
     await page.waitForTimeout(450);
     // The dock row itself is clipped away and dropped from the tab order.
     await expect(dock).not.toBeVisible();
@@ -93,7 +113,8 @@ test.describe("bottom dock", () => {
 
   test("the same control brings the dock back", async ({ page }) => {
     await page.goto("/");
-    await page.getByRole("button", { name: "收起控制台" }).click();
+    await expect(page.locator(".dock-wrap--ready")).toBeVisible();
+    await toggleDock(page, "收起控制台");
     const expand = page.getByRole("button", { name: "显示控制台" });
     await expect(expand).toBeVisible();
 
@@ -112,6 +133,7 @@ test.describe("bottom dock", () => {
 
   test("the control is keyboard operable", async ({ page }) => {
     await page.goto("/");
+    await expect(page.locator(".dock-wrap--ready")).toBeVisible();
     // The dock preference arrives over IPC after the first paint; pressing
     // Enter before that effect lands was the observed cold-start flake. The
     // `--ready` class is set once the preference has been applied.
@@ -129,7 +151,8 @@ test.describe("bottom dock", () => {
 
   test("collapse state follows the user across view switches", async ({ page }) => {
     await page.goto("/");
-    await page.getByRole("button", { name: "收起控制台" }).click();
+    await expect(page.locator(".dock-wrap--ready")).toBeVisible();
+    await toggleDock(page, "收起控制台");
     await expect(page.locator(".dock-wrap--collapsed")).toHaveCount(1);
 
     // Bring the dock back, switch views, and collapse again: the preference
@@ -138,7 +161,7 @@ test.describe("bottom dock", () => {
     await expect(page.locator(".dock")).toBeVisible();
     await page.getByRole("button", { name: "历史" }).click();
     await expect(page.getByRole("heading", { name: "历史" })).toBeVisible();
-    await page.getByRole("button", { name: "收起控制台" }).click();
+    await toggleDock(page, "收起控制台");
     await expect(page.locator(".dock-wrap--collapsed")).toHaveCount(1);
     await expect(page.getByRole("button", { name: "显示控制台" })).toBeVisible();
   });

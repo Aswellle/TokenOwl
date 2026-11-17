@@ -411,9 +411,9 @@ export const copy = {
     systemNote:
       "「系统代理」使用操作系统的代理设置（Windows：设置 → 网络和 Internet → 代理），切换后下一次请求即生效。",
     groupCustom: "自定义代理地址",
-    groupCustomIntro: "保存后即可在上面的分流规则中选择「自定义代理」。",
+    groupCustomIntro: "保存后即可在上面的分流规则中选择「自定义代理」。常见代理工具：Clash Verge / Clash 默认 http://127.0.0.1:7890，v2rayN 默认 http://127.0.0.1:10809。",
     proxyLabel: "代理地址",
-    help: "填入后，选择「自定义代理」的那一类供应商请求会经过该地址。",
+    help: "填入后，选择「自定义代理」的那一类供应商请求会经过该地址；留空则两类都按上面选择的直连或系统代理。",
     maskedNote: "若代理包含账号密码，密码段会以掩码显示；保存时原密码自动还原，无需重新输入。",
     placeholder: "http://127.0.0.1:7890",
     save: "保存代理地址",

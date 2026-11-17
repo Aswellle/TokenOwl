@@ -275,9 +275,11 @@ function NotificationSettings({
       return;
     }
 
-    void commit(next).then((ok) => {
-      if (ok) resetDrafts();
-    });
+    // On success the persisted values flow back through `prefs`, and the
+    // effect above re-syncs every draft. Resetting here from this closure
+    // would use the pre-save snapshot and visibly revert the field the user
+    // just edited (the IPC round-trip is slower than the optimistic render).
+    void commit(next);
   };
 
   // The collapsed disclosure still answers the two questions a user has:

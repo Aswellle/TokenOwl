@@ -34,14 +34,28 @@ test("refresh, dock, notification, and masked proxy preferences survive a restar
     await page.getByRole("button", { name: "保存代理地址" }).click();
     await expect(
       page.locator(".proxy").getByRole("status"),
-    ).toContainText("已保存，重启应用后生效");
+    ).toContainText("已保存，立即生效");
+
+    // Routing is a second, independent preference: the international class
+    // may leave through the system proxy by default, and switching it to
+    // direct must persist alongside the URL.
+    const internationalRoute = page.getByRole("combobox", { name: "国际供应商" });
+    await expect(internationalRoute).toHaveValue("system");
+    await internationalRoute.selectOption("direct");
+    await expect(internationalRoute).toHaveValue("direct");
 
     // A remount reads the stored value back through proxy_get, which masks
     // the password segment; the real value never re-enters the webview.
     await page.getByRole("button", { name: "概览", exact: true }).click();
+    await expect(page.getByRole("heading", { name: "概览" })).toBeVisible();
     await openSettings(page);
     const proxyInput = page.getByRole("textbox", { name: "代理地址" });
-    await expect(proxyInput).toHaveValue(/^http:\/\/user:/, { timeout: 10_000 });
+    // Wait for the masked read: the field is empty until the effect's IPC
+    // round-trip lands, and reading too early would sample the previous
+    // mount's typed value instead.
+    await expect
+      .poll(async () => (await proxyInput.inputValue()) || "", { timeout: 10_000 })
+      .toMatch(/^http:\/\/user:.+@127\.0\.0\.1:7890$/);
     const masked = await proxyInput.inputValue();
     expect(masked).toMatch(/^http:\/\/user:.+@127\.0\.0\.1:7890$/);
     expect(masked).not.toContain(PROXY_PASSWORD);
@@ -77,6 +91,7 @@ test("refresh, dock, notification, and masked proxy preferences survive a restar
     await expect(page.getByLabel("刷新间隔上限")).toHaveValue("10");
     await expect(page.getByRole("checkbox", { name: /按消耗速度自动调整/ })).toBeChecked();
     await expect(page.getByRole("textbox", { name: "代理地址" })).toHaveValue(masked);
+    await expect(page.getByRole("combobox", { name: "国际供应商" })).toHaveValue("direct");
 
     await openNotifications(page);
     await expect(page.locator("details.notif-settings summary")).toContainText("已停用");

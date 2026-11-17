@@ -12,7 +12,6 @@ import {
   quotaWindowTag,
 } from "../../../lib/format";
 import { QuotaMetric } from "./QuotaMetric";
-import { LEVEL_CLASS } from "./ProviderMatrix";
 import { StatusChip } from "./StatusChip";
 import type {
   AccountViewModel,
@@ -97,6 +96,14 @@ function ProviderTrendTooltip({
  * One provider's dedicated view: header card, trailing-window usage stats
  * (2h / 24h / 30 days) and the provider's quota metric cards.
  */
+/** Level → chip treatment for the capability badge on the provider card. */
+const LEVEL_CLASS: Record<string, string> = {
+  L4: "cap-chip--l4",
+  L3: "cap-chip--l3",
+  L2: "cap-chip--l2",
+  L1: "cap-chip--l1",
+};
+
 export function ProviderView({
   account,
   now,

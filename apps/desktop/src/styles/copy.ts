@@ -396,17 +396,34 @@ export const copy = {
 
   proxy: {
     title: "网络代理",
-    help: "填入后所有供应商请求都经过该代理；留空保存表示直连（默认行为不变）。",
-    restartNote: "保存后需重启应用生效。代理地址保存在系统凭据库中，与密钥同级保护。",
+    intro:
+      "国内供应商默认直连，国际供应商默认跟随系统的代理设置；也可以为两类服务分别指定自定义代理。规则只影响本机的供应商请求，两类互不干扰。",
+    groupRouting: "分流规则",
+    groupRoutingIntro: "按供应商声明的地区分类，保存后立即生效。",
+    domesticRoute: "国内供应商",
+    domesticHelp: "声明为中国区的供应商，例如 DeepSeek、Kimi、智谱。",
+    internationalRoute: "国际供应商",
+    internationalHelp: "其余供应商；未声明地区的按国际服务处理。",
+    routeDirect: "直连",
+    routeSystem: "系统代理",
+    routeCustom: "自定义代理",
+    routeCustomUnavailable: "先保存下面的代理地址才能选择",
+    systemNote:
+      "「系统代理」使用操作系统的代理设置（Windows：设置 → 网络和 Internet → 代理），切换后下一次请求即生效。",
+    groupCustom: "自定义代理地址",
+    groupCustomIntro: "保存后即可在上面的分流规则中选择「自定义代理」。",
+    proxyLabel: "代理地址",
+    help: "填入后，选择「自定义代理」的那一类供应商请求会经过该地址。",
     maskedNote: "若代理包含账号密码，密码段会以掩码显示；保存时原密码自动还原，无需重新输入。",
     placeholder: "http://127.0.0.1:7890",
-    save: "保存代理设置",
+    save: "保存代理地址",
     saving: "正在保存…",
-    saved: "已保存，重启应用后生效。",
-    cleared: "已清除代理，重启应用后恢复直连。",
+    saved: "已保存，立即生效。",
+    cleared: "已清除代理地址；原先使用自定义代理的一类已改为直连。",
     invalid: "代理地址无效：请使用 http:// 或 https:// 开头的完整 URL。",
     storeFailed:
       "代理设置未能写入系统凭据库，原设置未改变。请稍后重试；地址本身无需修改。",
+    routingFailed: "分流规则保存失败，已恢复到上一次生效的设置。",
   },
 
   lanTrust: {

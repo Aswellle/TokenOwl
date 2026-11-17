@@ -526,6 +526,15 @@ export function createMockBridge(): DashboardBridge {
         throw new Error("模拟代理地址无效");
       }
     },
+    async getProxyRouting() {
+      await new Promise((resolve) => setTimeout(resolve, latency()));
+      return { domestic: "direct", international: "system" } as const;
+    },
+    async setProxyRouting(routing: import("../types").ProxyRouting) {
+      await new Promise((resolve) => setTimeout(resolve, latency()));
+      if (hasScenario("proxy-fail")) throw new Error("模拟分流保存失败");
+      return routing;
+    },
     async getDockCollapsed() {
       await new Promise((resolve) => setTimeout(resolve, latency()));
       return hasScenario("dock-collapsed");

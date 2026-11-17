@@ -19,6 +19,7 @@ import type {
   NotificationPreferencesViewModel,
   NotificationViewModel,
   ProviderMatrixRowViewModel,
+  ProxyRouting,
   RefreshSettings,
   UpdateInfo,
   UsageWindowsViewModel,
@@ -114,6 +115,12 @@ export const tauriBridge: DashboardBridge = {  listAccounts: () => invoke<Accoun
     invoke<UsageWindowsViewModel>("usage_windows", accountId ? { accountId } : undefined),
   getProxy: () => invoke<string | null>("proxy_get"),
   setProxy: (url: string | null) => invoke<void>("proxy_set", { url }),
+  getProxyRouting: () => invoke<ProxyRouting>("proxy_routing_get"),
+  setProxyRouting: (settings: ProxyRouting) =>
+    invoke<ProxyRouting>("proxy_routing_set", {
+      domestic: settings.domestic,
+      international: settings.international,
+    }),
   localUsageSources: () => invoke<LocalUsageSourceView>("local_usage_sources_get"),
   setLocalUsageSource: (sourceId: string, enabled: boolean) =>
     invoke<void>("local_usage_source_set", { sourceId, enabled }),

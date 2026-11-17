@@ -428,6 +428,18 @@ export interface ManifestProfileViewModel {
   endpoints: ManifestEndpointsViewModel;
 }
 
+/**
+ * How one request leaves the machine. `system` follows the operating
+ * system's proxy configuration; `custom` uses the stored proxy URL.
+ */
+export type ProxyRoute = "direct" | "system" | "custom";
+
+/** Proxy policy split by provider region. */
+export interface ProxyRouting {
+  domestic: ProxyRoute;
+  international: ProxyRoute;
+}
+
 export interface DashboardBridge {
   listAccounts(): Promise<AccountViewModel[]>;
   createAccount(input: GenericOpenAiAccountInput): Promise<AccountViewModel>;
@@ -483,8 +495,12 @@ export interface DashboardBridge {
   usageWindows(accountId?: string): Promise<UsageWindowsViewModel>;
   /** The configured proxy URL, or null for a direct connection. */
   getProxy(): Promise<string | null>;
-  /** Stores (or, with null, clears) the proxy URL; applies after restart. */
+  /** Stores (or, with null, clears) the proxy URL; applies immediately. */
   setProxy(url: string | null): Promise<void>;
+  /** Per-region proxy routing (domestic vs. international providers). */
+  getProxyRouting(): Promise<ProxyRouting>;
+  /** Persists and applies the routing policy immediately. */
+  setProxyRouting(routing: ProxyRouting): Promise<ProxyRouting>;
   /** Whether the user last collapsed the dashboard's bottom dock. */
   getDockCollapsed(): Promise<boolean>;
   /** Persists the dock's collapsed state for the next launch. */

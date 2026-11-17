@@ -138,6 +138,8 @@ function makeBridge(summary: HistorySummaryViewModel): DashboardBridge {
     lanTrustList: vi.fn(async () => []),
     lanTrustAdd: vi.fn(async () => undefined),
     lanTrustRemove: vi.fn(async () => undefined),
+    getProxyRouting: async () => ({ domestic: "direct", international: "system" } as const),
+    setProxyRouting: async (routing) => routing,
     setProxy: vi.fn(async () => undefined),
     getDockCollapsed: vi.fn(async () => false),
     setDockCollapsed: vi.fn(async () => undefined),

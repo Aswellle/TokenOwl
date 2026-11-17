@@ -499,6 +499,23 @@ button:disabled {
   border-color: transparent;
 }
 
+/* Secondary, form-submitting actions (save a proxy, validate a backup)
+   must read as controls, not as body text: a quiet button on a card is
+   indistinguishable from a label. */
+.btn--outline {
+  min-height: 32px;
+  padding: 0 12px;
+  border-color: var(--hairline-strong);
+  background: var(--surface);
+  color: var(--ink);
+  font-weight: 500;
+}
+
+.btn--outline:hover:not(:disabled) {
+  background: var(--surface-hover);
+  border-color: var(--ink-3);
+}
+
 .btn--accent-outline {
   min-height: 30px;
   padding: 0 12px;
@@ -1998,7 +2015,11 @@ button:disabled {
 .notif-settings__body {
   display: grid;
   gap: 16px;
-  padding-top: 12px;
+  margin-top: 10px;
+  padding: 2px 14px 12px;
+  border: 1px solid var(--hairline);
+  border-radius: 12px;
+  background: var(--surface);
 }
 
 .notif-settings__fields {
@@ -2022,12 +2043,22 @@ button:disabled {
   display: grid;
   gap: 0;
   min-width: 0;
+  margin-top: 14px;
+}
+
+/* A group is a section, not a row: more space above it than inside it, and a
+   heading a step larger than the row labels it introduces. */
+.settings-group + .settings-group {
+  margin-top: 4px;
+  padding-top: 14px;
+  border-top: 1px solid var(--hairline);
 }
 
 .settings-group__title {
   margin: 0;
-  font-size: var(--step-1);
+  font-size: var(--step-2);
   font-weight: 600;
+  letter-spacing: -0.005em;
   color: var(--ink);
 }
 

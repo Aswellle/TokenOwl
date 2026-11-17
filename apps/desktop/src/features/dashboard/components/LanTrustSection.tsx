@@ -39,7 +39,7 @@ export function LanTrustSection({ bridge }: { bridge: DashboardBridge }) {
   };
 
   return (
-    <section className="section settings-card" aria-labelledby="lan-trust-title">
+    <section className="section settings-card lan-trust" aria-labelledby="lan-trust-title">
       <div className="settings-card__head">
         <h2 className="settings-card__title" id="lan-trust-title">
           {copy.lanTrust.title}

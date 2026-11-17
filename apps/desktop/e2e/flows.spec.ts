@@ -119,19 +119,19 @@ test.describe("local usage opt-in", () => {
 test.describe("proxy setting", () => {
   test("saves, rejects an invalid URL, and clears to direct", async ({ page }) => {
     await openSettings(page, "?scenario=proxy-set");
-    const input = page.getByRole("textbox", { name: "网络代理" });
+    const input = page.getByRole("textbox", { name: "代理地址" });
     await expect(input).toHaveValue("http://127.0.0.1:7890");
-    await page.getByRole("button", { name: "保存代理设置" }).click();
+    await page.getByRole("button", { name: "保存代理地址" }).click();
     await expect(page.locator(".proxy").getByRole("status")).toContainText(
-      "已保存，重启应用后生效",
+      "已保存，立即生效",
     );
 
     await input.fill("not-a-url");
-    await page.getByRole("button", { name: "保存代理设置" }).click();
+    await page.getByRole("button", { name: "保存代理地址" }).click();
     await expect(page.locator(".proxy").getByRole("status")).toContainText("代理地址无效");
 
     await input.fill("");
-    await page.getByRole("button", { name: "保存代理设置" }).click();
+    await page.getByRole("button", { name: "保存代理地址" }).click();
     await expect(page.locator(".proxy").getByRole("status")).toContainText("已清除代理");
   });
 });

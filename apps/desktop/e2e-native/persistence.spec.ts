@@ -29,9 +29,9 @@ test("refresh, dock, notification, and masked proxy preferences survive a restar
     await adaptive.click();
     await expect(adaptive).toBeChecked();
 
-    const proxy = page.getByRole("textbox", { name: "网络代理" });
+    const proxy = page.getByRole("textbox", { name: "代理地址" });
     await proxy.fill(`http://user:${PROXY_PASSWORD}@127.0.0.1:7890`);
-    await page.getByRole("button", { name: "保存代理设置" }).click();
+    await page.getByRole("button", { name: "保存代理地址" }).click();
     await expect(
       page.locator(".proxy").getByRole("status"),
     ).toContainText("已保存，重启应用后生效");
@@ -40,7 +40,7 @@ test("refresh, dock, notification, and masked proxy preferences survive a restar
     // the password segment; the real value never re-enters the webview.
     await page.getByRole("button", { name: "概览", exact: true }).click();
     await openSettings(page);
-    const proxyInput = page.getByRole("textbox", { name: "网络代理" });
+    const proxyInput = page.getByRole("textbox", { name: "代理地址" });
     await expect(proxyInput).toHaveValue(/^http:\/\/user:/, { timeout: 10_000 });
     const masked = await proxyInput.inputValue();
     expect(masked).toMatch(/^http:\/\/user:.+@127\.0\.0\.1:7890$/);
@@ -76,7 +76,7 @@ test("refresh, dock, notification, and masked proxy preferences survive a restar
     await openSettings(page);
     await expect(page.getByLabel("刷新间隔上限")).toHaveValue("10");
     await expect(page.getByRole("checkbox", { name: /按消耗速度自动调整/ })).toBeChecked();
-    await expect(page.getByRole("textbox", { name: "网络代理" })).toHaveValue(masked);
+    await expect(page.getByRole("textbox", { name: "代理地址" })).toHaveValue(masked);
 
     await openNotifications(page);
     await expect(page.locator("details.notif-settings summary")).toContainText("已停用");

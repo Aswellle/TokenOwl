@@ -158,7 +158,7 @@ export function ProxySection({ bridge }: { bridge: DashboardBridge }) {
   );
 
   return (
-    <section className="section settings-card" aria-labelledby="proxy-title">
+    <section className="section settings-card proxy" aria-labelledby="proxy-title">
       <div className="settings-card__head">
         <h2 className="settings-card__title" id="proxy-title">
           {copy.proxy.title}
@@ -211,7 +211,7 @@ export function ProxySection({ bridge }: { bridge: DashboardBridge }) {
         </div>
         <div className="proxy__actions">
           <button
-            className="btn btn--quiet"
+            className="btn btn--outline"
             type="button"
             onClick={() => void saveUrl()}
             disabled={busy}

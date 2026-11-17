@@ -182,7 +182,7 @@ export function BackupSection({
   };
 
   return (
-    <section className="section settings-card" aria-labelledby="backup-title">
+    <section className="section settings-card backup-section" aria-labelledby="backup-title">
       <div className="settings-card__head">
         <h2 className="settings-card__title" id="backup-title">
           {copy.backup.title}
@@ -229,7 +229,7 @@ export function BackupSection({
               ))}
             </ul>
             <button
-              className="btn btn--quiet"
+              className="btn btn--outline"
               type="button"
               onClick={() => void exportConfig()}
               disabled={exporting || selected.size === 0}
@@ -272,7 +272,7 @@ export function BackupSection({
           />
         </div>
         <button
-          className="btn btn--quiet"
+          className="btn btn--outline"
           type="button"
           onClick={() => void checkPayload()}
           disabled={previewing || payload.trim().length === 0}

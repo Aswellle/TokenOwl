@@ -58,7 +58,7 @@ export function RefreshSection({ bridge }: { bridge: DashboardBridge }) {
   };
 
   return (
-    <section className="section settings-card" aria-labelledby="refresh-settings-title">
+    <section className="section settings-card refresh-settings" aria-labelledby="refresh-settings-title">
       <div className="settings-card__head">
         <h2 className="settings-card__title" id="refresh-settings-title">
           {copy.refreshSettings.title}

@@ -293,6 +293,8 @@ F16 压力提示 `未上报窗口额度`。新增 e2e `?scenario=balance-only`�
 | 本地用量 | Claude Code + Codex fixture、opt-in 门禁、cursor 续扫、重复扫描零新增、清除/禁用、提示词不落库 | e2e-native/local-usage.spec.ts |
 | 社区清单 | 有效包加载/创建、映射 usage、reset 端点真实请求、无效包列入 skipped、离线 playground 正反例 | e2e-native/community.spec.ts |
 | 重启持久化 | 刷新节奏/自适应、dock 折叠、通知静音、代理 URL 跨进程保留；代理密码读回掩码且不落盘 | e2e-native/persistence.spec.ts |
+| 代理分流 | 国内供应商直连、国际供应商走代理的传输级断言（代理收到绝对 URI、直连不经过代理）；适配器按账户 region 选路；切换策略后下一次请求即生效；非法/缺失策略回退到安全默认 | tests/proxy_transport.rs、commands::settings |
+| 设置自动保存 | 通知数值项聚焦后离开且未改动 → 不写库、不显示“已保存”；清空本已为空的余额下限视为未改动；越界值原地报错且不写库 | src/test/NotificationSection.test.tsx |
 | 原生窗口 | 56×56 逻辑 tool window、DPI 感知 Win32 矩形/exStyle、双环读数、面板↔Bubble 双向交接 | e2e-native/window-bubble.spec.ts |
 | 可访问性 | 四个已填充视图的 landmark/标题层级/按钮名/控件标签/重复 id/24px 目标/不透底背景对比度；焦点环、LAN 对话框 Tab 陷阱、560×480 与宽窗 reflow | e2e-native/accessibility.spec.ts |
 | 视觉取证 | 概览/供应商详情/设置/诊断/历史/通知/Bubble 截图 | e2e-native/visual.spec.ts |

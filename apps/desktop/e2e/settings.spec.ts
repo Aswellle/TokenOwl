@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 
 /**
- * Setup form, provider picker, LAN consent, capability matrix and updater
+ * Setup form, provider picker, LAN consent and updater
  * surfaces. These are the paths that write state, so every failure branch is
  * exercised against the mock's scenario switches as well as the happy path.
  */
@@ -281,36 +281,6 @@ test.describe("account creation", () => {
     });
     await expect(page.getByRole("status")).toContainText("broken.yaml");
     await expect(page.getByRole("status")).toContainText("old-pack.yaml");
-  });
-});
-
-test.describe("capability matrix", () => {
-  test("is collapsed by default, counts real rows, and marks planned providers", async ({
-    page,
-  }) => {
-    await openSettings(page);
-    const disclosure = page.locator(".matrix__disclosure");
-    await expect(disclosure).not.toHaveAttribute("open", "");
-    await disclosure.locator("summary").click();
-    await expect(disclosure).toHaveAttribute("open", "");
-    await expect(page.locator(".matrix__row")).toHaveCount(14);
-    await expect(page.locator(".matrix__row--planned").first()).toContainText("规划中 · P0");
-    // First row is OpenAI at its corrected honest level.
-    await expect(page.locator(".matrix__row").first()).toContainText("L2 · 健康/模型");
-    await expect(page.locator(".matrix__row").first()).toContainText("契约测试覆盖");
-  });
-  test("a failed matrix read is reported instead of claiming zero providers", async ({
-    page,
-  }) => {
-    await openSettings(page, "?scenario=matrix-fail");
-    const disclosure = page.locator(".matrix__disclosure");
-    await expect(disclosure.locator(".matrix__summary-count")).toHaveText("读取失败", {
-      timeout: 15_000,
-    });
-    await disclosure.locator("summary").click();
-    await expect(disclosure).toContainText("供应商能力矩阵暂时无法读取");
-    await expect(disclosure.getByRole("button", { name: "重试" })).toBeVisible();
-    await expect(page.locator(".matrix__row")).toHaveCount(0);
   });
 });
 

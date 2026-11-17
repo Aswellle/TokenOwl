@@ -27,9 +27,7 @@ import { NotificationSection } from "./components/NotificationSection";
 import { HistorySection } from "./components/HistorySection";
 import { LocalUsageSection } from "./components/LocalUsageSection";
 import { ProviderView } from "./components/ProviderView";
-import { ProviderMatrix } from "./components/ProviderMatrix";
 import { RefreshSection } from "./components/RefreshSection";
-import { ManifestPlayground } from "./components/ManifestPlayground";
 import { BackupSection } from "./components/BackupSection";
 import { DiagnosticsSection } from "./components/DiagnosticsSection";
 import { SetupForm } from "./components/SetupForm";
@@ -677,9 +675,7 @@ export function App({ bridge = tauriBridge }: AppProps = {}) {
                   onImported={() => void loadAccounts()}
                 />
                 <RefreshSection bridge={bridge} />
-                <ManifestPlayground bridge={bridge} />
                 <DiagnosticsSection bridge={bridge} />
-                <ProviderMatrix bridge={bridge} />
                 <LanTrustSection bridge={bridge} />
                 <ProxySection bridge={bridge} />
                 {/* The check lives at the bottom of a long page, so the result

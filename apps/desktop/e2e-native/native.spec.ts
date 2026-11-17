@@ -46,12 +46,6 @@ test.describe("native shell", () => {
     // Anthropic each hide a second platform variant behind the ellipsis).
     expect(profiles).toBe(27);
 
-    const capabilities = page.locator("details.matrix__disclosure");
-    await capabilities.locator("summary").click();
-    await expect(page.locator(".matrix__row").first()).toBeVisible();
-    const rows = await page.locator(".matrix__row").count();
-    expect(rows).toBe(32);
-    await expect(page.locator(".matrix__row").first()).toContainText("契约测试覆盖");
   });
 
   test("a debug build reports the updater as unavailable instead of heartbeating releases", async () => {

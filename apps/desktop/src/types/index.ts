@@ -330,35 +330,6 @@ export interface HistoryDayBreakdownViewModel {
 }
 
 /** Setup profiles plus the community packs that failed validation. */
-export interface PlaygroundMetricViewModel {
-  metricId?: string | null;
-  metricName?: string | null;
-  unit?: string | null;
-  currency?: string | null;
-  used?: number | null;
-  limit?: number | null;
-  remaining?: number | null;
-  status: "available" | "partial" | "unavailable" | "error";
-}
-
-export interface ManifestPlaygroundInput {
-  manifestYaml: string;
-  endpoint: "models" | "quota" | "usage" | "balance" | "reset";
-  sampleBody: string;
-}
-
-export interface ManifestPlaygroundViewModel {
-  valid: boolean;
-  errors: string[];
-  warnings: string[];
-  schemaVersion?: number | null;
-  id?: string | null;
-  capabilityLevel?: string | null;
-  declaredEndpoints: string[];
-  metrics: PlaygroundMetricViewModel[];
-  reset?: { resetAt: string; windowId?: string | null } | null;
-}
-
 export interface CommunityPackViewModel {
   id: string;
   name: string;
@@ -491,7 +462,6 @@ export interface DashboardBridge {
   providerMatrix(): Promise<ProviderMatrixRowViewModel[]>;
   manifestProfiles(): Promise<ManifestProfilesViewModel>;
   /** Validates a pasted manifest and runs its mappings on a local sample. */
-  manifestPlayground(input: ManifestPlaygroundInput): Promise<ManifestPlaygroundViewModel>;
   usageWindows(accountId?: string): Promise<UsageWindowsViewModel>;
   /** The configured proxy URL, or null for a direct connection. */
   getProxy(): Promise<string | null>;

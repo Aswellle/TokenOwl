@@ -60,18 +60,6 @@ test.describe("TokenOwl dashboard smoke", () => {
 });
 
 test.describe("settings view (phase-C UI)", () => {
-  test("capability matrix is collapsed by default and expands on click", async ({ page }) => {
-    await page.goto("/");
-    await page.getByRole("button", { name: "设置", exact: true }).click();
-    const disclosure = page.locator(".matrix__disclosure");
-    await expect(disclosure).toBeVisible();
-    // Collapsed by default: reference material stays out of the way.
-    await expect(disclosure).not.toHaveAttribute("open", "");
-    await disclosure.locator("summary").click();
-    await expect(disclosure).toHaveAttribute("open", "");
-    await expect(page.locator(".matrix__row").first()).toBeVisible();
-  });
-
   test("the anthropic brand collapses its format variants behind the ellipsis", async ({ page }) => {
     await page.goto("/");
     await page.getByRole("button", { name: "设置", exact: true }).click();
